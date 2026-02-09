@@ -69,7 +69,7 @@ except:
                     "card": {
                         "config": { "wide_screen_mode": true },
                         "header": {
-                            "title": { "tag": "plain_text", "content": "🔔 RAID_NVME 测试提醒 - #${env.BUILD_NUMBER}" },
+                            "title": { "tag": "plain_text", "content": "🔔 CI Robot - #${env.BUILD_NUMBER}" },
                             "template": "${statusColor}"
                         },
                         "elements": [
