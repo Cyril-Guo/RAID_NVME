@@ -5,9 +5,9 @@ import logging
 # 配置测试目标和模式
 DEVICES = ["nvme0n1", "nvme1n1", "nvme8n1"]
 TEST_MODES = [
-    ("顺序读", "read"),
-    ("顺序写", "write"),
-    ("随机读", "randread"),
+    #("顺序读", "read"),
+    #("顺序写", "write"),
+    #("随机读", "randread"),
     ("随机写", "randwrite")
 ]
 
