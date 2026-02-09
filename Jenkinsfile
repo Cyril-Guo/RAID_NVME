@@ -4,7 +4,7 @@ pipeline {
 
     environment {
         // 【配置项】请在此处填入你飞书群机器人的 Webhook 地址
-        FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/你的TOKEN'
+        FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/17fe4cfd-5e49-4ceb-b8c4-f002d74340ee'
     }
 
     stages {
