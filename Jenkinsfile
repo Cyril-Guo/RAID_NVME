@@ -1,81 +1,83 @@
 pipeline {
-    // 在 Jenkins 环境下运行
     agent any
-
     environment {
-        // 【配置项】请在此处填入你飞书群机器人的 Webhook 地址
         FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/17fe4cfd-5e49-4ceb-b8c4-f002d74340ee'
     }
 
     stages {
         stage('Checkout') {
             steps {
-                // 此处 Jenkins 会自动从 git@github.com:Cyril-Guo/RAID_NVME.git 拉取代码
                 echo '正在拉取代码...'
             }
         }
-
-        stage('Install Dependencies') {
+        stage('Install') {
             steps {
-                // 安装项目所需的 Python 依赖
                 sh 'pip install -r requirements.txt'
             }
         }
-
         stage('Run Tests') {
             steps {
-                // 运行 Pytest：生成 Allure 数据、JUnit XML 报告，并将控制台完整输出记录到日志文件
-                // 增加 "|| true" 确保测试失败时流水线不立即中断，以便执行 post 中的报告生成和通知
-                sh 'pytest --alluredir=./allure-results --junitxml=report.xml > test_execution.log 2>&1 || true'
+                // 暂时不重定向日志，以便在控制台确认 Pytest 是否发现用例
+                // 如果你的测试文件在特定目录，请在此处加上目录名，例如 pytest tests/ ...
+                sh 'pytest --alluredir=./allure-results --junitxml=report.xml || true'
             }
         }
     }
 
     post {
         always {
-            // 发布 JUnit 结果
             junit 'report.xml'
-
-            // 生成 Allure HTML 测试报告
             allure includeProperties: false, jdk: '', results: [[path: 'allure-results']]
-
-            // 归档测试日志，方便开发负责人直接下载
-            archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
-
+            
             script {
-                // 1. 使用 Python 解析 XML 报告中的核心指标
-                def total = sh(script: "python3 -c \"import xml.etree.ElementTree as ET; tree = ET.parse('report.xml'); root = tree.getroot(); print(root.attrib.get('tests', 0))\"", returnStdout: true).trim()
-                def failed = sh(script: "python3 -c \"import xml.etree.ElementTree as ET; tree = ET.parse('report.xml'); root = tree.getroot(); print(root.attrib.get('failures', 0))\"", returnStdout: true).trim()
-                def errors = sh(script: "python3 -c \"import xml.etree.ElementTree as ET; tree = ET.parse('report.xml'); root = tree.getroot(); print(root.attrib.get('errors', 0))\"", returnStdout: true).trim()
-                def skipped = sh(script: "python3 -c \"import xml.etree.ElementTree as ET; tree = ET.parse('report.xml'); root = tree.getroot(); print(root.attrib.get('skipped', 0))\"", returnStdout: true).trim()
+                // 使用更强大的 Python 脚本解析 XML，确保能拿到嵌套的统计数据
+                def getMetric = { attr ->
+                    return sh(script: """
+                        python3 -c "
+import xml.etree.ElementTree as ET
+try:
+    tree = ET.parse('report.xml')
+    root = tree.getroot()
+    # 优先从根节点获取，如果没有则遍历子节点求和
+    val = root.attrib.get('$attr')
+    if val is None:
+        val = sum(int(node.get('$attr', 0)) for node in root.findall('.//testsuite'))
+    print(val)
+except:
+    print(0)
+"
+                    """, returnStdout: true).trim()
+                }
+
+                def total = getMetric('tests')
+                def failed = getMetric('failures')
+                def skipped = getMetric('skipped')
+                def errors = getMetric('errors')
                 
-                // 计算通过数和通过率
-                int t = total.toInteger()
-                int f = failed.toInteger()
-                int e = errors.toInteger()
-                int s = skipped.toInteger()
-                int passed = t - f - e - s
-                def passRate = t > 0 ? String.format("%.1f%%", (passed / (double)t) * 100) : "0%"
+                // 计算通过率
+                def passRate = "0%"
+                if (total.toInteger() > 0) {
+                    def passed = total.toInteger() - failed.toInteger() - errors.toInteger() - skipped.toInteger()
+                    passRate = String.format("%.1f%%", (passed / total.toDouble()) * 100)
+                }
 
-                // 2. 根据是否有失败来决定卡片颜色（蓝色代表成功，红色代表有错误）
-                def colorTemplate = (f + e == 0) ? "blue" : "red"
+                def statusColor = (failed.toInteger() + errors.toInteger() == 0 && total.toInteger() > 0) ? "blue" : "red"
 
-                // 3. 构造飞书交互式卡片 JSON 载荷
                 def payload = """
                 {
                     "msg_type": "interactive",
                     "card": {
                         "config": { "wide_screen_mode": true },
                         "header": {
-                            "title": { "tag": "plain_text", "content": "🔔 RAID_NVME 自动化测试提醒 - #${env.BUILD_NUMBER}" },
-                            "template": "${colorTemplate}"
+                            "title": { "tag": "plain_text", "content": "🔔 RAID_NVME 测试提醒 - #${env.BUILD_NUMBER}" },
+                            "template": "${statusColor}"
                         },
                         "elements": [
                             {
                                 "tag": "div",
                                 "fields": [
                                     { "is_short": true, "text": { "tag": "lark_md", "content": "**构建分支：**\\n${env.BRANCH_NAME ?: 'dev'}" } },
-                                    { "is_short": true, "text": { "tag": "lark_md", "content": "**测试统计：**\\n总数: ${total} | 失败: ${f} | 跳过: ${s}" } },
+                                    { "is_short": true, "text": { "tag": "lark_md", "content": "**测试统计：**\\n总数: ${total} | 失败: ${failed} | 跳过: ${skipped}" } },
                                     { "is_short": true, "text": { "tag": "lark_md", "content": "**通过率：**\\n${passRate}" } }
                                 ]
                             },
@@ -84,7 +86,7 @@ pipeline {
                                 "actions": [
                                     {
                                         "tag": "button",
-                                        "text": { "tag": "plain_text", "content": "Jenkins 详情 (Allure)" },
+                                        "text": { "tag": "plain_text", "content": "查看详情报告" },
                                         "url": "${env.BUILD_URL}allure/",
                                         "type": "primary"
                                     }
@@ -94,8 +96,6 @@ pipeline {
                     }
                 }
                 """
-                
-                // 4. 通过 curl 发送卡片到飞书
                 sh "curl -X POST -H 'Content-Type: application/json' -d '${payload}' ${env.FEISHU_WEBHOOK}"
             }
         }
