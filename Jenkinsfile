@@ -2,31 +2,23 @@ pipeline {
     agent any
 
     environment {
-        // 【配置项】飞书机器人 Webhook 地址
         FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/17fe4cfd-5e49-4ceb-b8c4-f002d74340ee'
     }
 
     stages {
         stage('Clean & Checkout') {
             steps {
-                // 清理工作空间并重新拉取代码，确保 requirements.txt 等文件存在
                 cleanWs()
                 checkout scm 
-                echo '工作空间已清理并重新拉取最新代码'
             }
         }
-
         stage('Install Dependencies') {
             steps {
-                // 安装 Python 依赖
                 sh 'pip install -r requirements.txt'
             }
         }
-
         stage('Run FIO Tests') {
             steps {
-                // 使用 sudo 执行以获得 NVMe 设备权限
-                // 建议在 test_fio.py 中为 fio 添加 --size=1G 以修复 nvme8n1 报错
                 sh '''
                 sudo pytest test_fio.py --alluredir=./allure-results --junitxml=report.xml \
                 -o log_cli=true -o log_cli_level=INFO \
@@ -39,21 +31,12 @@ pipeline {
     post {
         always {
             script {
-                // 1. 权限归还：将 root 生成的文件所有权交还给 jenkins 用户
                 sh 'sudo chown -R jenkins:jenkins . || true'
-                
-                // 2. 【核心改进】：允许测试报告为空，防止找不到文件时中止后续飞书通知
                 junit testResults: 'report.xml', allowEmptyResults: true 
-                
-                // 3. 发布 Allure 报告与日志归档
                 allure includeProperties: false, jdk: '', results: [[path: 'allure-results']]
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
 
-                // 4. 获取时间戳与测试指标
-                def startStr = new Date(currentBuild.startTimeInMillis).format("yyyy-MM-dd HH:mm:ss")
-                def endStr = new Date().format("yyyy-MM-dd HH:mm:ss")
-
-                // 安全地解析 XML，如果文件不存在则返回 0
+                // 1. 获取各项测试指标
                 def getMetric = { attr ->
                     def exists = sh(script: "[ -f report.xml ] && echo 'yes' || echo 'no'", returnStdout: true).trim()
                     if (exists == 'no') return "0"
@@ -62,11 +45,21 @@ pipeline {
                     """, returnStdout: true).trim()
                 }
 
-                def total = getMetric('tests')
-                def failed = getMetric('failures')
-                def statusColor = (failed == '0' && total != '0') ? "blue" : "red"
+                def total = getMetric('tests').toInteger()
+                def failed = getMetric('failures').toInteger()
+                def errors = getMetric('errors').toInteger()
+                def skipped = getMetric('skipped').toInteger()
+                
+                // 2. 计算执行率和通过率
+                def passed = total - failed - errors - skipped
+                def execRate = total > 0 ? String.format("%.2f%%", ((total - skipped) / (double)total) * 100) : "0%"
+                def passRate = total > 0 ? String.format("%.1f%%", (passed / (double)total) * 100) : "0%"
 
-                // 5. 构造并发送飞书交互式卡片
+                def startStr = new Date(currentBuild.startTimeInMillis).format("yyyy-MM-dd HH:mm:ss")
+                def endStr = new Date().format("yyyy-MM-dd HH:mm:ss")
+                def statusColor = (failed + errors == 0 && total != 0) ? "blue" : "red"
+
+                // 3. 构造更新后的飞书卡片
                 def payload = """
                 {
                     "msg_type": "interactive",
@@ -81,15 +74,25 @@ pipeline {
                                 "tag": "div",
                                 "fields": [
                                     { "is_short": true, "text": { "tag": "lark_md", "content": "**开始时间：**\\n${startStr}" } },
-                                    { "is_short": true, "text": { "tag": "lark_md", "content": "**结束时间：**\\n${endStr}" } },
-                                    { "is_short": true, "text": { "tag": "lark_md", "content": "**测试统计：**\\n总数: ${total} | 失败: ${failed}" } },
-                                    { "is_short": true, "text": { "tag": "lark_md", "content": "**构建分支：**\\ndev" } }
+                                    { "is_short": true, "text": { "tag": "lark_md", "content": "**结束时间：**\\n${endStr}" } }
                                 ]
+                            },
+                            {
+                                "tag": "div",
+                                "text": {
+                                    "tag": "lark_md", 
+                                    "content": "✔️ **${passed}** ❌ **${failed}** ⛔ **${errors}** Total: **${total}**\\n执行率：${execRate}    通过率：<font color='${statusColor == 'blue' ? 'green' : 'red'}'>${passRate}</font>"
+                                }
                             },
                             {
                                 "tag": "action",
                                 "actions": [
-                                    { "tag": "button", "text": { "tag": "plain_text", "content": "查看 Allure 详情报告" }, "url": "${env.BUILD_URL}allure/", "type": "primary" }
+                                    {
+                                        "tag": "button",
+                                        "text": { "tag": "plain_text", "content": "查看详情" },
+                                        "url": "${env.BUILD_URL}allure/",
+                                        "type": "primary"
+                                    }
                                 ]
                             }
                         ]
