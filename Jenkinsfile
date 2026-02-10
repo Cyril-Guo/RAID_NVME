@@ -55,6 +55,13 @@ pipeline {
                     results: [[path: 'allure-results']]
                 )
 
+                // ===== 自动替换 Suites -> 测试日志（每次构建生效）=====
+                sh '''
+                if [ -d "allure-report" ]; then
+                  grep -RIl "Suites" allure-report | xargs sed -i 's/Suites/测试日志/g' || true
+                fi
+                '''
+
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
 
                 def getMetric = { attr ->
