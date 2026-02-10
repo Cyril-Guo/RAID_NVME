@@ -38,42 +38,61 @@ pipeline {
                 sh '''
                 mkdir -p allure-results
 
-                # ---------- custom.css ----------
+                # ---------------- custom.css ----------------
+                # 当前 Allure UI 结构下，隐藏类别主要依赖 JS
                 cat > allure-results/custom.css << 'EOF'
-/* =========================================
-   Hide Categories (Jenkins + Allure safe)
-   ========================================= */
-
-/* 左侧菜单：Categories / 类别 */
-.side-menu__item[data-id="categories"],
-.side-menu__item[data-id="category"] {
-  display: none !important;
-}
-
-/* Overview 页面 Categories / Product defects 卡片 */
-.widget:has(.widget__title:contains("Categories")),
-.widget:has(.widget__title:contains("类别")),
-.widget:has(.widget__title:contains("Product defects")) {
-  display: none !important;
-}
+/* reserved */
 EOF
 
-                # ---------- custom.js ----------
+                # ---------------- custom.js ----------------
                 cat > allure-results/custom.js << 'EOF'
-/*
- * Runtime UI patch for Allure Report
- * 1. 测试套 -> 测试日志
- */
 document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('*').forEach(el => {
-    if (
-      el.childNodes.length === 1 &&
-      el.innerText &&
-      el.innerText.trim() === '测试套'
-    ) {
-      el.innerText = '测试日志';
+
+  /* =====================================================
+   * 1. 隐藏“类别”模块
+   *    - 左侧菜单“类别”
+   *    - Overview 页面“类别 总共X项 / Product defects”
+   * ===================================================== */
+
+  // 左侧菜单：文本精确等于“类别”
+  document.querySelectorAll('li, a, div, span').forEach(el => {
+    if (el.textContent && el.textContent.trim() === '类别') {
+      const item =
+        el.closest('li') ||
+        el.closest('a') ||
+        el.parentElement;
+      if (item) {
+        item.style.display = 'none';
+      }
     }
   });
+
+  // Overview 页面：标题以“类别”开头的整个 widget
+  document.querySelectorAll('.widget').forEach(widget => {
+    const title = widget.querySelector('.widget__title');
+    if (title && title.textContent.trim().startsWith('类别')) {
+      widget.style.display = 'none';
+    }
+  });
+
+  /* =====================================================
+   * 2. “测试套” → “测试日志”
+   *    - 左侧菜单
+   *    - Overview 标题
+   *    - 测试套列表标题
+   * ===================================================== */
+
+  document.querySelectorAll('*').forEach(el => {
+    if (el.childNodes.length === 1 && el.textContent) {
+      const text = el.textContent.trim();
+      if (text === '测试套') {
+        el.textContent = '测试日志';
+      } else if (text.startsWith('测试套')) {
+        el.textContent = text.replace('测试套', '测试日志');
+      }
+    }
+  });
+
 });
 EOF
                 '''
