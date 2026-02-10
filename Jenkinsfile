@@ -51,10 +51,13 @@ pipeline {
         always {
             script {
 
+                // ========= 权限修正 =========
                 sh 'sudo chown -R jenkins:jenkins . || true'
+
+                // ========= JUnit =========
                 junit testResults: 'report.xml', allowEmptyResults: true
 
-                // ===== 生成 Allure 报告 =====
+                // ========= 生成 Allure 报告 =========
                 allure(
                     includeProperties: true,
                     jdk: '',
@@ -62,72 +65,108 @@ pipeline {
                     results: [[path: 'allure-results']]
                 )
 
-                // =========================================================
-                // ✅ 每次 build 后自动注入 Allure UI Patch（核心）
-                // =========================================================
+                // =====================================================
+                // 🔥 核心：每次 build 后自动 Patch Allure UI
+                // =====================================================
                 sh '''
-                set -e
+                set +e
 
                 REPORT_DIR="$JENKINS_HOME/jobs/$JOB_NAME/builds/$BUILD_NUMBER/allure-report"
                 APP_JS="$REPORT_DIR/app.js"
 
                 if [ -f "$APP_JS" ]; then
-                    echo "[INFO] Inject Allure UI Patch: $APP_JS"
+                    echo "[INFO] Patching Allure UI: $APP_JS"
 
-                    if ! grep -q "ALLURE_FORCE_UI_PATCH" "$APP_JS"; then
-                        cat << 'EOF' >> "$APP_JS"
+                    cp "$APP_JS" "$APP_JS.bak"
 
-/* ================= ALLURE_FORCE_UI_PATCH ================= */
-(function () {
+                    # 1️⃣ Suites → 测试日志
+                    sed -i \
+                      -e 's/Suites/测试日志/g' \
+                      -e 's/test.suites.name/测试日志/g' \
+                      -e 's/tab.suites.name/测试日志/g' \
+                      "$APP_JS"
 
-  function patch() {
-    // Suites -> 测试日志
-    document.querySelectorAll('a, span, div').forEach(el => {
-      if (el.textContent && el.textContent.trim() === 'Suites') {
-        el.textContent = '测试日志';
-      }
-    });
+                    # 2️⃣ 禁用 Categories（类别）Tab
+                    sed -i \
+                      -e '/addTab("categories"/,/});/d' \
+                      "$APP_JS"
 
-    // 隐藏 Categories 左侧菜单
-    document.querySelectorAll('a[href*="categories"]').forEach(el => {
-      el.style.display = 'none';
-    });
-
-    // 隐藏 Overview 中 Categories 卡片
-    document.querySelectorAll('.widget').forEach(w => {
-      const title = w.querySelector('.widget__title');
-      if (title && /Categories|类别/.test(title.textContent)) {
-        w.style.display = 'none';
-      }
-    });
-  }
-
-  // 初次执行
-  patch();
-
-  // DOM 变化监听（防止回退）
-  const observer = new MutationObserver(() => {
-    patch();
-  });
-
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true
-  });
-
-})();
- /* ================= END ALLURE_FORCE_UI_PATCH ================= */
-
-EOF
-                    else
-                        echo "[INFO] UI patch already exists, skip"
-                    fi
                 else
                     echo "[WARN] app.js not found, skip UI patch"
                 fi
                 '''
 
+                // ========= 归档 =========
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
+
+                // ========= 统计指标 =========
+                def getMetric = { attr ->
+                    def exists = sh(script: "[ -f report.xml ] && echo yes || echo no", returnStdout: true).trim()
+                    if (exists == 'no') return "0"
+                    return sh(script: """
+                        python3 - << 'EOF'
+import xml.etree.ElementTree as ET
+t = ET.parse('report.xml').getroot()
+print(t.attrib.get('${attr}') or sum(int(s.get('${attr}',0)) for s in t.findall('.//testsuite')))
+EOF
+                    """, returnStdout: true).trim()
+                }
+
+                def total   = getMetric('tests').toInteger()
+                def failed  = getMetric('failures').toInteger()
+                def errors  = getMetric('errors').toInteger()
+                def skipped = getMetric('skipped').toInteger()
+
+                def passed   = total - failed - errors - skipped
+                def execRate = total > 0 ? String.format("%.2f%%", ((total - skipped) / (double) total) * 100) : "0%"
+                def passRate = total > 0 ? String.format("%.1f%%", (passed / (double) total) * 100) : "0%"
+
+                def startStr = new Date(currentBuild.startTimeInMillis).format("yyyy-MM-dd HH:mm:ss")
+                def endStr   = new Date().format("yyyy-MM-dd HH:mm:ss")
+                def statusColor = (failed + errors == 0 && total > 0) ? "blue" : "red"
+
+                // ========= 飞书通知（稳定版） =========
+                def payload = """
+                {
+                  "msg_type": "interactive",
+                  "card": {
+                    "config": { "wide_screen_mode": true },
+                    "header": {
+                      "title": { "tag": "plain_text", "content": "📊 RAID_NVME 测试报告 - #${env.BUILD_NUMBER}" },
+                      "template": "${statusColor}"
+                    },
+                    "elements": [
+                      {
+                        "tag": "div",
+                        "fields": [
+                          { "is_short": true, "text": { "tag": "lark_md", "content": "**开始时间：**\\n${startStr}" } },
+                          { "is_short": true, "text": { "tag": "lark_md", "content": "**结束时间：**\\n${endStr}" } }
+                        ]
+                      },
+                      {
+                        "tag": "div",
+                        "text": {
+                          "tag": "lark_md",
+                          "content": "✔️ **${passed}** ❌ **${failed}** ⛔ **${errors}** Total: **${total}**\\n执行率：${execRate}    通过率：${passRate}"
+                        }
+                      },
+                      {
+                        "tag": "action",
+                        "actions": [
+                          {
+                            "tag": "button",
+                            "text": { "tag": "plain_text", "content": "查看详情" },
+                            "url": "${env.BUILD_URL}allure/",
+                            "type": "primary"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                }
+                """
+
+                sh "curl -s -X POST -H 'Content-Type: application/json' -d '${payload}' ${env.FEISHU_WEBHOOK}"
             }
         }
     }
