@@ -32,45 +32,29 @@ pipeline {
             }
         }
 
-        stage('Prepare Allure UI Patch (CSS + JS)') {
+        stage('Prepare Allure UI Patch (Force English)') {
             steps {
                 sh '''
                 mkdir -p allure-results
 
-                # ---------- custom.css ----------
+                # ---------- custom.css (保持隐藏 Categories 选项) ----------
                 cat > allure-results/custom.css << 'EOF'
-/* 隐藏类别/缺陷相关卡片 */
-.side-menu__item[data-id="categories"],
-.side-menu__item[data-id="category"] {
+.side-menu__item[data-id="categories"] {
   display: none !important;
 }
-.widget:has(.widget__title:contains("Categories")),
-.widget:has(.widget__title:contains("类别")),
-.widget:has(.widget__title:contains("Product defects")) {
+.widget[data-id="categories"] {
   display: none !important;
 }
 EOF
 
-                # ---------- custom.js (强化版监听器) ----------
+                # ---------- custom.js (强制切换报告 UI 为英文) ----------
                 cat > allure-results/custom.js << 'EOF'
 (function() {
-    const patchText = () => {
-        const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
-        let node;
-        while (node = walk.nextNode()) {
-            if (node.textContent.trim() === '测试套' || node.textContent.trim() === 'Suites') {
-                node.textContent = '测试日志';
-            }
-        }
-        // 针对带 data-id 的菜单特殊处理
-        document.querySelectorAll('.side-menu__item__name').forEach(el => {
-            if (el.innerText.trim() === '测试套') el.innerText = '测试日志';
-        });
-    };
-    // 持续监听 DOM 变化，确保切换页面也生效
-    const observer = new MutationObserver(() => patchText());
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-    patchText();
+    // 强制设置 Allure 语言缓存为英文 (en)
+    if (localStorage.getItem('allure2locale') !== 'en') {
+        localStorage.setItem('allure2locale', 'en');
+        location.reload(); 
+    }
 })();
 EOF
                 '''
@@ -98,24 +82,13 @@ EOF
 
                 junit testResults: 'report.xml', allowEmptyResults: true
 
-                // ===== 1. 生成 Allure 报告 =====
+                // ===== 生成 Allure 报告 =====
                 allure(
                     includeProperties: true,
                     jdk: '',
                     reportName: 'TestReport',
                     results: [[path: 'allure-results']]
                 )
-
-                // ===== 2. 强力补丁：直接修改生成的 HTML/JS 静态文件 =====
-                // 同时处理明文、Unicode 编码以及 Allure 内部转义形式
-                sh '''
-                if [ -d "allure-report" ]; then
-                    echo "Applying post-generation patch to allure-report..."
-                    find allure-report/ -type f -name "*.js" -o -name "*.json" -o -name "*.html" | xargs -I {} sed -i 's/测试套/测试日志/g' {}
-                    find allure-report/ -type f -name "*.js" -o -name "*.json" | xargs -I {} sed -i 's/\\\\u6d4b\\\\u8bd5\\\\u5957/\\\\u6d4b\\\\u8bd5\\\\u65e5\\\\u5fd7/g' {}
-                    echo "Patch applied successfully."
-                fi
-                '''
 
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
 
@@ -149,7 +122,7 @@ EOF
                 def endStr   = new Date().format("yyyy-MM-dd HH:mm:ss")
                 def statusColor = (failed + errors == 0 && total > 0) ? "blue" : "red"
 
-                // ===== 飞书通知 =====
+                // ===== 飞书通知 (恢复全中文展示) =====
                 def payload = """
                 {
                   "msg_type": "interactive",
