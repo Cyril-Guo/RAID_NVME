@@ -33,6 +33,53 @@ pipeline {
             }
         }
 
+        stage('Prepare Allure UI Patch (CSS + JS)') {
+            steps {
+                sh '''
+                mkdir -p allure-results
+
+                # ---------- custom.css ----------
+                cat > allure-results/custom.css << 'EOF'
+/* =========================================
+   Hide Categories (Jenkins + Allure safe)
+   ========================================= */
+
+/* 左侧菜单：Categories / 类别 */
+.side-menu__item[data-id="categories"],
+.side-menu__item[data-id="category"] {
+  display: none !important;
+}
+
+/* Overview 页面 Categories / Product defects 卡片 */
+.widget:has(.widget__title:contains("Categories")),
+.widget:has(.widget__title:contains("类别")),
+.widget:has(.widget__title:contains("Product defects")) {
+  display: none !important;
+}
+EOF
+
+                # ---------- custom.js ----------
+                cat > allure-results/custom.js << 'EOF'
+/*
+ * Runtime UI patch for Allure Report
+ * 1. 测试套 -> 测试日志
+ */
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('*').forEach(el => {
+    if (
+      el.childNodes.length === 1 &&
+      el.innerText &&
+      el.innerText.trim() === '测试套'
+    ) {
+      el.innerText = '测试日志';
+    }
+  });
+});
+EOF
+                '''
+            }
+        }
+
         stage('Run FIO Tests') {
             steps {
                 sh '''
@@ -62,47 +109,6 @@ pipeline {
                     reportName: 'TestReport',
                     results: [[path: 'allure-results']]
                 )
-
-                // ===== 强制修改 Allure Report HTML（关键）=====
-                sh '''
-                REPORT_DIR=$(ls -d */allure-report 2>/dev/null | head -n 1)
-
-                if [ -d "$REPORT_DIR" ]; then
-                  INDEX_HTML="$REPORT_DIR/index.html"
-
-                  # 注入 JS + CSS
-                  sed -i '/<\\/body>/i \
-<script> \
-document.addEventListener("DOMContentLoaded", function () { \
-  /* 隐藏左侧【类别】 */ \
-  document.querySelectorAll("li, a, span, div").forEach(function(el){ \
-    if(el.textContent && el.textContent.trim()==="类别"){ \
-      var p = el.closest("li") || el.closest("a") || el.parentElement; \
-      if(p) p.style.display="none"; \
-    } \
-  }); \
-  /* 隐藏 Overview【类别】卡片 */ \
-  document.querySelectorAll(".widget").forEach(function(w){ \
-    var t=w.querySelector(".widget__title"); \
-    if(t && t.textContent.trim().startsWith("类别")){ \
-      w.style.display="none"; \
-    } \
-  }); \
-  /* 测试套 -> 测试日志 */ \
-  document.querySelectorAll("*").forEach(function(el){ \
-    if(el.childNodes.length===1 && el.textContent){ \
-      var tx=el.textContent.trim(); \
-      if(tx==="测试套"){ el.textContent="测试日志"; } \
-      else if(tx.startsWith("测试套")){ el.textContent=tx.replace("测试套","测试日志"); } \
-    } \
-  }); \
-}); \
-</script> \
-<style> \
-/* 双保险：防止残留 */ \
-</style>' "$INDEX_HTML"
-                fi
-                '''
 
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
 
@@ -137,11 +143,26 @@ EOF
                 {
                   "msg_type": "interactive",
                   "card": {
+                    "config": { "wide_screen_mode": true },
                     "header": {
                       "title": { "tag": "plain_text", "content": "📊 RAID_NVME 测试报告 - #${env.BUILD_NUMBER}" },
                       "template": "${statusColor}"
                     },
                     "elements": [
+                      {
+                        "tag": "div",
+                        "fields": [
+                          { "is_short": true, "text": { "tag": "lark_md", "content": "**开始时间：**\\n${startStr}" } },
+                          { "is_short": true, "text": { "tag": "lark_md", "content": "**结束时间：**\\n${endStr}" } }
+                        ]
+                      },
+                      {
+                        "tag": "div",
+                        "text": {
+                          "tag": "lark_md",
+                          "content": "✔️ **${passed}** ❌ **${failed}** ⛔ **${errors}** Total: **${total}**\\n执行率：${execRate}    通过率：<font color='${statusColor == 'blue' ? 'green' : 'red'}'>${passRate}</font>"
+                        }
+                      },
                       {
                         "tag": "action",
                         "actions": [
@@ -157,6 +178,7 @@ EOF
                   }
                 }
                 """
+
                 sh "curl -s -X POST -H 'Content-Type: application/json' -d '${payload}' ${env.FEISHU_WEBHOOK}"
             }
         }
