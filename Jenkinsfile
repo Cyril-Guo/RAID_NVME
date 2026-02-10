@@ -60,15 +60,22 @@ EOF
                 // 归档执行日志
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
 
-                // 获取测试指标 (无需 Python 解析 XML)
-                def testAction = currentBuild.rawBuild.getAction(hudson.tasks.test.AbstractTestResultAction.class)
-                int total  = testAction ? testAction.totalCount : 0
-                int failed = testAction ? testAction.failCount : 0
-                int passed = total - failed - (testAction ? testAction.skipCount : 0)
-                def passRate = total > 0 ? String.format("%.1f%%", (passed / (double)total) * 100) : "0%"
-                def statusColor = (failed == 0 && total > 0) ? "blue" : "red"
+                // --- 修复沙箱报错的部分：使用安全的方式获取结果 ---
+                // 获取常规状态
+                def buildStatus = currentBuild.currentResult // SUCCESS, FAILURE, UNSTABLE
+                def statusColor = (buildStatus == 'SUCCESS') ? "blue" : "red"
+                
+                // 如果需要具体的通过数量，建议通过简易 shell 命令读取 report.xml (绕过沙箱限制)
+                def total = sh(script: "grep -oP 'tests=\"\\K\\d+' report.xml || echo 0", returnStdout: true).trim()
+                def failed = sh(script: "grep -oP 'failures=\"\\K\\d+' report.xml || echo 0", returnStdout: true).trim()
+                def errors = sh(script: "grep -oP 'errors=\"\\K\\d+' report.xml || echo 0", returnStdout: true).trim()
+                
+                int t = total.toInteger()
+                int f = failed.toInteger() + errors.toInteger()
+                int p = t - f
+                def passRate = t > 0 ? String.format("%.1f%%", (p / (double)t) * 100) : "0%"
 
-                // 飞书精简版通知
+                // 飞书通知
                 def payload = """
                 {
                     "msg_type": "interactive",
@@ -81,15 +88,19 @@ EOF
                             {
                                 "tag": "div",
                                 "fields": [
-                                    { "is_short": true, "text": { "tag": "lark_md", "content": "**通过/总数:** ${passed}/${total}" } },
+                                    { "is_short": true, "text": { "tag": "lark_md", "content": "**状态:** ${buildStatus}" } },
                                     { "is_short": true, "text": { "tag": "lark_md", "content": "**通过率:** ${passRate}" } }
                                 ]
+                            },
+                            {
+                                "tag": "div",
+                                "text": { "tag": "lark_md", "content": "**结果明细:** Pass: ${p} / Fail: ${f} / Total: ${t}" }
                             },
                             {
                                 "tag": "action",
                                 "actions": [{
                                     "tag": "button",
-                                    "text": { "tag": "plain_text", "content": "查看 Allure 详情" },
+                                    "text": { "tag": "plain_text", "content": "查看详情 (Allure)" },
                                     "url": "${env.BUILD_URL}allure/",
                                     "type": "primary"
                                 }]
