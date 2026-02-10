@@ -41,8 +41,16 @@ pipeline {
                   --junitxml=report.xml \
                   -o log_cli=true \
                   -o log_cli_level=INFO \
-                2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }' | tee test_execution.log || true
+                2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }' \
+                   | tee test_execution.log || true
                 '''
+            }
+        }
+
+        // ✅ 禁用 Categories 数据源（安全）
+        stage('Disable Categories Data') {
+            steps {
+                sh 'echo "[]" > allure-results/categories.json'
             }
         }
     }
@@ -51,13 +59,11 @@ pipeline {
         always {
             script {
 
-                // ========= 权限修正 =========
                 sh 'sudo chown -R jenkins:jenkins . || true'
 
-                // ========= JUnit =========
                 junit testResults: 'report.xml', allowEmptyResults: true
 
-                // ========= 生成 Allure 报告 =========
+                // 生成 Allure 报告
                 allure(
                     includeProperties: true,
                     jdk: '',
@@ -65,97 +71,63 @@ pipeline {
                     results: [[path: 'allure-results']]
                 )
 
-                // =====================================================
-                // 🔥 核心：每次 build 后自动 Patch Allure UI
-                // =====================================================
+                // =================================================
+                // ✅ UI Patch：测试套 → 测试日志 + 隐藏 Categories
+                // =================================================
                 sh '''
                 set +e
 
                 REPORT_DIR="$JENKINS_HOME/jobs/$JOB_NAME/builds/$BUILD_NUMBER/allure-report"
+
                 APP_JS="$REPORT_DIR/app.js"
+                CSS_FILE="$REPORT_DIR/styles.css"
 
+                # 1️⃣ Suites → 测试日志（安全字符串替换）
                 if [ -f "$APP_JS" ]; then
-                    echo "[INFO] Patching Allure UI: $APP_JS"
+                    sed -i 's/Suites/测试日志/g' "$APP_JS"
+                fi
 
-                    cp "$APP_JS" "$APP_JS.bak"
+                # 2️⃣ 隐藏 Categories（CSS，不破坏结构）
+                if [ -f "$CSS_FILE" ]; then
+                    cat >> "$CSS_FILE" << 'EOF'
 
-                    # 1️⃣ Suites → 测试日志
-                    sed -i \
-                      -e 's/Suites/测试日志/g' \
-                      -e 's/test.suites.name/测试日志/g' \
-                      -e 's/tab.suites.name/测试日志/g' \
-                      "$APP_JS"
+/* ================================
+   Hide Categories (Safe CSS)
+   ================================ */
+[data-testid="side-menu"] a[href*="categories"] {
+    display: none !important;
+}
 
-                    # 2️⃣ 禁用 Categories（类别）Tab
-                    sed -i \
-                      -e '/addTab("categories"/,/});/d' \
-                      "$APP_JS"
+[data-testid="categories"] {
+    display: none !important;
+}
 
-                else
-                    echo "[WARN] app.js not found, skip UI patch"
+.categories {
+    display: none !important;
+}
+EOF
                 fi
                 '''
 
-                // ========= 归档 =========
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
 
-                // ========= 统计指标 =========
-                def getMetric = { attr ->
-                    def exists = sh(script: "[ -f report.xml ] && echo yes || echo no", returnStdout: true).trim()
-                    if (exists == 'no') return "0"
-                    return sh(script: """
-                        python3 - << 'EOF'
-import xml.etree.ElementTree as ET
-t = ET.parse('report.xml').getroot()
-print(t.attrib.get('${attr}') or sum(int(s.get('${attr}',0)) for s in t.findall('.//testsuite')))
-EOF
-                    """, returnStdout: true).trim()
-                }
-
-                def total   = getMetric('tests').toInteger()
-                def failed  = getMetric('failures').toInteger()
-                def errors  = getMetric('errors').toInteger()
-                def skipped = getMetric('skipped').toInteger()
-
-                def passed   = total - failed - errors - skipped
-                def execRate = total > 0 ? String.format("%.2f%%", ((total - skipped) / (double) total) * 100) : "0%"
-                def passRate = total > 0 ? String.format("%.1f%%", (passed / (double) total) * 100) : "0%"
-
-                def startStr = new Date(currentBuild.startTimeInMillis).format("yyyy-MM-dd HH:mm:ss")
-                def endStr   = new Date().format("yyyy-MM-dd HH:mm:ss")
-                def statusColor = (failed + errors == 0 && total > 0) ? "blue" : "red"
-
-                // ========= 飞书通知（稳定版） =========
+                // ================= 飞书通知 =================
                 def payload = """
                 {
                   "msg_type": "interactive",
                   "card": {
                     "config": { "wide_screen_mode": true },
                     "header": {
-                      "title": { "tag": "plain_text", "content": "📊 RAID_NVME 测试报告 - #${env.BUILD_NUMBER}" },
-                      "template": "${statusColor}"
+                      "title": { "tag": "plain_text", "content": "🔔【Daily】RaidCard DailyBuild EVT - #${env.BUILD_NUMBER}" },
+                      "template": "blue"
                     },
                     "elements": [
-                      {
-                        "tag": "div",
-                        "fields": [
-                          { "is_short": true, "text": { "tag": "lark_md", "content": "**开始时间：**\\n${startStr}" } },
-                          { "is_short": true, "text": { "tag": "lark_md", "content": "**结束时间：**\\n${endStr}" } }
-                        ]
-                      },
-                      {
-                        "tag": "div",
-                        "text": {
-                          "tag": "lark_md",
-                          "content": "✔️ **${passed}** ❌ **${failed}** ⛔ **${errors}** Total: **${total}**\\n执行率：${execRate}    通过率：${passRate}"
-                        }
-                      },
                       {
                         "tag": "action",
                         "actions": [
                           {
                             "tag": "button",
-                            "text": { "tag": "plain_text", "content": "查看详情" },
+                            "text": { "tag": "plain_text", "content": "查看 Allure 报告" },
                             "url": "${env.BUILD_URL}allure/",
                             "type": "primary"
                           }
@@ -166,7 +138,12 @@ EOF
                 }
                 """
 
-                sh "curl -s -X POST -H 'Content-Type: application/json' -d '${payload}' ${env.FEISHU_WEBHOOK}"
+                sh """
+                curl -s -X POST \
+                  -H 'Content-Type: application/json' \
+                  -d '${payload}' \
+                  ${env.FEISHU_WEBHOOK}
+                """
             }
         }
     }
