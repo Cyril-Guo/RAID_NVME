@@ -33,27 +33,48 @@ pipeline {
             }
         }
 
-        stage('Prepare Allure UI CSS Patch') {
+        stage('Prepare Allure UI Patch (CSS + JS)') {
             steps {
                 sh '''
                 mkdir -p allure-results
 
+                # ---------- custom.css ----------
                 cat > allure-results/custom.css << 'EOF'
-/* ================================
-   Hide Categories (stable way)
-   ================================ */
+/* =========================================
+   Hide Categories (Jenkins + Allure safe)
+   ========================================= */
 
-/* 左侧菜单 Categories */
+/* 左侧菜单：Categories / 类别 */
 .side-menu__item[data-id="categories"],
 .side-menu__item[data-id="category"] {
   display: none !important;
 }
 
-/* Overview 页面 Categories 卡片 */
+/* Overview 页面 Categories / Product defects 卡片 */
 .widget:has(.widget__title:contains("Categories")),
-.widget:has(.widget__title:contains("类别")) {
+.widget:has(.widget__title:contains("类别")),
+.widget:has(.widget__title:contains("Product defects")) {
   display: none !important;
 }
+EOF
+
+                # ---------- custom.js ----------
+                cat > allure-results/custom.js << 'EOF'
+/*
+ * Runtime UI patch for Allure Report
+ * 1. 测试套 -> 测试日志
+ */
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('*').forEach(el => {
+    if (
+      el.childNodes.length === 1 &&
+      el.innerText &&
+      el.innerText.trim() === '测试套'
+    ) {
+      el.innerText = '测试日志';
+    }
+  });
+});
 EOF
                 '''
             }
@@ -147,7 +168,7 @@ EOF
                         "actions": [
                           {
                             "tag": "button",
-                            "text": { "tag": "plain_text", "content": "查看 Allure 报告" },
+                            "text": { "tag": "plain_text", "content": "查看详情" },
                             "url": "${env.BUILD_URL}allure/",
                             "type": "primary"
                           }
