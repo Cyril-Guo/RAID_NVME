@@ -6,6 +6,7 @@ pipeline {
     }
 
     stages {
+
         stage('Clean & Checkout') {
             steps {
                 cleanWs()
@@ -23,9 +24,11 @@ pipeline {
             steps {
                 sh '''
                 mkdir -p allure-results
-                echo "Host=$(hostname)" >> allure-results/environment.properties
-                echo "Kernel=$(uname -r)" >> allure-results/environment.properties
-                echo "NVMe_Count=$(ls /dev/nvme*n1 2>/dev/null | wc -l)" >> allure-results/environment.properties
+                {
+                  echo "Host=$(hostname)"
+                  echo "Kernel=$(uname -r)"
+                  echo "NVMe_Count=$(ls /dev/nvme*n1 2>/dev/null | wc -l)"
+                } > allure-results/environment.properties
                 '''
             }
         }
@@ -33,8 +36,11 @@ pipeline {
         stage('Run FIO Tests') {
             steps {
                 sh '''
-                sudo pytest test_fio.py --alluredir=./allure-results --junitxml=report.xml \
-                -o log_cli=true -o log_cli_level=INFO \
+                sudo pytest test_fio.py \
+                  --alluredir=./allure-results \
+                  --junitxml=report.xml \
+                  -o log_cli=true \
+                  -o log_cli_level=INFO \
                 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }' | tee test_execution.log || true
                 '''
             }
@@ -44,10 +50,12 @@ pipeline {
     post {
         always {
             script {
+
                 sh 'sudo chown -R jenkins:jenkins . || true'
 
                 junit testResults: 'report.xml', allowEmptyResults: true
 
+                // === 生成 Allure 报告 ===
                 allure(
                     includeProperties: true,
                     jdk: '',
@@ -55,76 +63,100 @@ pipeline {
                     results: [[path: 'allure-results']]
                 )
 
-                // ===== 自动替换 Suites -> 测试日志（每次构建生效）=====
+                // =========================================================
+                // Allure UI 自动中文化补丁（Suites -> 测试日志）
+                // =========================================================
                 sh '''
-                if [ -d "allure-report" ]; then
-                  grep -RIl "Suites" allure-report | xargs sed -i 's/Suites/测试日志/g' || true
+                set +e
+
+                REPORT_DIR="$JENKINS_HOME/jobs/$JOB_NAME/builds/$BUILD_NUMBER/allure-report"
+                APP_JS="$REPORT_DIR/app.js"
+
+                if [ -f "$APP_JS" ]; then
+                    echo "[INFO] Patch Allure UI: $APP_JS"
+
+                    cp "$APP_JS" "$APP_JS.bak"
+
+                    sed -i \
+                      -e 's/Suites/测试日志/g' \
+                      -e 's/SUITES/测试日志/g' \
+                      "$APP_JS"
+
+                else
+                    echo "[WARN] Allure app.js not found, skip UI patch"
                 fi
                 '''
 
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
 
+                // ===== 统计指标 =====
                 def getMetric = { attr ->
-                    def exists = sh(script: "[ -f report.xml ] && echo 'yes' || echo 'no'", returnStdout: true).trim()
+                    def exists = sh(script: "[ -f report.xml ] && echo yes || echo no", returnStdout: true).trim()
                     if (exists == 'no') return "0"
                     return sh(script: """
-                        python3 -c "import xml.etree.ElementTree as ET; t=ET.parse('report.xml').getroot(); print(t.attrib.get('$attr') or sum(int(s.get('$attr',0)) for s in t.findall('.//testsuite')))"
+                        python3 - << 'EOF'
+import xml.etree.ElementTree as ET
+t = ET.parse('report.xml').getroot()
+print(t.attrib.get('${attr}') or sum(int(s.get('${attr}',0)) for s in t.findall('.//testsuite')))
+EOF
                     """, returnStdout: true).trim()
                 }
 
-                def total = getMetric('tests').toInteger()
-                def failed = getMetric('failures').toInteger()
-                def errors = getMetric('errors').toInteger()
+                def total   = getMetric('tests').toInteger()
+                def failed  = getMetric('failures').toInteger()
+                def errors  = getMetric('errors').toInteger()
                 def skipped = getMetric('skipped').toInteger()
 
-                def passed = total - failed - errors - skipped
-                def execRate = total > 0 ? String.format("%.2f%%", ((total - skipped) / (double)total) * 100) : "0%"
-                def passRate = total > 0 ? String.format("%.1f%%", (passed / (double)total) * 100) : "0%"
+                def passed   = total - failed - errors - skipped
+                def execRate = total > 0 ? String.format("%.2f%%", ((total - skipped) / (double) total) * 100) : "0%"
+                def passRate = total > 0 ? String.format("%.1f%%", (passed / (double) total) * 100) : "0%"
 
                 def startStr = new Date(currentBuild.startTimeInMillis).format("yyyy-MM-dd HH:mm:ss")
-                def endStr = new Date().format("yyyy-MM-dd HH:mm:ss")
-                def statusColor = (failed + errors == 0 && total != 0) ? "blue" : "red"
+                def endStr   = new Date().format("yyyy-MM-dd HH:mm:ss")
+                def statusColor = (failed + errors == 0 && total > 0) ? "blue" : "red"
 
+                // ===== 飞书通知 =====
                 def payload = """
                 {
-                    "msg_type": "interactive",
-                    "card": {
-                        "config": { "wide_screen_mode": true },
-                        "header": {
-                            "title": { "tag": "plain_text", "content": "📊 RAID_NVME 测试报告 - #${env.BUILD_NUMBER}" },
-                            "template": "${statusColor}"
-                        },
-                        "elements": [
-                            {
-                                "tag": "div",
-                                "fields": [
-                                    { "is_short": true, "text": { "tag": "lark_md", "content": "**开始时间：**\\n${startStr}" } },
-                                    { "is_short": true, "text": { "tag": "lark_md", "content": "**结束时间：**\\n${endStr}" } }
-                                ]
-                            },
-                            {
-                                "tag": "div",
-                                "text": {
-                                    "tag": "lark_md",
-                                    "content": "✔️ **${passed}** ❌ **${failed}** ⛔ **${errors}** Total: **${total}**\\n执行率：${execRate}    通过率：<font color='${statusColor == 'blue' ? 'green' : 'red'}'>${passRate}</font>"
-                                }
-                            },
-                            {
-                                "tag": "action",
-                                "actions": [
-                                    {
-                                        "tag": "button",
-                                        "text": { "tag": "plain_text", "content": "查看详情" },
-                                        "url": "${env.BUILD_URL}allure/",
-                                        "type": "primary"
-                                    }
-                                ]
-                            }
+                  "msg_type": "interactive",
+                  "card": {
+                    "config": { "wide_screen_mode": true },
+                    "header": {
+                      "title": { "tag": "plain_text", "content": "📊 RAID_NVME 测试报告 - #${env.BUILD_NUMBER}" },
+                      "template": "${statusColor}"
+                    },
+                    "elements": [
+                      {
+                        "tag": "div",
+                        "fields": [
+                          { "is_short": true, "text": { "tag": "lark_md", "content": "**开始时间：**\\n${startStr}" } },
+                          { "is_short": true, "text": { "tag": "lark_md", "content": "**结束时间：**\\n${endStr}" } }
                         ]
-                    }
+                      },
+                      {
+                        "tag": "div",
+                        "text": {
+                          "tag": "lark_md",
+                          "content": "✔️ **${passed}** ❌ **${failed}** ⛔ **${errors}** Total: **${total}**\\n执行率：${execRate}    通过率：<font color='${statusColor == 'blue' ? 'green' : 'red'}'>${passRate}</font>"
+                        }
+                      },
+                      {
+                        "tag": "action",
+                        "actions": [
+                          {
+                            "tag": "button",
+                            "text": { "tag": "plain_text", "content": "查看详情" },
+                            "url": "${env.BUILD_URL}allure/",
+                            "type": "primary"
+                          }
+                        ]
+                      }
+                    ]
+                  }
                 }
                 """
-                sh "curl -X POST -H 'Content-Type: application/json' -d '${payload}' ${env.FEISHU_WEBHOOK}"
+
+                sh "curl -s -X POST -H 'Content-Type: application/json' -d '${payload}' ${env.FEISHU_WEBHOOK}"
             }
         }
     }
