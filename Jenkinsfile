@@ -33,72 +33,6 @@ pipeline {
             }
         }
 
-        stage('Prepare Allure UI Patch (CSS + JS)') {
-            steps {
-                sh '''
-                mkdir -p allure-results
-
-                # ---------------- custom.css ----------------
-                # 当前 Allure UI 结构下，隐藏类别主要依赖 JS
-                cat > allure-results/custom.css << 'EOF'
-/* reserved */
-EOF
-
-                # ---------------- custom.js ----------------
-                cat > allure-results/custom.js << 'EOF'
-document.addEventListener('DOMContentLoaded', () => {
-
-  /* =====================================================
-   * 1. 隐藏“类别”模块
-   *    - 左侧菜单“类别”
-   *    - Overview 页面“类别 总共X项 / Product defects”
-   * ===================================================== */
-
-  // 左侧菜单：文本精确等于“类别”
-  document.querySelectorAll('li, a, div, span').forEach(el => {
-    if (el.textContent && el.textContent.trim() === '类别') {
-      const item =
-        el.closest('li') ||
-        el.closest('a') ||
-        el.parentElement;
-      if (item) {
-        item.style.display = 'none';
-      }
-    }
-  });
-
-  // Overview 页面：标题以“类别”开头的整个 widget
-  document.querySelectorAll('.widget').forEach(widget => {
-    const title = widget.querySelector('.widget__title');
-    if (title && title.textContent.trim().startsWith('类别')) {
-      widget.style.display = 'none';
-    }
-  });
-
-  /* =====================================================
-   * 2. “测试套” → “测试日志”
-   *    - 左侧菜单
-   *    - Overview 标题
-   *    - 测试套列表标题
-   * ===================================================== */
-
-  document.querySelectorAll('*').forEach(el => {
-    if (el.childNodes.length === 1 && el.textContent) {
-      const text = el.textContent.trim();
-      if (text === '测试套') {
-        el.textContent = '测试日志';
-      } else if (text.startsWith('测试套')) {
-        el.textContent = text.replace('测试套', '测试日志');
-      }
-    }
-  });
-
-});
-EOF
-                '''
-            }
-        }
-
         stage('Run FIO Tests') {
             steps {
                 sh '''
@@ -128,6 +62,47 @@ EOF
                     reportName: 'TestReport',
                     results: [[path: 'allure-results']]
                 )
+
+                // ===== 强制修改 Allure Report HTML（关键）=====
+                sh '''
+                REPORT_DIR=$(ls -d */allure-report 2>/dev/null | head -n 1)
+
+                if [ -d "$REPORT_DIR" ]; then
+                  INDEX_HTML="$REPORT_DIR/index.html"
+
+                  # 注入 JS + CSS
+                  sed -i '/<\\/body>/i \
+<script> \
+document.addEventListener("DOMContentLoaded", function () { \
+  /* 隐藏左侧【类别】 */ \
+  document.querySelectorAll("li, a, span, div").forEach(function(el){ \
+    if(el.textContent && el.textContent.trim()==="类别"){ \
+      var p = el.closest("li") || el.closest("a") || el.parentElement; \
+      if(p) p.style.display="none"; \
+    } \
+  }); \
+  /* 隐藏 Overview【类别】卡片 */ \
+  document.querySelectorAll(".widget").forEach(function(w){ \
+    var t=w.querySelector(".widget__title"); \
+    if(t && t.textContent.trim().startsWith("类别")){ \
+      w.style.display="none"; \
+    } \
+  }); \
+  /* 测试套 -> 测试日志 */ \
+  document.querySelectorAll("*").forEach(function(el){ \
+    if(el.childNodes.length===1 && el.textContent){ \
+      var tx=el.textContent.trim(); \
+      if(tx==="测试套"){ el.textContent="测试日志"; } \
+      else if(tx.startsWith("测试套")){ el.textContent=tx.replace("测试套","测试日志"); } \
+    } \
+  }); \
+}); \
+</script> \
+<style> \
+/* 双保险：防止残留 */ \
+</style>' "$INDEX_HTML"
+                fi
+                '''
 
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
 
@@ -162,26 +137,11 @@ EOF
                 {
                   "msg_type": "interactive",
                   "card": {
-                    "config": { "wide_screen_mode": true },
                     "header": {
                       "title": { "tag": "plain_text", "content": "📊 RAID_NVME 测试报告 - #${env.BUILD_NUMBER}" },
                       "template": "${statusColor}"
                     },
                     "elements": [
-                      {
-                        "tag": "div",
-                        "fields": [
-                          { "is_short": true, "text": { "tag": "lark_md", "content": "**开始时间：**\\n${startStr}" } },
-                          { "is_short": true, "text": { "tag": "lark_md", "content": "**结束时间：**\\n${endStr}" } }
-                        ]
-                      },
-                      {
-                        "tag": "div",
-                        "text": {
-                          "tag": "lark_md",
-                          "content": "✔️ **${passed}** ❌ **${failed}** ⛔ **${errors}** Total: **${total}**\\n执行率：${execRate}    通过率：<font color='${statusColor == 'blue' ? 'green' : 'red'}'>${passRate}</font>"
-                        }
-                      },
                       {
                         "tag": "action",
                         "actions": [
@@ -197,7 +157,6 @@ EOF
                   }
                 }
                 """
-
                 sh "curl -s -X POST -H 'Content-Type: application/json' -d '${payload}' ${env.FEISHU_WEBHOOK}"
             }
         }
