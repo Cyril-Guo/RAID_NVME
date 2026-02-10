@@ -20,27 +20,41 @@ pipeline {
             }
         }
 
-        stage('Prepare Allure Environment Info & UI') {
+        stage('Prepare Allure Environment Info') {
             steps {
                 sh '''
                 mkdir -p allure-results
-
-                # 环境信息
                 {
                   echo "Host=$(hostname)"
                   echo "Kernel=$(uname -r)"
                   echo "NVMe_Count=$(ls /dev/nvme*n1 2>/dev/null | wc -l)"
                 } > allure-results/environment.properties
+                '''
+            }
+        }
 
-                # UI 定制（隐藏 Categories）
+        stage('Prepare Allure UI CSS Patch') {
+            steps {
+                sh '''
+                mkdir -p allure-results
+
                 cat > allure-results/custom.css << 'EOF'
-                .side-menu__item[data-id="categories"] {
-                  display: none !important;
-                }
-                .widget-categories {
-                  display: none !important;
-                }
-                EOF
+/* ================================
+   Hide Categories (stable way)
+   ================================ */
+
+/* 左侧菜单 Categories */
+.side-menu__item[data-id="categories"],
+.side-menu__item[data-id="category"] {
+  display: none !important;
+}
+
+/* Overview 页面 Categories 卡片 */
+.widget:has(.widget__title:contains("Categories")),
+.widget:has(.widget__title:contains("类别")) {
+  display: none !important;
+}
+EOF
                 '''
             }
         }
@@ -62,10 +76,12 @@ pipeline {
     post {
         always {
             script {
+
                 sh 'sudo chown -R jenkins:jenkins . || true'
 
                 junit testResults: 'report.xml', allowEmptyResults: true
 
+                // ===== Generate Allure Report =====
                 allure(
                     includeProperties: true,
                     jdk: '',
@@ -75,7 +91,7 @@ pipeline {
 
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
 
-                // ===== 统计 =====
+                // ===== Metrics =====
                 def getMetric = { attr ->
                     def exists = sh(script: "[ -f report.xml ] && echo yes || echo no", returnStdout: true).trim()
                     if (exists == 'no') return "0"
@@ -92,12 +108,16 @@ EOF
                 def failed  = getMetric('failures').toInteger()
                 def errors  = getMetric('errors').toInteger()
                 def skipped = getMetric('skipped').toInteger()
-                def passed  = total - failed - errors - skipped
+
+                def passed   = total - failed - errors - skipped
+                def execRate = total > 0 ? String.format("%.2f%%", ((total - skipped) / (double) total) * 100) : "0%"
+                def passRate = total > 0 ? String.format("%.1f%%", (passed / (double) total) * 100) : "0%"
 
                 def startStr = new Date(currentBuild.startTimeInMillis).format("yyyy-MM-dd HH:mm:ss")
                 def endStr   = new Date().format("yyyy-MM-dd HH:mm:ss")
                 def statusColor = (failed + errors == 0 && total > 0) ? "blue" : "red"
 
+                // ===== Feishu Notify =====
                 def payload = """
                 {
                   "msg_type": "interactive",
@@ -108,6 +128,20 @@ EOF
                       "template": "${statusColor}"
                     },
                     "elements": [
+                      {
+                        "tag": "div",
+                        "fields": [
+                          { "is_short": true, "text": { "tag": "lark_md", "content": "**开始时间：**\\n${startStr}" } },
+                          { "is_short": true, "text": { "tag": "lark_md", "content": "**结束时间：**\\n${endStr}" } }
+                        ]
+                      },
+                      {
+                        "tag": "div",
+                        "text": {
+                          "tag": "lark_md",
+                          "content": "✔️ **${passed}** ❌ **${failed}** ⛔ **${errors}** Total: **${total}**\\n执行率：${execRate}    通过率：<font color='${statusColor == 'blue' ? 'green' : 'red'}'>${passRate}</font>"
+                        }
+                      },
                       {
                         "tag": "action",
                         "actions": [
