@@ -9,14 +9,27 @@ pipeline {
         stage('Clean & Checkout') {
             steps {
                 cleanWs()
-                checkout scm 
+                checkout scm
             }
         }
+
         stage('Install Dependencies') {
             steps {
                 sh 'pip install -r requirements.txt'
             }
         }
+
+        stage('Prepare Allure Environment Info') {
+            steps {
+                sh '''
+                mkdir -p allure-results
+                echo "Host=$(hostname)" >> allure-results/environment.properties
+                echo "Kernel=$(uname -r)" >> allure-results/environment.properties
+                echo "NVMe_Count=$(ls /dev/nvme*n1 2>/dev/null | wc -l)" >> allure-results/environment.properties
+                '''
+            }
+        }
+
         stage('Run FIO Tests') {
             steps {
                 sh '''
@@ -32,11 +45,18 @@ pipeline {
         always {
             script {
                 sh 'sudo chown -R jenkins:jenkins . || true'
-                junit testResults: 'report.xml', allowEmptyResults: true 
-                allure includeProperties: false, jdk: '', results: [[path: 'allure-results']]
+
+                junit testResults: 'report.xml', allowEmptyResults: true
+
+                allure(
+                    includeProperties: true,
+                    jdk: '',
+                    reportName: 'TestReport',
+                    results: [[path: 'allure-results']]
+                )
+
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
 
-                // 1. 获取各项测试指标
                 def getMetric = { attr ->
                     def exists = sh(script: "[ -f report.xml ] && echo 'yes' || echo 'no'", returnStdout: true).trim()
                     if (exists == 'no') return "0"
@@ -49,8 +69,7 @@ pipeline {
                 def failed = getMetric('failures').toInteger()
                 def errors = getMetric('errors').toInteger()
                 def skipped = getMetric('skipped').toInteger()
-                
-                // 2. 计算执行率和通过率
+
                 def passed = total - failed - errors - skipped
                 def execRate = total > 0 ? String.format("%.2f%%", ((total - skipped) / (double)total) * 100) : "0%"
                 def passRate = total > 0 ? String.format("%.1f%%", (passed / (double)total) * 100) : "0%"
@@ -59,7 +78,6 @@ pipeline {
                 def endStr = new Date().format("yyyy-MM-dd HH:mm:ss")
                 def statusColor = (failed + errors == 0 && total != 0) ? "blue" : "red"
 
-                // 3. 构造更新后的飞书卡片
                 def payload = """
                 {
                     "msg_type": "interactive",
@@ -80,7 +98,7 @@ pipeline {
                             {
                                 "tag": "div",
                                 "text": {
-                                    "tag": "lark_md", 
+                                    "tag": "lark_md",
                                     "content": "✔️ **${passed}** ❌ **${failed}** ⛔ **${errors}** Total: **${total}**\\n执行率：${execRate}    通过率：<font color='${statusColor == 'blue' ? 'green' : 'red'}'>${passRate}</font>"
                                 }
                             },
@@ -104,3 +122,4 @@ pipeline {
         }
     }
 }
+
