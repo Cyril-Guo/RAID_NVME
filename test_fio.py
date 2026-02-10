@@ -1,10 +1,6 @@
 import pytest
 import subprocess
 import logging
-import allure
-
-@allure.suite("测试日志")
-@allure.parent_suite("测试日志")
 
 # 配置测试目标和模式
 DEVICES = ["nvme0n1", "nvme1n1", "nvme8n1"]
