@@ -55,7 +55,36 @@ pipeline {
 
                 junit testResults: 'report.xml', allowEmptyResults: true
 
-                // === 生成 Allure 报告 ===
+                // =========================================================
+                // 1️⃣ 永久补丁：修改 Allure Jenkins 插件模板（一次生效）
+                // =========================================================
+                sh '''
+                set +e
+
+                PLUGIN_APP_JS=$(find "$JENKINS_HOME/plugins" \
+                    -path "*allure*jenkins*/WEB-INF/classes/allure-report/app.js" \
+                    2>/dev/null | head -n 1)
+
+                if [ -f "$PLUGIN_APP_JS" ]; then
+                    echo "[INFO] Permanent Allure UI patch: $PLUGIN_APP_JS"
+
+                    if ! grep -q "测试日志" "$PLUGIN_APP_JS"; then
+                        cp "$PLUGIN_APP_JS" "$PLUGIN_APP_JS.bak"
+                        sed -i \
+                          -e 's/测试套/测试日志/g' \
+                          -e 's/Suites/测试日志/g' \
+                          "$PLUGIN_APP_JS"
+                    else
+                        echo "[INFO] Permanent patch already applied"
+                    fi
+                else
+                    echo "[WARN] Allure plugin template not found, skip permanent patch"
+                fi
+                '''
+
+                // =========================================================
+                // 2️⃣ 构建兜底补丁：保证当前 build 一定生效
+                // =========================================================
                 allure(
                     includeProperties: true,
                     jdk: '',
@@ -63,33 +92,22 @@ pipeline {
                     results: [[path: 'allure-results']]
                 )
 
-                // =========================================================
-                // Allure UI 自动中文化补丁（Suites -> 测试日志）
-                // =========================================================
                 sh '''
-                set +e
-
                 REPORT_DIR="$JENKINS_HOME/jobs/$JOB_NAME/builds/$BUILD_NUMBER/allure-report"
                 APP_JS="$REPORT_DIR/app.js"
 
                 if [ -f "$APP_JS" ]; then
-                    echo "[INFO] Patch Allure UI: $APP_JS"
-
-                    cp "$APP_JS" "$APP_JS.bak"
-
+                    echo "[INFO] Patch current build Allure UI: $APP_JS"
                     sed -i \
+                      -e 's/测试套/测试日志/g' \
                       -e 's/Suites/测试日志/g' \
-                      -e 's/SUITES/测试日志/g' \
                       "$APP_JS"
-
-                else
-                    echo "[WARN] Allure app.js not found, skip UI patch"
                 fi
                 '''
 
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
 
-                // ===== 统计指标 =====
+                // ================= 指标统计 =================
                 def getMetric = { attr ->
                     def exists = sh(script: "[ -f report.xml ] && echo yes || echo no", returnStdout: true).trim()
                     if (exists == 'no') return "0"
@@ -115,7 +133,7 @@ EOF
                 def endStr   = new Date().format("yyyy-MM-dd HH:mm:ss")
                 def statusColor = (failed + errors == 0 && total > 0) ? "blue" : "red"
 
-                // ===== 飞书通知 =====
+                // ================= 飞书通知 =================
                 def payload = """
                 {
                   "msg_type": "interactive",
