@@ -56,34 +56,7 @@ pipeline {
                 junit testResults: 'report.xml', allowEmptyResults: true
 
                 // =========================================================
-                // 1️⃣ 永久补丁：修改 Allure Jenkins 插件模板（一次生效）
-                // =========================================================
-                sh '''
-                set +e
-
-                PLUGIN_APP_JS=$(find "$JENKINS_HOME/plugins" \
-                    -path "*allure*jenkins*/WEB-INF/classes/allure-report/app.js" \
-                    2>/dev/null | head -n 1)
-
-                if [ -f "$PLUGIN_APP_JS" ]; then
-                    echo "[INFO] Permanent Allure UI patch: $PLUGIN_APP_JS"
-
-                    if ! grep -q "测试日志" "$PLUGIN_APP_JS"; then
-                        cp "$PLUGIN_APP_JS" "$PLUGIN_APP_JS.bak"
-                        sed -i \
-                          -e 's/测试套/测试日志/g' \
-                          -e 's/Suites/测试日志/g' \
-                          "$PLUGIN_APP_JS"
-                    else
-                        echo "[INFO] Permanent patch already applied"
-                    fi
-                else
-                    echo "[WARN] Allure plugin template not found, skip permanent patch"
-                fi
-                '''
-
-                // =========================================================
-                // 2️⃣ 构建兜底补丁：保证当前 build 一定生效
+                // 1️⃣ 生成 Allure 报告
                 // =========================================================
                 allure(
                     includeProperties: true,
@@ -92,16 +65,73 @@ pipeline {
                     results: [[path: 'allure-results']]
                 )
 
+                // =========================================================
+                // 2️⃣ Allure UI 强制 Patch（唯一稳定方案）
+                //    - Suites → 测试日志
+                //    - 隐藏 Categories 模块（左侧 + Overview）
+                // =========================================================
                 sh '''
+                set +e
+
                 REPORT_DIR="$JENKINS_HOME/jobs/$JOB_NAME/builds/$BUILD_NUMBER/allure-report"
                 APP_JS="$REPORT_DIR/app.js"
 
-                if [ -f "$APP_JS" ]; then
-                    echo "[INFO] Patch current build Allure UI: $APP_JS"
-                    sed -i \
-                      -e 's/测试套/测试日志/g' \
-                      -e 's/Suites/测试日志/g' \
-                      "$APP_JS"
+                if [ ! -f "$APP_JS" ]; then
+                    echo "[WARN] app.js not found, skip Allure UI patch"
+                    exit 0
+                fi
+
+                echo "[INFO] Patching Allure UI: $APP_JS"
+
+                # 只打一次补丁
+                if ! grep -q "ALLURE_CUSTOM_UI_PATCH" "$APP_JS"; then
+
+                    cp "$APP_JS" "$APP_JS.bak"
+
+cat << 'EOF' >> "$APP_JS"
+
+/* ================= ALLURE_CUSTOM_UI_PATCH ================= */
+
+// 延迟执行，确保 React 渲染完成
+setTimeout(() => {
+
+  // ---------- 1. Suites → 测试日志 ----------
+  document.querySelectorAll('a').forEach(a => {
+    if (a.textContent && a.textContent.trim() === 'Suites') {
+      a.textContent = '测试日志';
+    }
+  });
+
+  document.querySelectorAll('.widget__title').forEach(t => {
+    if (t.textContent && t.textContent.match(/Suites/i)) {
+      t.textContent = '测试日志';
+    }
+  });
+
+  // ---------- 2. 隐藏 Categories ----------
+  // 左侧菜单
+  document.querySelectorAll('a[href*="categories"]').forEach(e => {
+    e.style.display = 'none';
+  });
+
+  // Overview 页面 Categories 卡片
+  document.querySelectorAll('.widget').forEach(w => {
+    const title = w.querySelector('.widget__title');
+    if (title && title.textContent.match(/Categories|类别/i)) {
+      w.style.display = 'none';
+    }
+  });
+
+}, 1000);
+
+/* ================= END ALLURE_CUSTOM_UI_PATCH ================= */
+
+EOF
+
+                    echo "[INFO] Allure UI patch applied"
+
+                else
+                    echo "[INFO] Allure UI patch already exists"
                 fi
                 '''
 
