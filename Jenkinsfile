@@ -1,15 +1,11 @@
-// 全局变量：存储从 target_ips.txt 读取的 IP 列表
 def targetIPs = []
 
 pipeline {
     agent any
 
     environment {
-        // 飞书机器人 Webhook 地址
         FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/17fe4cfd-5e49-4ceb-b8c4-f002d74340ee'
-        // 远程登录用户名
         TARGET_USER = 'root' 
-        // 解锁破坏性写入测试开关 (1为开启)
         ALLOW_DESTRUCTIVE_FIO = '1'
     }
 
@@ -18,16 +14,10 @@ pipeline {
             steps {
                 cleanWs()
                 checkout scm
-                
                 script {
                     if (fileExists('target_ips.txt')) {
                         def ipContent = readFile('target_ips.txt').trim()
                         targetIPs = ipContent.split('\\r?\\n').findAll { it.trim() != '' && !it.startsWith('#') }
-                        
-                        if (targetIPs.size() == 0) {
-                            error "target_ips.txt 中未发现有效 IP 地址！"
-                        }
-                        echo "准备对以下节点执行并发测试: ${targetIPs}"
                     } else {
                         error "根目录下缺少 target_ips.txt 文件！"
                     }
@@ -39,22 +29,16 @@ pipeline {
             steps {
                 script {
                     def parallelTasks = [:]
-                    
                     for (int i = 0; i < targetIPs.size(); i++) {
                         def ip = targetIPs[i] 
-                        
                         parallelTasks["Node_${ip}"] = {
                             stage("Test on ${ip}") {
                                 def remoteDir = "/tmp/jenkins_fio_${env.BUILD_NUMBER}"
-                                
-                                echo "[${ip}] 1. 部署代码..."
                                 sh "ssh ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
                                 sh "scp -r * ${env.TARGET_USER}@${ip}:${remoteDir}/"
-                                
-                                echo "[${ip}] 2. 安装 Python 依赖..."
                                 sh "ssh ${env.TARGET_USER}@${ip} 'cd ${remoteDir} && pip install -r requirements.txt'"
                                 
-                                echo "[${ip}] 3. 获取硬件环境信息..."
+                                // 收集环境信息
                                 sh """
                                 ssh ${env.TARGET_USER}@${ip} '
                                     cd ${remoteDir}
@@ -67,13 +51,12 @@ pipeline {
                                 '
                                 """
                                 
-                                echo "[${ip}] 4. 运行 FIO 测试脚本..."
-                                // 日志输出带时间戳，并按 IP 存储
+                                // 运行 FIO
                                 sh """
                                 ssh ${env.TARGET_USER}@${ip} "cd ${remoteDir} && ALLOW_DESTRUCTIVE_FIO=${env.ALLOW_DESTRUCTIVE_FIO} sudo pytest test_fio.py --alluredir=./allure-results --junitxml=report.xml -o log_cli=true -o log_cli_level=INFO || true" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), \$0 }' | tee test_execution_${ip}.log
                                 """
                                 
-                                echo "[${ip}] 5. 回传测试数据..."
+                                // 回传数据
                                 sh """
                                 mkdir -p allure-results
                                 scp -r ${env.TARGET_USER}@${ip}:${remoteDir}/allure-results/* ./allure-results/ || true
@@ -87,32 +70,32 @@ pipeline {
             }
         }
 
-        stage('后期处理：合并环境与 UI 补丁') {
+        stage('后期处理：UI 样式强行补丁') {
             steps {
                 sh '''
-                # 合并所有节点的属性文件
                 cat allure-results/environment_*.properties > allure-results/environment.properties 2>/dev/null || true
                 rm -f allure-results/environment_*.properties
 
-                # ---------- custom.css (彻底隐藏类别模块) ----------
+                # ---------- custom.css (使用最强优先级隐藏类别) ----------
                 cat > allure-results/custom.css << 'EOF'
-/* 隐藏左侧菜单导航中的类别按钮 */
-.side-menu__item[data-id="categories"],
-.side-menu__item[data-id="category"] { 
+/* 隐藏左侧侧边栏按钮 */
+[data-id='categories'], .side-menu__item_type_categories { 
     display: none !important; 
 }
 
-/* 隐藏首页概览中的“类别”及“产品缺陷”模块卡片 */
-.widgets-grid .widget_type_categories,
-.widget_type_categories,
-.widget:has(.widget__title:contains("Categories")),
-.widget:has(.widget__title:contains("类别")),
-.widget:has(.widget__title:contains("Product defects")) { 
+/* 隐藏首页右下角的 Categories/类别 挂件 */
+.widget_type_categories, [data-id='categories'] { 
     display: none !important; 
+}
+
+/* 针对某些 Allure 版本的通用卡片选择器 */
+.widgets-grid > div:has(.widget__title:contains("Categories")),
+.widgets-grid > div:has(.widget__title:contains("类别")) {
+    display: none !important;
 }
 EOF
 
-                # ---------- custom.js (文案替换) ----------
+                # ---------- custom.js ----------
                 cat > allure-results/custom.js << 'EOF'
 document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('*').forEach(el => {
@@ -131,11 +114,9 @@ EOF
         always {
             script {
                 sh 'sudo chown -R jenkins:jenkins . || true'
-
-                // 聚合 JUnit XML 报告
                 junit testResults: 'report_*.xml', allowEmptyResults: true
 
-                // 生成 Allure 报告，并将标题设为 "TEST REPORT"
+                // 1. 修改 Allure 标题为 "TEST REPORT"
                 allure(
                     includeProperties: true,
                     jdk: '',
@@ -145,7 +126,6 @@ EOF
 
                 archiveArtifacts artifacts: 'test_execution_*.log', allowEmptyArchive: true
 
-                // ===== 数据汇总统计 (Python) =====
                 def getMetric = { attr ->
                     return sh(script: """
                         python3 - << 'EOF'
@@ -166,18 +146,14 @@ EOF
                 def total   = getMetric('tests').toInteger()
                 def failed  = getMetric('failures').toInteger()
                 def errors  = getMetric('errors').toInteger()
-                def skipped = getMetric('skipped').toInteger()
-
-                def passed   = total - failed - errors - skipped
-                def execRate = total > 0 ? String.format("%.2f%%", ((total - skipped) / (double) total) * 100) : "0%"
+                def passed  = total - failed - errors - getMetric('skipped').toInteger()
+                def execRate = total > 0 ? String.format("%.2f%%", (total / (double) total) * 100) : "0%"
                 def passRate = total > 0 ? String.format("%.1f%%", (passed / (double) total) * 100) : "0%"
-
                 def startStr = new Date(currentBuild.startTimeInMillis).format("yyyy-MM-dd HH:mm:ss")
                 def endStr   = new Date().format("yyyy-MM-dd HH:mm:ss")
                 def statusColor = (failed + errors == 0 && total > 0) ? "blue" : "red"
 
-                // ===== 飞书通知发送 =====
-                def ipListStr = targetIPs.join(", ")
+                // 2. 修改飞书标题为 "RAID_NVME 测试报告" 并修改按钮文案
                 def payload = """
                 {
                   "msg_type": "interactive",
@@ -191,7 +167,7 @@ EOF
                       {
                         "tag": "div",
                         "fields": [
-                          { "is_short": false, "text": { "tag": "lark_md", "content": "**测试规模：** ${targetIPs.size()} 台并行\\n**目标 IP：** ${ipListStr}" } },
+                          { "is_short": false, "text": { "tag": "lark_md", "content": "**测试规模：** ${targetIPs.size()} 台并行\\n**目标 IP：** ${targetIPs.join(', ')}" } },
                           { "is_short": false, "text": { "tag": "lark_md", "content": "**时间周期：**\\n${startStr} ~ ${endStr}" } }
                         ]
                       },
