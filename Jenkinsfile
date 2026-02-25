@@ -8,7 +8,7 @@ pipeline {
         // 全局配置区
         FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/17fe4cfd-5e49-4ceb-b8c4-f002d74340ee'
         TARGET_USER = 'root'
-        #ALLOW_DESTRUCTIVE_FIO = '1' // <--- 加上这一行解锁写入测试 
+        //ALLOW_DESTRUCTIVE_FIO = '1' // <--- 加上这一行解锁写入测试 
     }
 
     stages {
