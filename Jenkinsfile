@@ -198,7 +198,7 @@ EOF
                   "card": {
                     "config": { "wide_screen_mode": true },
                     "header": {
-                      "title": { "tag": "plain_text", "content": "📊 FIO 集群测试报告 - #${env.BUILD_NUMBER}" },
+                      "title": { "tag": "plain_text", "content": "📊 CI 测试 - #${env.BUILD_NUMBER}" },
                       "template": "${statusColor}"
                     },
                     "elements": [
@@ -221,7 +221,7 @@ EOF
                         "actions": [
                           {
                             "tag": "button",
-                            "text": { "tag": "plain_text", "content": "查看 Allure 聚合报告" },
+                            "text": { "tag": "plain_text", "content": "查看详情" },
                             "url": "${env.BUILD_URL}allure/",
                             "type": "primary"
                           }
