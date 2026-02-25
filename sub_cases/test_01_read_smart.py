@@ -1,5 +1,6 @@
 import subprocess
 import pytest
+import allure
 
 def get_non_system_drives():
     """自动获取所有非系统盘的裸设备路径"""
@@ -17,10 +18,7 @@ def get_non_system_drives():
 
         all_drives = all_drives_output.split('\n')
         test_drives = [f"/dev/{drive}" for drive in all_drives if drive and drive != root_disk]
-        
-        print(f"🔍 排除系统盘 ({root_disk})，发现目标测试盘: {test_drives}")
         return test_drives
-
     except Exception as e:
         print(f"❌ 获取磁盘信息失败: {e}")
         return []
@@ -28,15 +26,17 @@ def get_non_system_drives():
 TARGET_DRIVES = get_non_system_drives()
 RW_MODES = ["read", "randread"]
 
+@allure.epic("存储硬件基准测试")
+@allure.feature("读取性能与 SMART 健康自检")
 @pytest.mark.parametrize("drive", TARGET_DRIVES)
 @pytest.mark.parametrize("rw_mode", RW_MODES)
 def test_read_and_smart(drive, rw_mode):
-    print(f"\n" + "="*60)
-    print(f"🚀 开始测试设备: {drive} | 模式: {rw_mode}")
-    print("="*60)
+    # 恢复 Allure 漂亮的中文动态标题
+    allure.dynamic.title(f"读取性能与SMART巡检: {drive} [{rw_mode}]")
+    
+    print(f"\n{'='*60}\n🚀 开始测试设备: {drive} | 模式: {rw_mode}\n{'='*60}")
     
     # ---------------- 阶段 1: FIO 测试 ----------------
-    # 移除了 --output-format=json，让终端直接打印人类可读的 FIO 报告
     fio_cmd = [
         "sudo", "fio",
         f"--name=fio_{rw_mode}_test",
@@ -53,18 +53,31 @@ def test_read_and_smart(drive, rw_mode):
     ]
     
     cmd_str = " ".join(fio_cmd)
-    print(f"\n▶️ [步骤 1] 正在执行 FIO 命令:\n$ {cmd_str}\n")
     
-    # 不使用 capture_output=True，让输出直接实时流向终端/日志
-    subprocess.run(fio_cmd, check=True)
+    with allure.step(f"1. 对设备 {drive} 执行 FIO {rw_mode} 测试"):
+        print(f"\n▶️ [步骤 1] 正在执行 FIO 命令:\n$ {cmd_str}\n")
+        # 捕获输出，不仅为了 Allure，也在控制台打印
+        result = subprocess.run(fio_cmd, capture_output=True, text=True)
+        fio_output = result.stdout + result.stderr
+        print(fio_output)
+        
+        # 将完整命令和终端输出贴到 Allure 报告右侧
+        allure.attach(f"$ {cmd_str}\n\n{fio_output}", name="FIO 终端执行日志", attachment_type=allure.attachment_type.TEXT)
+        
+        if result.returncode != 0:
+            pytest.fail("FIO 命令执行失败")
 
     # ---------------- 阶段 2: SMART 日志 ----------------
     smart_cmd = ["sudo", "smartctl", "-a", drive]
-    smart_cmd_str = " ".join(smart_cmd)
+    smart_str = " ".join(smart_cmd)
     
-    print(f"\n▶️ [步骤 2] 正在执行 SMART 检测命令:\n$ {smart_cmd_str}\n")
-    
-    # 同样不拦截输出，直接打印到控制台
-    subprocess.run(smart_cmd)
-    
+    with allure.step(f"2. 提取 {drive} 的 SMART 监控日志"):
+        print(f"\n▶️ [步骤 2] 正在执行 SMART 检测命令:\n$ {smart_str}\n")
+        smart_result = subprocess.run(smart_cmd, capture_output=True, text=True)
+        smart_output = smart_result.stdout + smart_result.stderr
+        print(smart_output)
+        
+        # 将 SMART 输出贴到 Allure 报告右侧
+        allure.attach(f"$ {smart_str}\n\n{smart_output}", name="SMART 终端执行日志", attachment_type=allure.attachment_type.TEXT)
+
     print(f"\n✅ {drive} [{rw_mode}] 测试流程结束。")
