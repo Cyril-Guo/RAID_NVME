@@ -6,33 +6,83 @@ pipeline {
     }
 
     stages {
-        stage('Prepare & Test') {
+
+        stage('Clean & Checkout') {
             steps {
                 cleanWs()
                 checkout scm
+            }
+        }
+
+        stage('Install Dependencies') {
+            steps {
+                sh 'pip install -r requirements.txt'
+            }
+        }
+
+        stage('Prepare Allure Environment Info') {
+            steps {
                 sh '''
-                pip install -r requirements.txt
                 mkdir -p allure-results
-                
-                # 1. 注入环境信息 (OS 位于顶部)
                 {
-                  echo "OS=$(grep PRETTY_NAME /etc/os-release | cut -d'=' -f2 | tr -d '\"')"
-                  echo "Kernel=$(uname -r)"
                   echo "Host=$(hostname)"
+                  echo "Kernel=$(uname -r)"
                   echo "NVMe_Count=$(ls /dev/nvme*n1 2>/dev/null | wc -l)"
                 } > allure-results/environment.properties
+                '''
+            }
+        }
 
-                # 2. 强制报告 UI 为英文
-                cat > allure-results/custom.js << 'EOF'
-(function() {
-    if (localStorage.getItem('allure2locale') !== 'en') {
-        localStorage.setItem('allure2locale', 'en');
-        window.location.reload();
-    }
-})();
+        stage('Prepare Allure UI Patch (CSS + JS)') {
+            steps {
+                sh '''
+                mkdir -p allure-results
+
+                # ---------- custom.css ----------
+                cat > allure-results/custom.css << 'EOF'
+/* =========================================
+   Hide Categories (Jenkins + Allure safe)
+   ========================================= */
+
+/* 左侧菜单：Categories / 类别 */
+.side-menu__item[data-id="categories"],
+.side-menu__item[data-id="category"] {
+  display: none !important;
+}
+
+/* Overview 页面 Categories / Product defects 卡片 */
+.widget:has(.widget__title:contains("Categories")),
+.widget:has(.widget__title:contains("类别")),
+.widget:has(.widget__title:contains("Product defects")) {
+  display: none !important;
+}
 EOF
 
-                # 3. 执行 FIO 测试
+                # ---------- custom.js ----------
+                cat > allure-results/custom.js << 'EOF'
+/*
+ * Runtime UI patch for Allure Report
+ * 1. 测试套 -> 测试日志
+ */
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('*').forEach(el => {
+    if (
+      el.childNodes.length === 1 &&
+      el.innerText &&
+      el.innerText.trim() === '测试套'
+    ) {
+      el.innerText = '测试日志';
+    }
+  });
+});
+EOF
+                '''
+            }
+        }
+
+        stage('Run FIO Tests') {
+            steps {
+                sh '''
                 sudo pytest test_fio.py \
                   --alluredir=./allure-results \
                   --junitxml=report.xml \
@@ -47,70 +97,91 @@ EOF
     post {
         always {
             script {
-                // 修复 sudo 产生的权限问题
+
                 sh 'sudo chown -R jenkins:jenkins . || true'
 
-                // 生成 Allure 报告
+                junit testResults: 'report.xml', allowEmptyResults: true
+
+                // ===== Generate Allure Report =====
                 allure(
                     includeProperties: true,
                     jdk: '',
+                    reportName: 'TestReport',
                     results: [[path: 'allure-results']]
                 )
 
-                // 归档执行日志
                 archiveArtifacts artifacts: 'test_execution.log', allowEmptyArchive: true
 
-                // --- 修复沙箱报错的部分：使用安全的方式获取结果 ---
-                // 获取常规状态
-                def buildStatus = currentBuild.currentResult // SUCCESS, FAILURE, UNSTABLE
-                def statusColor = (buildStatus == 'SUCCESS') ? "blue" : "red"
-                
-                // 如果需要具体的通过数量，建议通过简易 shell 命令读取 report.xml (绕过沙箱限制)
-                def total = sh(script: "grep -oP 'tests=\"\\K\\d+' report.xml || echo 0", returnStdout: true).trim()
-                def failed = sh(script: "grep -oP 'failures=\"\\K\\d+' report.xml || echo 0", returnStdout: true).trim()
-                def errors = sh(script: "grep -oP 'errors=\"\\K\\d+' report.xml || echo 0", returnStdout: true).trim()
-                
-                int t = total.toInteger()
-                int f = failed.toInteger() + errors.toInteger()
-                int p = t - f
-                def passRate = t > 0 ? String.format("%.1f%%", (p / (double)t) * 100) : "0%"
+                // ===== Metrics =====
+                def getMetric = { attr ->
+                    def exists = sh(script: "[ -f report.xml ] && echo yes || echo no", returnStdout: true).trim()
+                    if (exists == 'no') return "0"
+                    return sh(script: """
+                        python3 - << 'EOF'
+import xml.etree.ElementTree as ET
+t = ET.parse('report.xml').getroot()
+print(t.attrib.get('${attr}') or sum(int(s.get('${attr}',0)) for s in t.findall('.//testsuite')))
+EOF
+                    """, returnStdout: true).trim()
+                }
 
-                // 飞书通知
+                def total   = getMetric('tests').toInteger()
+                def failed  = getMetric('failures').toInteger()
+                def errors  = getMetric('errors').toInteger()
+                def skipped = getMetric('skipped').toInteger()
+
+                def passed   = total - failed - errors - skipped
+                def execRate = total > 0 ? String.format("%.2f%%", ((total - skipped) / (double) total) * 100) : "0%"
+                def passRate = total > 0 ? String.format("%.1f%%", (passed / (double) total) * 100) : "0%"
+
+                def startStr = new Date(currentBuild.startTimeInMillis).format("yyyy-MM-dd HH:mm:ss")
+                def endStr   = new Date().format("yyyy-MM-dd HH:mm:ss")
+                def statusColor = (failed + errors == 0 && total > 0) ? "blue" : "red"
+
+                // ===== Feishu Notify =====
                 def payload = """
                 {
-                    "msg_type": "interactive",
-                    "card": {
-                        "header": {
-                            "title": { "tag": "plain_text", "content": "📊 NVMe 测试报告 - #${env.BUILD_NUMBER}" },
-                            "template": "${statusColor}"
-                        },
-                        "elements": [
-                            {
-                                "tag": "div",
-                                "fields": [
-                                    { "is_short": true, "text": { "tag": "lark_md", "content": "**状态:** ${buildStatus}" } },
-                                    { "is_short": true, "text": { "tag": "lark_md", "content": "**通过率:** ${passRate}" } }
-                                ]
-                            },
-                            {
-                                "tag": "div",
-                                "text": { "tag": "lark_md", "content": "**结果明细:** Pass: ${p} / Fail: ${f} / Total: ${t}" }
-                            },
-                            {
-                                "tag": "action",
-                                "actions": [{
-                                    "tag": "button",
-                                    "text": { "tag": "plain_text", "content": "查看详情 (Allure)" },
-                                    "url": "${env.BUILD_URL}allure/",
-                                    "type": "primary"
-                                }]
-                            }
+                  "msg_type": "interactive",
+                  "card": {
+                    "config": { "wide_screen_mode": true },
+                    "header": {
+                      "title": { "tag": "plain_text", "content": "📊 RAID_NVME 测试报告 - #${env.BUILD_NUMBER}" },
+                      "template": "${statusColor}"
+                    },
+                    "elements": [
+                      {
+                        "tag": "div",
+                        "fields": [
+                          { "is_short": true, "text": { "tag": "lark_md", "content": "**开始时间：**\\n${startStr}" } },
+                          { "is_short": true, "text": { "tag": "lark_md", "content": "**结束时间：**\\n${endStr}" } }
                         ]
-                    }
+                      },
+                      {
+                        "tag": "div",
+                        "text": {
+                          "tag": "lark_md",
+                          "content": "✔️ **${passed}** ❌ **${failed}** ⛔ **${errors}** Total: **${total}**\\n执行率：${execRate}    通过率：<font color='${statusColor == 'blue' ? 'green' : 'red'}'>${passRate}</font>"
+                        }
+                      },
+                      {
+                        "tag": "action",
+                        "actions": [
+                          {
+                            "tag": "button",
+                            "text": { "tag": "plain_text", "content": "查看详情" },
+                            "url": "${env.BUILD_URL}allure/",
+                            "type": "primary"
+                          }
+                        ]
+                      }
+                    ]
+                  }
                 }
                 """
+
                 sh "curl -s -X POST -H 'Content-Type: application/json' -d '${payload}' ${env.FEISHU_WEBHOOK}"
             }
         }
     }
 }
+
