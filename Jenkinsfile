@@ -195,8 +195,8 @@ EOF
                       {
                         "tag": "div",
                         "fields": [
-                          { "is_short": true, "text": { "tag": "lark_md", "content": "**用户名:** dapustor" } },
-                          { "is_short": true, "text": { "tag": "lark_md", "content": "**密码:** Admin@9000" } },
+                          { "is_short": false, "text": { "tag": "lark_md", "content": "**用户名:** dapustor" } },
+                          { "is_short": false, "text": { "tag": "lark_md", "content": "**密码:** Admin@9000" } },
                           { "is_short": false, "text": { "tag": "lark_md", "content": "**时间周期：**\\n${startStr} ~ ${endStr}" } }
                         ]
                       },
