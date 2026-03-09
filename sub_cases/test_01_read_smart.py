@@ -34,7 +34,7 @@ def test_read_and_smart(drive, rw_mode):
     # 恢复 Allure 漂亮的中文动态标题
     allure.dynamic.title(f"读取性能与SMART巡检: {drive} [{rw_mode}]")
     
-    print(f"\n{'='*60}\n🚀 开始测试设备: {drive} | 模式: {rw_mode}\n{'='*60}")
+    # print(f"\n{'='*60}\n🚀 开始测试设备: {drive} | 模式: {rw_mode}\n{'='*60}")
     
     # ---------------- 阶段 1: FIO 测试 ----------------
     fio_cmd = [
@@ -59,7 +59,7 @@ def test_read_and_smart(drive, rw_mode):
         # 捕获输出，不仅为了 Allure，也在控制台打印
         result = subprocess.run(fio_cmd, capture_output=True, text=True)
         fio_output = result.stdout + result.stderr
-        print(fio_output)
+        # print(fio_output)
         
         # 将完整命令和终端输出贴到 Allure 报告右侧
         allure.attach(f"$ {cmd_str}\n\n{fio_output}", name="FIO 终端执行日志", attachment_type=allure.attachment_type.TEXT)
@@ -75,9 +75,9 @@ def test_read_and_smart(drive, rw_mode):
         print(f"\n▶️ [步骤 2] 正在执行 SMART 检测命令:\n$ {smart_str}\n")
         smart_result = subprocess.run(smart_cmd, capture_output=True, text=True)
         smart_output = smart_result.stdout + smart_result.stderr
-        print(smart_output)
+        # print(smart_output)
         
         # 将 SMART 输出贴到 Allure 报告右侧
         allure.attach(f"$ {smart_str}\n\n{smart_output}", name="SMART 终端执行日志", attachment_type=allure.attachment_type.TEXT)
 
-    print(f"\n✅ {drive} [{rw_mode}] 测试流程结束。")
+    # print(f"\n✅ {drive} [{rw_mode}] 测试流程结束。")
