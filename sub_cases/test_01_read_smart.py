@@ -26,8 +26,6 @@ def get_non_system_drives():
 TARGET_DRIVES = get_non_system_drives()
 RW_MODES = ["read", "randread"]
 
-@allure.epic("存储硬件基准测试")
-@allure.feature("读取性能与 SMART 健康自检")
 @pytest.mark.parametrize("drive", TARGET_DRIVES)
 @pytest.mark.parametrize("rw_mode", RW_MODES)
 def test_read_and_smart(drive, rw_mode):
