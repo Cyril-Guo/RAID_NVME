@@ -88,43 +88,12 @@ pipeline {
             }
         }
 
-        stage('后期处理：UI 样式强行补丁') {
+        stage('后期处理：测试环境属性合并') {
             steps {
                 sh '''
                 # 合并所有节点的属性文件
                 cat allure-results/environment_*.properties > allure-results/environment.properties 2>/dev/null || true
                 rm -f allure-results/environment_*.properties
-
-                # ---------- custom.css (彻底隐藏类别模块) ----------
-                cat > allure-results/custom.css << 'EOF'
-/* 隐藏左侧菜单导航中的类别按钮 */
-.side-menu__item[data-id="categories"],
-.side-menu__item[data-id="category"],
-.side-menu__item_type_categories { 
-    display: none !important; 
-}
-
-/* 隐藏首页概览中的“类别”及“产品缺陷”模块卡片 */
-.widgets-grid .widget_type_categories,
-.widget_type_categories,
-[data-id='categories'],
-.widget:has(.widget__title:contains("Categories")),
-.widget:has(.widget__title:contains("类别")),
-.widget:has(.widget__title:contains("Product defects")) { 
-    display: none !important; 
-}
-EOF
-
-                # ---------- custom.js (文案替换) ----------
-                cat > allure-results/custom.js << 'EOF'
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelectorAll('*').forEach(el => {
-    if (el.childNodes.length === 1 && el.innerText && el.innerText.trim() === '测试套') {
-      el.innerText = '测试日志';
-    }
-  });
-});
-EOF
                 '''
             }
         }
@@ -150,27 +119,30 @@ EOF
                 archiveArtifacts artifacts: 'test_execution_*.log', allowEmptyArchive: true
 
                 // ===== 数据汇总统计 (Python) =====
-                def getMetric = { attr ->
-                    return sh(script: """
-                        python3 - << 'EOF'
+                // 使用一次 Python 执行获取所有统计数据，避免重复启动环境和解析
+                def metricsOutput = sh(script: """
+                    python3 - << 'EOF'
 import xml.etree.ElementTree as ET
 import glob
-val = 0
+
+stats = {'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0}
 files = glob.glob('report_*.xml')
 for f in files:
     try:
         t = ET.parse(f).getroot()
-        val += int(t.attrib.get('${attr}') or sum(int(s.get('${attr}',0)) for s in t.findall('.//testsuite')))
+        for attr in stats.keys():
+            val = int(t.attrib.get(attr) or sum(int(s.get(attr, 0)) for s in t.findall('.//testsuite')))
+            stats[attr] += val
     except: pass
-print(val)
+print(f"{stats['tests']} {stats['failures']} {stats['errors']} {stats['skipped']}")
 EOF
-                    """, returnStdout: true).trim()
-                }
+                """, returnStdout: true).trim()
 
-                def total   = getMetric('tests').toInteger()
-                def failed  = getMetric('failures').toInteger()
-                def errors  = getMetric('errors').toInteger()
-                def skipped = getMetric('skipped').toInteger()
+                def metrics = metricsOutput.split(' ')
+                def total   = metrics[0].toInteger()
+                def failed  = metrics[1].toInteger()
+                def errors  = metrics[2].toInteger()
+                def skipped = metrics[3].toInteger()
 
                 def passed   = total - failed - errors - skipped
                 def execRate = total > 0 ? String.format("%.2f%%", ((total - skipped) / (double) total) * 100) : "0%"
@@ -181,7 +153,11 @@ EOF
                 def statusColor = (failed + errors == 0 && total > 0) ? "blue" : "red"
 
                 // ===== 飞书通知发送 =====
+                // 发送时把集群节点 IP 加上
                 def ipListStr = targetIPs.join(", ")
+                def fontColor = statusColor == 'blue' ? 'green' : 'red'
+                
+                // 将 payload 写入本地文件进行发送，避免 curl 时终端解析导致引号被错误截断
                 def payload = """
                 {
                   "msg_type": "interactive",
@@ -197,14 +173,15 @@ EOF
                         "fields": [
                           { "is_short": true, "text": { "tag": "lark_md", "content": "**用户名:** dapustor" } },
                           { "is_short": true, "text": { "tag": "lark_md", "content": "**密码:** Admin@9000" } },
-                          { "is_short": false, "text": { "tag": "lark_md", "content": "**时间周期：**\\n${startStr} ~ ${endStr}" } }
+                          { "is_short": false, "text": { "tag": "lark_md", "content": "**时间周期：**\\n${startStr} ~ ${endStr}" } },
+                          { "is_short": false, "text": { "tag": "lark_md", "content": "**并发节点：**\\n${ipListStr}" } }
                         ]
                       },
                       {
                         "tag": "div",
                         "text": {
                           "tag": "lark_md",
-                          "content": "✔️ **${passed}** ❌ **${failed}** ⛔ **${errors}** Total: **${total}**\\n执行率：${execRate}   通过率：<font color='${statusColor == 'blue' ? 'green' : 'red'}'>${passRate}</font>"
+                          "content": "✔️ **${passed}** ❌ **${failed}** ⛔ **${errors}** Total: **${total}**\\n执行率：${execRate}   通过率：<font color=\\"${fontColor}\\">${passRate}</font>"
                         }
                       },
                       {
@@ -222,7 +199,9 @@ EOF
                   }
                 }
                 """
-                sh "curl -s -X POST -H 'Content-Type: application/json' -d '${payload}' ${env.FEISHU_WEBHOOK}"
+                
+                writeFile file: 'feishu_payload.json', text: payload
+                sh "curl -s -X POST -H 'Content-Type: application/json' -d @feishu_payload.json ${env.FEISHU_WEBHOOK}"
             }
         }
     }
