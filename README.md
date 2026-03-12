@@ -1,6 +1,6 @@
 # RAID_NVME Test Automation Framework
 
-这是一个基于 Pytest 和 Jenkins 的自动化测试框架，用于在多节点服务器上并发执行 NVMe 和 RAID 相关的自动化测试。它支持自动远程部署、并发执行、测试报告合并以及飞书（Lark）结果通知功能。
+这是一个基于 Pytest 和 Jenkins 的自动化测试框架，用于在多节点服务器上并发执行 RAID 相关的自动化测试。它支持自动远程部署、并发执行、测试报告合并以及飞书（Lark）结果通知功能。
 
 ## 🌟 主要功能
 
