@@ -3,6 +3,8 @@ import pytest
 import allure
 from datetime import datetime
 
+
+
 def test_system_io_status():
     allure.dynamic.title("标题测试")
 
