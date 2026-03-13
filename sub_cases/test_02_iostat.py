@@ -4,7 +4,7 @@ import allure
 from datetime import datetime
 
 def test_system_io_status():
-    allure.dynamic.title("标题测试")
+    allure.dynamic.title("测试学习")
 
     interval = "1"
     count = "10"
