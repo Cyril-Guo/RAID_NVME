@@ -15,10 +15,28 @@ def main():
         sys.exit(1)
 
     # 组装 Pytest 执行参数
-    # -s: 允许子脚本中的 print 语句直接穿透打印到控制台
-    # --alluredir / --junitxml: 统一收集所有子脚本的测试结果
-    pytest_args = [
-        cases_dir,
+    # 支持从环境变量读取需要执行的具体测试项 (由 Jenkins 传入)
+    test_files = []
+    mapping = {
+        "RUN_REBOOT": "sub_cases/test_stress_01_reboot.py",
+        "RUN_DC": "sub_cases/test_stress_02_dc.py",
+        "RUN_LAWDISK": "sub_cases/test_stress_03_lawdisk.py",
+        "RUN_FILESYSTEM": "sub_cases/test_stress_04_filesystem.py",
+        "RUN_MIX": "sub_cases/test_stress_05_mix.py",
+        "RUN_SPECIFY": "sub_cases/test_stress_06_specify.py",
+        "RUN_RESTORE": "sub_cases/test_stress_07_restore.py"
+    }
+    
+    for env_var, file_path in mapping.items():
+        if os.environ.get(env_var) == "true":
+            test_files.append(file_path)
+    
+    # 如果没有任何勾选，则默认运行 sub_cases 下的所有有效用例
+    if not test_files:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 未指定特定测试项，将运行所有子用例")
+        test_files = [cases_dir]
+
+    pytest_args = test_files + [
         "--alluredir=./allure-results",
         "--junitxml=report.xml",
         "-o", "log_cli=true",

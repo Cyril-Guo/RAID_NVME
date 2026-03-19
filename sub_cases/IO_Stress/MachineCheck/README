@@ -1,0 +1,18 @@
+#MachineCheck
+1.运行方式:
+sh MachineCheck.sh
+log保存在Result文件夹内
+
+2.配置文件CheckList说明:
+共包含4种模式,0为不运行,1为运行并且结果记录在Result文件夹内machinecheck.log中.
+模式2和模式3针对power_cycle测试.
+模式2抓取的信息会进行比对,但不一致测试不停止.
+模式3只抓取测试信息,不进行比对.
+
+3.工具安装:
+nvme-cli 等系统工具现在采用在线安装方式(apt/yum/dnf),不再依赖本地 tool 文件夹.
+
+特别说明:
+1.如需测试TPMCard,需根据《海光TPM2.0功能测试文档》安装并配置BIOS选项,并在Linux系统上安装 yum install tpm2-abrmd tpm2-abrmd-devel tpm2-tools openssl libss-devel 后再进行测试.
+2. "get_detail_pcie_info=0" 默认置0不做检查,若需要检查,请置3.
+

@@ -1,0 +1,344 @@
+[1m[32m-------------------Machine Informantion Checking tool version-------------------[0m
+MachineCheck Infomation  				v1.3
+[1m[33m[Tool Version][0m
+nvme                     				nvme version 2.8.15-dapu (git 2.8.13-13-g8be003a)
+libnvme version 1.8.15-dapu (git 1.8-76-gcd86e41d0)
+dptool 1.0.23 autotest debug compile time 2025-07-09 11:25:34
+smartctl                 				smartctl 7.2 
+StorCli SAS Utility      				
+LSI Corporation SAS2 IR  				Version 20.00.00.00  
+LSI Corporation SAS3 IR  				Version 16.00.00.00  
+[1m[32m-------------------Machine Informantion Checking tool version-------------------[0m
+[1m[32m----------------------------Machine Summary Message----------------------------[0m
+cpu model name:          				12th Gen Intel(R) Core(TM) i7-12700K
+12th Gen Intel(R) Core(TM) i7-12700K
+cpu numbers:             				1
+cpu_L1d cache            				512 KiB (12 instances)
+cpu_L1i cache            				512 KiB (12 instances)
+cpu_L2 cache             				12 MiB (9 instances)
+cpu_L3 cache             				25 MiB (1 instance)
+memory manufacturer:     				Kingston 
+memory numbers:          				1
+pcie devices:            				2
+Ethernet controller Numbers:				2
+GPU controller Numbers:  				0
+IB CARD Numbers:         				0
+RAID/HBA CARD Numbers:   				0
+Vedio Speed Numbers:     				0
+FPGA Numbers:            				0
+NVME Numbers:            				2
+HDD Numbers:             				1
+[1m[32m----------------------------Machine Summary Message----------------------------[0m
+[1m[32m----------------------------Ethernet Detail Message----------------------------[0m
+01:00.0 Ethernet controller: Shenzhen DAPU Microelectronics Co., Ltd Device 300c (rev 01)
+BUSID                    				01:00.0
+PCIEBW Theory            				Speed 16GT/s, Width x4,
+PCIEBW Reality           						LnkSta:	Speed 16GT/s, Width x4
+FW                       				 FC00101B                               
+DRIVER                   				dn200-1.0.39                       
+01:00.1 Ethernet controller: Shenzhen DAPU Microelectronics Co., Ltd Device 300c (rev 01)
+BUSID                    				01:00.1
+PCIEBW Theory            				Speed 16GT/s, Width x4,
+PCIEBW Reality           						LnkSta:	Speed 16GT/s, Width x4
+FW                       				 FC00101B                               
+DRIVER                   				dn200-1.0.39                       
+01:00.2 Ethernet controller: Shenzhen DAPU Microelectronics Co., Ltd Device 300c (rev 01)
+BUSID                    				01:00.2
+PCIEBW Theory            				Speed 16GT/s, Width x4,
+PCIEBW Reality           						LnkSta:	Speed 16GT/s, Width x4
+FW                       				 FC00101B                               
+DRIVER                   				dn200-1.0.39                       
+01:00.3 Ethernet controller: Shenzhen DAPU Microelectronics Co., Ltd Device 300c (rev 01)
+BUSID                    				01:00.3
+PCIEBW Theory            				Speed 16GT/s, Width x4,
+PCIEBW Reality           						LnkSta:	Speed 16GT/s, Width x4
+FW                       				 FC00101B                               
+DRIVER                   				dn200-1.0.39                       
+03:00.0 Ethernet controller: Realtek Semiconductor Co., Ltd. RTL8125 2.5GbE Controller (rev 05)
+BUSID                    				03:00.0
+PCIEBW Theory            				Speed 5GT/s, Width x1,
+PCIEBW Reality           						LnkSta:	Speed 5GT/s, Width x1
+FW                       				 rtl8125b-2_0.0.2 07/13/20              
+DRIVER                   				r8169-5.10.0-136.49.0.127.u85.fos23.x
+Interface      ,Speed          ,Link           ,Bus                 ,NIC/LOM        ,PCIe_slot                               ,FW                                      ,Driver                             ,MAC                           ,Port                               ,Silicn                        ,Up/Down                            
+enp1s0f0       ,UNKOWN         ,no             ,0000:01:00.0        ,UNKOWN         ,v2,Speed 16GT/s  Width x4               , FC00101B                               ,dn200-1.0.39                       ,d8:bc:59:ff:9e:6a             ,Twisted Pair                       ,UNKOWN                        ,UP,BROADCAST,MULTICAST             
+enp1s0f1       ,UNKOWN         ,no             ,0000:01:00.1        ,UNKOWN         ,v2,Speed 16GT/s  Width x4               , FC00101B                               ,dn200-1.0.39                       ,d8:bc:59:f3:96:5b             ,Twisted Pair                       ,UNKOWN                        ,UP,BROADCAST,MULTICAST             
+enp1s0f2       ,UNKOWN         ,no             ,0000:01:00.2        ,UNKOWN         ,v2,Speed 16GT/s  Width x4               , FC00101B                               ,dn200-1.0.39                       ,d8:bc:59:a0:d6:e6             ,Twisted Pair                       ,UNKOWN                        ,UP,BROADCAST,MULTICAST             
+enp1s0f3       ,UNKOWN         ,no             ,0000:01:00.3        ,UNKOWN         ,v2,Speed 16GT/s  Width x4               , FC00101B                               ,dn200-1.0.39                       ,d8:bc:59:31:a6:eb             ,Twisted Pair                       ,UNKOWN                        ,UP,BROADCAST,MULTICAST             
+enp3s0         ,1000Mb/s       ,yes            ,0000:03:00.0        ,UNKOWN         ,v2,Speed 5GT/s  Width x1                , rtl8125b-2_0.0.2 07/13/20              ,r8169-5.10.0-136.49.0.127.u85.fos23.x,d8:5e:d3:a8:04:6c             ,Twisted Pair                       ,UNKOWN                        ,UP,BROADCAST,RUNNING,MULTICAST     
+[1m[32m----------------------------Ethernet Detail Message----------------------------[0m
+[1m[32m-------------------------------HDD Smart Message-------------------------------[0m
+[1m[32m-------------------------------Nvme Smart Message-------------------------------[0m
+/dev/nvme0
+	Warning Temperature Time		: 0
+	Critical Composite Temperature Time	: 0
+/dev/nvme0
+	Warning Temperature Time		: 0
+	Critical Composite Temperature Time	: 0
+[1m[32m-------------------------------Nvme Smart Message-------------------------------[0m
+[1m[32m----disk: sda capability: 447.13 GiB type: ssd mode:  rotation_rate:unknown----[0m
+smartctl 7.2 2020-12-30 r5155 [x86_64-linux-5.10.0-136.49.0.127.u85.fos23.x86_64] (local build)
+Copyright (C) 2002-20, Bruce Allen, Christian Franke, www.smartmontools.org
+
+=== START OF INFORMATION SECTION ===
+Device Model:     SAMSUNG MZ7L3480HCHQ-00B7C
+Serial Number:    S6KLNT0WC11675
+LU WWN Device Id: 5 002538 fa3c243d4
+Firmware Version: JXTC404Q
+User Capacity:    480,103,981,056 bytes [480 GB]
+Sector Sizes:     512 bytes logical, 4096 bytes physical
+Rotation Rate:    Solid State Device
+Form Factor:      2.5 inches
+TRIM Command:     Available, deterministic, zeroed
+Device is:        Not in smartctl database [for details use: -P showall]
+ATA Version is:   ACS-4 T13/BSR INCITS 529 revision 5
+SATA Version is:  SATA 3.2, 6.0 Gb/s (current: 6.0 Gb/s)
+SMART support is: Available - device has SMART capability.
+SMART support is: Enabled
+
+[1m[32m-------------------------------HDD Smart Message-------------------------------[0m
+[1m[32m----------------------------------Nvme Message----------------------------------[0m
+NVME: 
+Node             SN                   Model                                    Namespace Usage                      Format           FW Rev  
+---------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------
+/dev/nvme0n1     SN-00FA5752AD2449F8  DAPUSTOR DP26Q020001-1000                1          960.14  GB    512   B +  0 B   FC00101B
+/dev/nvme0n2     SN-00FA5752AD2449F8  DAPUSTOR DP26Q020001-1000                2          960.14  GB    512   B +  0 B   FC00101B
+The NVME: /dev/nvme0 
+FW info:
+Firmware Log for device:nvme0
+afi  : 0x1
+frs1 : 0x4231303130304346 (FC00101B)
+frs2 : 0x4231303130304346 (FC00101B)
+SMART info:
+Smart Log for NVME device:nvme0 namespace-id:ffffffff
+The NVME: /dev/nvme0 
+FW info:
+Firmware Log for device:nvme0
+afi  : 0x1
+frs1 : 0x4231303130304346 (FC00101B)
+frs2 : 0x4231303130304346 (FC00101B)
+SMART info:
+Smart Log for NVME device:nvme0 namespace-id:ffffffff
+[1m[32m----------------------------------Nvme Message----------------------------------[0m
+[1m[32m--------------------------Bootraid Ctrl0 Devic Message--------------------------[0m
+CLI Version = Customization Utility Ver  Raid Tool v0.1b.1 (2025-08-04/19:33:30)
+Operating system = Linux 5.10.0-136.49.0.127.u85.fos23.x86_64
+Controller = 0
+Status = Success
+Description = Show Controller succeeded
+
+Product Name = Flexraid F5300
+Model Number = DAPUSTOR DP26Q020001-1000               
+Serial Number = SN-00FA5752AD2449F8 
+WWN = fa5752ad2449f8
+ECC Count = 0
+PCIe Link Error = 0
+PCIe Link Capability = Gen4 x4
+PCIe Link Status  = Gen4 x4
+PCI Address = 01:00.4
+Vendor Id = 0x1e3b
+Device Id = 0x50c2
+SubVendor Id = 0x1e3b
+SubDevice Id = 0x50b0
+FW Version = FC00101B
+
+Number of Virtual Drives = 2
+
+Virtual Drives :
+==============
+
+-----------------------------------------------------------------
+DG/VD  State  Consist TYPE   Intf          Size Name           
+-----------------------------------------------------------------
+0/0    Opti   No      RAID0  NVME   894.201 GiB -
+0/1    Opti   No      RAID0  NVME   894.201 GiB -
+-----------------------------------------------------------------
+
+Intf=Interface|Opti=Optimal|Degr=Degrade|Part=Partially_Optimal
+Offl=Offline|Fail=Failed|Miss=Missing|Dele=Deleted|DG=Disk Group
+Unkn=Unknow
+-----------------------------------------------------------------
+-----------------------------------------------------------------
+
+Number of Physical Drives = 4
+
+Drive Information :
+=================
+
+-------------------------------------------------------------------------------------------------------------------
+EID:Slt DID State DG/VD          Size Intf Med   SeSz Model                                    SN                  
+-------------------------------------------------------------------------------------------------------------------
+ 60:0   0   Onli  0/1     447.132 GiB sata SSD  512 B SAMSUNG MZ7L3480HCHQ-00B7C               S6KLNT0WC11686      
+ 60:1   1   Onli  0/0     894.253 GiB sata SSD  512 B INTEL SSDSC2KB960G8                      BTYF152506K7960CGN  
+ 60:2   2   Onli  0/0     447.132 GiB sata SSD  512 B SE005-480GB-H                            YMD1480JA2145205YX  
+ 60:3   3   Onli  0/1     894.253 GiB sata SSD  512 B DATSSD J960GSBLT3CACDED59                D230530013KA000075  
+-------------------------------------------------------------------------------------------------------------------
+
+EID=Enclosure Device ID|Slt-Slot No.|DID=Device ID|VD=Virtual ID
+Intf=Interface|Med=Media Type|SeSz=Sector Size|Offl=Offline
+Onli=Online|Fail=Failed|Rebu=Rebuid|Repl=Replace|Shie=Shield
+HotS=HotSpare|Miss=Missing|UnGo=UnGood|UnBa=UnBad|DG=Disk Group
+F=Foreign
+-------------------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------------------
+
+Number of Enclosures = 1
+
+Enclosure LIST :
+==============
+
+--------------------------------------------------
+EID State Slots PD
+--------------------------------------------------
+60  OK    4     4 
+--------------------------------------------------
+
+EID=Enclosure Device ID|PD=physical drive count
+--------------------------------------------------
+--------------------------------------------------
+
+[1m[32m--------------------------Bootraid Ctrl1 Devic Message--------------------------[0m
+CLI Version = Customization Utility Ver  Raid Tool v0.1b.1 (2025-08-04/19:33:30)
+Operating system = Linux 5.10.0-136.49.0.127.u85.fos23.x86_64
+Controller = 1
+Status = Success
+Description = Show Controller succeeded
+
+Product Name = Flexraid F6100
+Model Number = DAPUSTOR DPFP52D20B0T00000G010          
+Serial Number = FR6B01B25200010W    
+WWN = 5d8bc59f610117bf
+ECC Count = 0
+PCIe Link Error = 0
+PCIe Link Capability = Gen4 x4
+PCIe Link Status  = Gen3 x4
+PCI Address = 04:00.0
+Vendor Id = 0x1e3b
+Device Id = 0x50b1
+SubVendor Id = 0x1e3b
+SubDevice Id = 0x50b1
+FW Version = FB00101B
+
+Number of Virtual Drives = 0
+
+Virtual Drives :
+==============
+
+-----------------------------------------------------------------
+DG/VD  State  Consist TYPE   Intf          Size Name           
+-----------------------------------------------------------------
+-----------------------------------------------------------------
+
+Intf=Interface|Opti=Optimal|Degr=Degrade|Part=Partially_Optimal
+Offl=Offline|Fail=Failed|Miss=Missing|Dele=Deleted|DG=Disk Group
+Unkn=Unknow
+-----------------------------------------------------------------
+-----------------------------------------------------------------
+
+Number of Physical Drives = 2
+
+Drive Information :
+=================
+
+-------------------------------------------------------------------------------------------------------------------
+EID:Slt DID State DG/VD          Size Intf Med   SeSz Model                                    SN                  
+-------------------------------------------------------------------------------------------------------------------
+ 61:0   0   UnGo  F/-     894.253 GiB nvme SSD  512 B SSSTC PJ1-GW960                          0024521W05NA        
+ 61:1   1   UnBa  0/-       1.747 TiB nvme SSD  512 B SSSTC PJ1-GW1920                         0024521W05NF        
+-------------------------------------------------------------------------------------------------------------------
+
+EID=Enclosure Device ID|Slt-Slot No.|DID=Device ID|VD=Virtual ID
+Intf=Interface|Med=Media Type|SeSz=Sector Size|Offl=Offline
+Onli=Online|Fail=Failed|Rebu=Rebuid|Repl=Replace|Shie=Shield
+HotS=HotSpare|Miss=Missing|UnGo=UnGood|UnBa=UnBad|DG=Disk Group
+F=Foreign
+-------------------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------------------
+
+Number of Enclosures = 1
+
+Enclosure LIST :
+==============
+
+--------------------------------------------------
+EID State Slots PD
+--------------------------------------------------
+61  OK    2     2 
+--------------------------------------------------
+
+EID=Enclosure Device ID|PD=physical drive count
+--------------------------------------------------
+--------------------------------------------------
+
+[1m[32m--------------------------Bootraid Ctrl2 Devic Message--------------------------[0m
+CLI Version = Customization Utility Ver  Raid Tool v0.1b.1 (2025-08-04/19:33:30)
+Operating system = Linux 5.10.0-136.49.0.127.u85.fos23.x86_64
+Controller = 2
+Status = Failure
+Description = Controller 2 not found
+
+[1m[32m-------------------------------PCIE Devic Message-------------------------------[0m
+01:00.0 Ethernet controller: Shenzhen DAPU Microelectronics Co., Ltd Device 300c (rev 01)
+PCIEBW Theory            				Speed 16GT/s, Width x4,
+PCIEBW Reality           						LnkSta:	Speed 16GT/s, Width x4
+UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+UEMsk:	DLP- SDES- TLP- FCP- CmpltTO+ CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+01:00.1 Ethernet controller: Shenzhen DAPU Microelectronics Co., Ltd Device 300c (rev 01)
+PCIEBW Theory            				Speed 16GT/s, Width x4,
+PCIEBW Reality           						LnkSta:	Speed 16GT/s, Width x4
+UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+01:00.2 Ethernet controller: Shenzhen DAPU Microelectronics Co., Ltd Device 300c (rev 01)
+PCIEBW Theory            				Speed 16GT/s, Width x4,
+PCIEBW Reality           						LnkSta:	Speed 16GT/s, Width x4
+UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+01:00.3 Ethernet controller: Shenzhen DAPU Microelectronics Co., Ltd Device 300c (rev 01)
+PCIEBW Theory            				Speed 16GT/s, Width x4,
+PCIEBW Reality           						LnkSta:	Speed 16GT/s, Width x4
+UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+01:00.4 Non-Volatile memory controller: Shenzhen DAPU Microelectronics Co., Ltd Device 50c2
+PCIEBW Theory            				Speed 16GT/s, Width x4,
+PCIEBW Reality           						LnkSta:	Speed 16GT/s, Width x4
+UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+03:00.0 Ethernet controller: Realtek Semiconductor Co., Ltd. RTL8125 2.5GbE Controller (rev 05)
+PCIEBW Theory            				Speed 5GT/s, Width x1,
+PCIEBW Reality           						LnkSta:	Speed 5GT/s, Width x1
+UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+04:00.0 Non-Volatile memory controller: Shenzhen DAPU Microelectronics Co., Ltd Device 50b1
+PCIEBW Theory            				Speed 16GT/s, Width x4,
+PCIEBW Reality           						LnkSta:	Speed 8GT/s (downgraded), Width x4
+UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+UEMsk:	DLP- SDES- TLP- FCP- CmpltTO+ CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+01:00.4 Non-Volatile memory controller: Shenzhen DAPU Microelectronics Co., Ltd Device 50c2
+PCIEBW Theory            				Speed 16GT/s, Width x4,
+PCIEBW Reality           						LnkSta:	Speed 16GT/s, Width x4
+UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+UEMsk:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+04:00.0 Non-Volatile memory controller: Shenzhen DAPU Microelectronics Co., Ltd Device 50b1
+PCIEBW Theory            				Speed 16GT/s, Width x4,
+PCIEBW Reality           						LnkSta:	Speed 8GT/s (downgraded), Width x4
+UESta:	DLP- SDES- TLP- FCP- CmpltTO- CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+UEMsk:	DLP- SDES- TLP- FCP- CmpltTO+ CmpltAbrt- UnxCmplt- RxOF- MalfTLP- ECRC- UnsupReq- ACSViol-
+CESta:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr-
+CEMsk:	RxErr- BadTLP- BadDLLP- Rollover- Timeout- AdvNonFatalErr+
+[1m[32m-------------------------------PCIE Devic Message-------------------------------[0m

@@ -1,0 +1,14 @@
+#Config File
+[global]
+ioengine=libaio
+direct=1
+runtime=run_time
+iodepth=config_iodepth
+rw=config_mode
+bs=config_blocksize
+time_based
+numjobs=num_jobs
+refill_buffers
+group_reporting
+offset=off_set
+log_avg_msec=config_log_avg_msec

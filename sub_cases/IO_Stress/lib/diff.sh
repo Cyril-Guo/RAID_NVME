@@ -1,0 +1,115 @@
+#!/bin/bash
+
+IFS=$'\n'
+
+
+
+function record_errorinfo(){
+    echo "ERROR: MachineCheck Log Inconsistency Detected!" | tee -a $TestErrorLog/machine_diff_error.log
+    echo "==================================================" | tee -a $TestErrorLog/machine_diff_error.log
+    echo "Current Loop: $loop" | tee -a $TestErrorLog/machine_diff_error.log
+    echo "Time: $(date)" | tee -a $TestErrorLog/machine_diff_error.log
+    echo "Differences (Golden < vs Current >):" | tee -a $TestErrorLog/machine_diff_error.log
+    
+    diff -u $MachineCheckLog/info_before.log $MachineCheckLog/info_after.log >> $TestErrorLog/machine_diff_error.log
+    
+    echo "--------------------------------------------------" >> $TestErrorLog/machine_diff_error.log
+    echo -e "\033[31m ERROR: MachineCheck inconsistencies found at loop $loop. Check $TestErrorLog/machine_diff_error.log for details.\033[0m"
+    
+    # Also record to diff_all.log
+    echo -e "\n--- Loop $loop Error Record ---" >> $MessageRecordLog/diff_all.log
+    diff -u $MachineCheckLog/info_before.log $MachineCheckLog/info_after.log >> $MessageRecordLog/diff_all.log
+}
+
+function diff_messages()
+{
+    if [[ $check == "NO" ]];then
+        echo "no check,exit"
+        echo "diff finish" >$LogAd/diff.flag
+        return 1
+    else
+        show_produce_message "Computed FIO deviation"
+        if [[ $loop != 0 ]];then
+            date +%Y-%m-%d_%H:%M:%S | tee -a $Fio_Result_Dir/result_fio.log
+            fio_mode_list=($(cat $Fio_Result_Dir/result_0.csv | sed -n '2,$p' | awk '{print $1}'))
+            for fio_mode in ${fio_mode_list[*]};do
+                if [[ ! $fio_mode ]];then continue; fi
+                before_iops=$(cat $Fio_Result_Dir/result_0.csv | grep "^$fio_mode" | awk '{print $7}' | awk -F, '{print $1}')
+                after_iops=$(cat $Fio_Result_Dir/result_${loop}.csv | grep "^$fio_mode" | awk '{print $7}' | awk -F, '{print $1}')
+                # ... (Handle 'k' in IOPS as before) ...
+                if [[ $before_iops =~ k ]]; then before_iops=$(echo "$before_iops" | awk -Fk '{print $1}' | awk '{print $1*1000}'); fi
+                if [[ $after_iops =~ k ]]; then after_iops=$(echo "$after_iops" | awk -Fk '{print $1}' | awk '{print $1*1000}'); fi
+                
+                before_bw=$(cat $Fio_Result_Dir/result_0.csv | grep "^$fio_mode" | awk '{print $11}' | awk -FM '{print $1}')
+                after_bw=$(cat $Fio_Result_Dir/result_${loop}.csv | grep "^$fio_mode" | awk '{print $11}' | awk -FM '{print $1}')
+                
+                echo "$fio_mode" | tee -a $Fio_Result_Dir/result_fio.log
+                echo "Before Value: IOPS $before_iops, BW $before_bw" | tee -a $Fio_Result_Dir/result_fio.log
+                echo "After Value: IOPS $after_iops, BW $after_bw" | tee -a $Fio_Result_Dir/result_fio.log
+                
+                deviation_iops=$(echo "scale=2; if($after_iops > $before_iops) ($after_iops-$before_iops)/$before_iops*100 else ($before_iops-$after_iops)/$before_iops*100" | bc 2>/dev/null)
+                deviation_bw=$(echo "scale=2; if($after_bw > $before_bw) ($after_bw-$before_bw)/$before_bw*100 else ($before_bw-$after_bw)/$before_bw*100" | bc 2>/dev/null)
+                echo "Deviation: IOPS ${deviation_iops-0}%, BW ${deviation_bw-0}%" | tee -a $Fio_Result_Dir/result_fio.log
+            done
+        fi
+        
+        cd $MachineCheck_Dir >/dev/null
+        show_produce_message "Start MachineCheck"
+        rm -rf $MachineCheck_Dir/Disk_Info_Before
+        mkdir -p $MachineCheck_Dir/Disk_Info_Before
+        if [[ -d $MachineCheck_Dir/Disk_Info ]]; then
+            mv $MachineCheck_Dir/Disk_Info $MachineCheckLog/${loop}_Disk_Info
+        fi
+        sh MachineCheck.sh
+
+        # compare_log
+        if [[ -f $MachineCheck_Dir/Result/machinecheck.log ]]; then
+            process_machinecheck_results "$MachineCheckLog/info_after.log" "$SmartErrorLog/CheckNoStop/${loop}_check_nostop.log" "$MessageRecordLog/${loop}_messages_record.log"
+        else
+            echo "Warning: MachineCheck.sh did not produce machinecheck.log" | tee -a $Result_Dir/result.log
+        fi
+
+        if [[ -f $MachineCheckLog/info_after.log ]]; then
+            echo "Machinecheck finish" >> $MachineCheckLog/info_after.log
+            cp -f $MachineCheckLog/info_after.log $MachineCheckLog/${loop}_machinecheck.log
+        fi
+        
+        # Log Diff Detection
+        if [[ ! -f $MachineCheckLog/info_before.log ]] || [[ ! -f $MachineCheckLog/info_after.log ]]; then
+            echo "Warning: Missing log files for diff comparison." | tee -a $Result_Dir/result.log
+        else
+            if ! diff -q $MachineCheckLog/info_before.log $MachineCheckLog/info_after.log > /dev/null; then
+                record_errorinfo
+                echo "diff finish" >$LogAd/diff.flag
+                return 3
+            fi
+        fi
+    fi
+    echo "diff finish" >$LogAd/diff.flag
+    return 1
+}
+
+
+
+########################################################################################################
+function info_diff()
+{
+    sleep 30
+
+
+
+
+    diff_messages
+    if [ $? -eq 3 ]; then
+        if [ $flag == "STOP" ];then
+            echo "stop_flag is STOP,so exit"
+            collect_log
+            exit
+        elif [ $flag == "NON-STOP" ];then
+            continue
+        else
+            echo "Unsupport stop flag, and it shoule be STOP or NON-STOP, exit..."
+            exit
+        fi
+    fi
+}  

@@ -1,0 +1,46 @@
+Support Platform: Hygon, INTEL, AMD, etc.
+Support OS: CentOS, Ubuntu, Debian, Rocky, RHEL, etc.
+Support Item: Stress, DC, Reboot
+Installation: System tools (nvme-cli, sdparm, smartctl, fio, nmon) are now installed online via package managers (apt/yum/dnf).
+
+1.Fio Stress
+    run as: sh Fio_All.sh -i [lawdiskstress|filesystemstress] -o [single|all|both]
+
+2.Fio DC
+    run as: sh Fio_All.sh -i dc -l 10
+
+3.Fio Reboot
+    run as: sh Fio_All.sh -i reboot -l 10
+
+4.MachineCheck
+    default YES
+    set '-c no' to modify it
+    eg:sh Fio_All.sh -i [lawdiskstress|filesystemstress] -c no
+
+5.specify csv file
+    default
+        DC:   DC.csv
+        Stress:   Input_Config_Disk_Full_Scan.csv
+     you can set param '-n ***.csv' to specify Configure file
+     eg:sh Fio_All.sh -i [lawdiskstress|filesystemstress]  -n Input_Config_Disk_Full_Scan.csv
+
+6.specify disk
+  Default:all disk except system disk
+  you can set param '-u sdb,sdc' or '-u sdb' to specify test disk
+  eg: sh Fio_All.sh -i [lawdiskstress|filesystemstress] -u sdb
+
+7.Log file:
+    ./log/TestErrorLog/ 测试过程中的error信息记录
+    ./log/RawLog/测试过程中的原始信息记录,如MachineCheck,SystemLog
+
+8.Result file:
+    ./log/ResultLog/*
+
+9.Mix Stress
+    Mix模式fio模型不需要自己配置,由程序自动生成
+    裸盘Mix run as: sh Fio_All.sh -mix yes
+    文件系统Mix run as: sh Fio_All.sh -mix yes -i filesystemstress
+
+10. Cancel/Restore
+    中途取消测试并清理环境 (清理自启动项):
+    run as: sh Fio_All.sh -i restore

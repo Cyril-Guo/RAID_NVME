@@ -4,12 +4,25 @@ def targetIPs = []
 pipeline {
     agent any
 
+    parameters {
+        booleanParam(name: 'RUN_REBOOT', defaultValue: true, description: '是否执行 Reboot Powercycle')
+        booleanParam(name: 'RUN_DC', defaultValue: true, description: '是否执行 DC Powercycle')
+        booleanParam(name: 'RUN_LAWDISK', defaultValue: true, description: '是否执行 Lawdisk Stress')
+        booleanParam(name: 'RUN_FILESYSTEM', defaultValue: true, description: '是否执行 Filesystem Stress')
+        booleanParam(name: 'RUN_MIX', defaultValue: true, description: '是否执行 Mixed IO Stress')
+        booleanParam(name: 'RUN_SPECIFY', defaultValue: false, description: '是否执行指定磁盘测试 (需设置 FIO_DISKS)')
+        booleanParam(name: 'RUN_RESTORE', defaultValue: false, description: '是否执行清理/恢复')
+        
+        string(name: 'FIO_CYCLES', defaultValue: '100', description: 'Powercycle 循环次数 (-l)')
+        string(name: 'FIO_DISKS', defaultValue: '', description: '指定磁盘 (例: sdb,sdc)')
+    }
+
     environment {
         // 飞书机器人 Webhook 地址
         FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/17fe4cfd-5e49-4ceb-b8c4-f002d74340ee'
         // 远程登录用户名
         TARGET_USER = 'root' 
-        // 解锁破坏性写入测试开关 (1为开启，注意这会清空被测非系统盘数据)
+        // 解锁破坏性写入测试开关 (可在环境变量或参数中开启)
         ALLOW_DESTRUCTIVE_FIO = '1'
     }
 
@@ -68,9 +81,22 @@ pipeline {
                                 """
                                 
                                 echo "[${ip}] 4. 运行母测试脚本 (nvme_raid_test.py)..."
-                                // 执行母脚本，将所有输出加时间戳并存入当前 IP 的本地 log 中
+                                // 将所有勾选参数和配置项透传给远程脚本
                                 sh """
-                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} "cd ${remoteDir} && ALLOW_DESTRUCTIVE_FIO=${env.ALLOW_DESTRUCTIVE_FIO} sudo python3 nvme_raid_test.py || true" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), \$0 }' | tee test_execution_${ip}.log
+                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
+                                    cd ${remoteDir} && \
+                                    ALLOW_DESTRUCTIVE_FIO=${env.ALLOW_DESTRUCTIVE_FIO} \
+                                    RUN_REBOOT=${params.RUN_REBOOT} \
+                                    RUN_DC=${params.RUN_DC} \
+                                    RUN_LAWDISK=${params.RUN_LAWDISK} \
+                                    RUN_FILESYSTEM=${params.RUN_FILESYSTEM} \
+                                    RUN_MIX=${params.RUN_MIX} \
+                                    RUN_SPECIFY=${params.RUN_SPECIFY} \
+                                    RUN_RESTORE=${params.RUN_RESTORE} \
+                                    FIO_CYCLES=${params.FIO_CYCLES} \
+                                    FIO_DISKS='${params.FIO_DISKS}' \
+                                    sudo -E python3 nvme_raid_test.py || true
+                                \" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), \$0 }' | tee test_execution_${ip}.log
                                 """
                                 
                                 echo "[${ip}] 5. 回传测试数据..."

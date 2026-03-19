@@ -21,27 +21,47 @@ RAID_NVME/
 └── sub_cases/             # 测试用例目录，将具体的 test_*.py 用例脚本存放在此
 ```
 
+## 🔑 SSH 免密登录配置 (重要)
+
+为了使 Jenkins 能够顺畅地部署和执行远程测试，必须确保 Jenkins 服务器能够免密登录到所有目标节点。请按照以下步骤操作：
+
+1.  **切换到 Jenkins 用户** (极其重要 ⚠️):
+    ```bash
+    sudo su -s /bin/bash jenkins
+    ```
+2.  **生成 SSH 密钥对**:
+    ```bash
+    ssh-keygen -t rsa -b 4096
+    # 一路回车即可，不要设置密码
+    ```
+3.  **将公钥分发给远端被测机**:
+    ```bash
+    ssh-copy-id root@<目标IP>
+    # 例如: ssh-copy-id root@192.168.1.100
+    ```
+4.  **测试免密登录是否生效**:
+    ```bash
+    ssh root@<目标IP>
+    # 如果不需要输入密码直接进入，则配置成功
+    ```
+
 ## 🚀 快速使用说明
 
 ### 1. 配置测试目标节点
-编辑项目根目录中的 `target_ips.txt`，将所有需要测试的节点 IP 地址逐行填入：
-```text
-192.168.1.100
-192.168.1.101
-```
+编辑项目根目录中的 `target_ips.txt`，将所有需要测试的节点 IP 地址逐行填入。
 
-### 2. 增加测试脚本
-在 `sub_cases/` 目录下编写具体的 Pytest 测试脚本（以 `test_` 开头命名），例如 `test_raid_creation.py`。框架的 `nvme_raid_test.py` 会自动探测并调用该目录下的用例。
+### 2. 在 Jenkins 中触发任务 (带参数预览)
+在 Jenkins 界面点击 **"Build with Parameters"**，你可以看到以下可配置项：
 
-### 3. 环境准备
-Jenkins Pipeline 默认以 `root` 用户远程执行被测节点上的命令。请确保 Jenkins 机器能够免密 SSH 登录到目标 IP，同时远端服务器具备 `python3` 和 `pip` 环境。
+- **测试项勾选**: 自由选择运行 `Reboot`, `DC`, `Lawdisk`, `Filesystem`, `Mix` 或 `Specify` 等测试。
+- **FIO_CYCLES**: 设置 Powercycle 测试的循环次数 (默认 100)。
+- **FIO_DISKS**: 当勾选 `Specify` 测试时，在此输入要测试的磁盘名称 (如 `sdb,sdc`)。
+- **ALLOW_DESTRUCTIVE_FIO**: 选择是否开启破坏性写入。
 
-### 4. 触发测试任务
-在 Jenkins 中触发该项目流水线（Pipeline），执行步骤如下：
-1. **获取信息**：Jenkins 读取并解析节点 IP。
-2. **下发与执行**：自动向目标机发送代码库，安装 `pytest` 和 `allure-pytest`，随后允许以 Destructive FIO（默认 `ALLOW_DESTRUCTIVE_FIO='1'`）并发触发母脚本 `nvme_raid_test.py`。
-3. **搜集报告**：将生成的所有报告文件传输回 Jenkins 归档。
-4. **消息通知**：计算整体成功率并将数据卡片推送至飞书。
+### 3. 查看结果
+- **Allure 报告**: 详尽展示每个测试项的执行结果、耗时及日志。
+- **错误追踪**: 若测试失败，脚本会自动从远端抓取 `IO_Stress/log/TestErrorLog` 硬件报错日志并关联到报告中。
+- **飞书通知**: 任务结束后，飞书群组会收到包含成功率和报告链接的统计卡片。
 
 ## ⚠️ 注意事项
 
