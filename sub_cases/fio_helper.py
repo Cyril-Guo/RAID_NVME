@@ -24,7 +24,11 @@ def run_fio_test(item_type=None, loops=None, is_async=False, stop_on_error=True,
 
     # 2. 循环次数处理：从参数或环境变量获取
     if loops is None:
-        loops = int(os.environ.get("FIO_CYCLES", 1))
+        try:
+            fio_cycles = os.environ.get("FIO_CYCLES", "1")
+            loops = int(fio_cycles) if fio_cycles and fio_cycles.strip() else 1
+        except ValueError:
+            loops = 1
     
     # 3. 转换 stop_on_error 为脚本需要的参数
     flag_val = "STOP" if stop_on_error else "NON-STOP"
