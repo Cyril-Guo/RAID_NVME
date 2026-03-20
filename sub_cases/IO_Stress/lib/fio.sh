@@ -91,12 +91,12 @@ collect_log()
 	dmesg_log="/var/log/dmesg"
 
 	if [ -f "$mce_log" ]; then
-		cat "$mce_log" > "$SystemLog/mce_log"
+		timeout 30 cat "$mce_log" > "$SystemLog/mce_log" 2>/dev/null
 	fi
     if [ -f "$messages_log" ]; then
-	    cat "$messages_log" > "$SystemLog/messages_log"
+	    timeout 30 cat "$messages_log" > "$SystemLog/messages_log" 2>/dev/null
     fi
-	dmesg -T > "$SystemLog/dmesg_log"
+	timeout 30 dmesg -T > "$SystemLog/dmesg_log" 2>/dev/null
 
 	#rm -rf $LogAd/errorall.log
 	#rm -rf $LogAd/errorlist
@@ -124,7 +124,7 @@ dc_utc()
     Alarmtime=`expr $Alarmtime + ${wait}`
     echo $Alarmtime > /sys/class/rtc/rtc0/wakealarm
     # Use hwclock if available, fallback to timedatectl, but don't block
-    hwclock -w 2>/dev/null || timedatectl set-local-rtc 0 >> /dev/null 2>&1 || true
+    timeout 10 hwclock -w 2>/dev/null || timeout 10 timedatectl set-local-rtc 0 >> /dev/null 2>&1 || true
     echo "Now is `date +%s`"
     echo "Alarm is $Alarmtime"
     cat /proc/driver/rtc
