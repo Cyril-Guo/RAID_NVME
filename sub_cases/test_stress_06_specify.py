@@ -9,7 +9,6 @@ def test_specify_disks():
         args.extend(["-u", disks])
         
     run_fio_test(
-        test_title="Specify Disks 测试",
-        cmd_args=args,
-        description=f"对指定的磁盘执行压测: {disks if disks else '默认所有磁盘'}"
+        item_type="lawdiskstress",
+        cmd_args=args
     )

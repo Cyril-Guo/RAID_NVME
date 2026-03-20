@@ -4,23 +4,41 @@ import pytest
 import allure
 from datetime import datetime
 
-def run_fio_test(item_type, loops=10, is_async=False, stop_on_error=True):
+def run_fio_test(item_type=None, loops=None, is_async=False, stop_on_error=True, **kwargs):
     """
     运行 FIO 测试
-    :param item_type: 测试类型 (reboot, dc, lawdisk, etc.)
-    :param loops: 循环次数
+    :param item_type: 测试类型 (reboot, dc, lawdiskstress, filesystemstress, etc.)
+    :param loops: 循环次数 (若为 None 则尝试从环境变量 FIO_CYCLES 获取，默认为 1)
     :param is_async: 是否异步执行 (用于重启测试，防止 SSH 断开报错)
     :param stop_on_error: 出现 MachineCheck 错误时是否停止 (True=STOP, False=NON-STOP)
+    :param kwargs: 兼容旧版参数 (test_title, cmd_args, description)
     """
-    # 转换 stop_on_error 为脚本需要的参数
+    # 1. 兼容性处理：如果 item_type 没传，尝试从 cmd_args 中提取
+    cmd_args_legacy = kwargs.get("cmd_args", [])
+    if not item_type:
+        if "-i" in cmd_args_legacy:
+            idx = cmd_args_legacy.index("-i")
+            item_type = cmd_args_legacy[idx+1]
+        else:
+            item_type = "lawdiskstress" # 默认值
+
+    # 2. 循环次数处理：从参数或环境变量获取
+    if loops is None:
+        loops = int(os.environ.get("FIO_CYCLES", 1))
+    
+    # 3. 转换 stop_on_error 为脚本需要的参数
     flag_val = "STOP" if stop_on_error else "NON-STOP"
     
-    # 基础参数
-    cmd_args = [
-        "-i", item_type,
-        "-l", str(loops),
-        "-f", flag_val
-    ]
+    # 4. 构建基础参数
+    final_args = ["-i", item_type, "-l", str(loops), "-f", flag_val]
+    
+    # 如果有额外的命令行参数，也合并进去 (排除掉已经处理的 -i, -l, -f)
+    for i in range(len(cmd_args_legacy)):
+        if cmd_args_legacy[i] in ["-i", "-l", "-f"]:
+            continue
+        if i > 0 and cmd_args_legacy[i-1] in ["-i", "-l", "-f"]:
+            continue
+        final_args.append(cmd_args_legacy[i])
 
     # Allure 报告标题和描述
     allure.dynamic.title(f"FIO 测试: {item_type} (循环 {loops} 次)")
@@ -35,7 +53,7 @@ def run_fio_test(item_type, loops=10, is_async=False, stop_on_error=True):
     io_stress_dir = os.path.join(os.path.dirname(__file__), "IO_Stress")
     fio_script = "./Fio_All.sh"
     
-    cmd_str = f"bash {fio_script} {' '.join(cmd_args)}"
+    cmd_str = f"bash {fio_script} {' '.join(final_args)}"
 
     with allure.step(f"执行 FIO 指令: {cmd_str}"):
         send_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -44,14 +62,14 @@ def run_fio_test(item_type, loops=10, is_async=False, stop_on_error=True):
         # 3. 执行脚本
         if is_async:
             # 异步模式下，使用 setsid 触发后立即退出
-            async_cmd = f"setsid bash {fio_script} {' '.join(cmd_args)} > /dev/null 2>&1 &"
+            async_cmd = f"setsid bash {fio_script} {' '.join(final_args)} > /dev/null 2>&1 &"
             print(f"检测到重启/DC任务，采用异步触发模式...")
             subprocess.Popen(async_cmd, shell=True, cwd=io_stress_dir)
             print(f"测试已触发，正在安全退出 SSH 以防止连接中断报错...")
             return
 
         process = subprocess.Popen(
-            ["bash", fio_script] + cmd_args,
+            ["bash", fio_script] + final_args,
             cwd=io_stress_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
