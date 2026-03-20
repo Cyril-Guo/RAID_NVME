@@ -12,7 +12,8 @@ def main():
         "-v",
         "-s",
         "--alluredir=allure-results",
-        "--clean-alluredir"
+        "--clean-alluredir",
+        "--junitxml=report.xml"
     ]
 
     # 2. 动态扫描 sub_cases 目录下的所有以 test_ 开头的 python 文件
