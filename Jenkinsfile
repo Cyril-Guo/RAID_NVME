@@ -59,7 +59,7 @@ pipeline {
                         
                         parallelTasks["Node_${ip}"] = {
                             stage("Test on ${ip}") {
-                                def remoteDir = "/root/jenkins_nvme_${env.BUILD_NUMBER}"
+                                def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_${env.BUILD_NUMBER}"
                                 
                                 echo "[${ip}] 1. 部署代码..."
                                 sh "ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
