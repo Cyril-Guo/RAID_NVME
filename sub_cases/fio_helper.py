@@ -43,6 +43,12 @@ def run_fio_test(item_type=None, loops=None, is_async=False, stop_on_error=True,
         if i > 0 and cmd_args_legacy[i-1] in ["-i", "-l", "-f"]:
             continue
         final_args.append(cmd_args_legacy[i])
+ 
+    # 5. 处理指定磁盘参数 (FIO_DISKS)
+    # 如果环境变量中有 FIO_DISKS，且 final_args 或 cmd_args_legacy 中没传 -u，则自动添加
+    fio_disks = os.environ.get("FIO_DISKS", "").strip()
+    if fio_disks and "-u" not in final_args and "-u" not in cmd_args_legacy:
+        final_args.extend(["-u", fio_disks])
 
     # Allure 报告标题和描述
     allure.dynamic.title(f"FIO 测试: {item_type} (循环 {loops} 次)")
