@@ -90,16 +90,25 @@ collect_log()
     fi
 	dmesg_log="/var/log/dmesg"
 
+    # Use timeout bash -c to ensure redirection doesn't hang shell
 	if [ -f "$mce_log" ]; then
-		timeout 30 cat "$mce_log" > "$SystemLog/mce_log" 2>/dev/null
+		echo "  - Collecting mcelog..."
+		timeout 30 bash -c "cat '$mce_log' > '$SystemLog/mce_log'" 2>/dev/null
 	fi
     if [ -f "$messages_log" ]; then
-	    timeout 30 cat "$messages_log" > "$SystemLog/messages_log" 2>/dev/null
+		echo "  - Collecting messages/syslog..."
+	    timeout 30 bash -c "cat '$messages_log' > '$SystemLog/messages_log'" 2>/dev/null
     fi
-	timeout 30 dmesg -T > "$SystemLog/dmesg_log" 2>/dev/null
+	echo "  - Collecting dmesg..."
+	timeout 30 bash -c "dmesg -T > '$SystemLog/dmesg_log'" 2>/dev/null
 
-	#rm -rf $LogAd/errorall.log
-	#rm -rf $LogAd/errorlist
+    # Add IPMI SEL collection as requested
+    if command -v ipmitool >/dev/null 2>&1; then
+        echo "  - Collecting IPMI SEL..."
+        timeout 30 bash -c "ipmitool sel list > '$SystemLog/ipmi_sel_log'" 2>/dev/null
+    fi
+
+    echo "********** Log collection complete **********"
 }
 
 bmc_reset()
