@@ -43,6 +43,10 @@ elif [ "$item_" = "LAWDISKSTRESS" ] || [ "$item_" = "FILESYSTEMSTRESS" ];then
 
     info_diff
     #do_reboot
+elif [ "$item_" = "RESTORE" ];then
+    restore
+    echo "Restore and cleanup complete."
+    exit 0
 else
     echo "not support mode,exit"
     exit 1

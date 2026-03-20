@@ -266,7 +266,17 @@ function flush_cache() {
 
 function restore()
 {
-    show_produce_message "restore files"
+    show_produce_message "Restore environment & Kill running processes"
+    
+    # 1. Kill any running FIO and test script processes
+    echo "- Killing running FIO and script processes..."
+    pkill -9 fio >/dev/null 2>&1
+    pkill -9 -f run_fio.sh >/dev/null 2>&1
+    pkill -9 -f Fio_All.sh >/dev/null 2>&1
+    pkill -9 -f nvme_raid_test.py >/dev/null 2>&1
+    
+    # 2. Restore system config files
+    echo "- Restoring system configuration files..."
     local files=("/etc/bash.bashrc" "/etc/inittab" "/etc/init/tty.conf" "/root/.bash_profile" "/root/.profile")
     for file in "${files[@]}"; do
         if [ -f "${file}.bak" ]; then
@@ -275,9 +285,10 @@ function restore()
             rm -f "${file}.bak"
         fi
     done
-    # Cleanup systemd service if it was used for reboot tests
-    # Cleanup systemd service if it was used for reboot tests
+
+    # 3. Cleanup systemd service if it was used for reboot tests
     if [ -f /etc/os-release ] && grep -iq "Ubuntu" /etc/os-release ; then
+        echo "- Cleaning up systemd services..."
         systemctl disable fio-test.service >/dev/null 2>&1
         rm -f /etc/systemd/system/fio-test.service
         systemctl unmask getty@tty3.service >/dev/null 2>&1
@@ -286,6 +297,7 @@ function restore()
         # Also clean crontab
         crontab -l 2>/dev/null | grep -v "run_fio.sh" | crontab -
     fi
+    echo "- Cleanup complete."
 }
 
 
