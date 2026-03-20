@@ -65,7 +65,7 @@ pipeline {
                                 sh "scp -o StrictHostKeyChecking=no -r * ${env.TARGET_USER}@${ip}:${remoteDir}/"
                                 
                                 echo "[${ip}] 2. 安装 Python 依赖..."
-                                sh "ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'cd ${remoteDir} && pip3 install -r requirements.txt || pip install -r requirements.txt'"
+                                sh "ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'cd ${remoteDir} && (pip3 install -r requirements.txt --break-system-packages || pip install -r requirements.txt --break-system-packages)'"
                                 
                                 echo "[${ip}] 3. 获取硬件环境信息..."
                                 sh """
