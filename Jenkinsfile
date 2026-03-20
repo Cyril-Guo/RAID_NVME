@@ -192,7 +192,7 @@ EOF
                   "card": {
                     "config": { "wide_screen_mode": true },
                     "header": {
-                      "title": { "tag": "plain_text", "content": "📊 RAID_NVME 测试报告 - #${env.BUILD_NUMBER}" },
+                      "title": { "tag": "plain_text", "content": "📊 NVMe_RAID(F6501) Test Report" },
                       "template": "${statusColor}"
                     },
                     "elements": [
