@@ -10,10 +10,11 @@ pipeline {
         booleanParam(name: 'RUN_LAWDISK', defaultValue: true, description: '是否执行 Lawdisk Stress')
         booleanParam(name: 'RUN_FILESYSTEM', defaultValue: true, description: '是否执行 Filesystem Stress')
         booleanParam(name: 'RUN_MIX', defaultValue: true, description: '是否执行 Mixed IO Stress')
-        booleanParam(name: 'RUN_SPECIFY', defaultValue: false, description: '是否执行指定磁盘测试 (需设置 FIO_DISKS)')
-        booleanParam(name: 'RUN_RESTORE', defaultValue: false, description: '是否执行清理/恢复')
+        booleanParam(name: 'RUN_SPECIFY', defaultValue: false, description: '是否执行 指定盘测试')
+        booleanParam(name: 'RUN_RESTORE', defaultValue: false, description: '是否执行 恢复/日志收集')
+        booleanParam(name: 'IGNORE_ERROR', defaultValue: false, description: 'MachineCheck 结果不一致时是否继续测试 (非停止模式)')
         
-        string(name: 'FIO_CYCLES', defaultValue: '100', description: 'Powercycle 循环次数 (-l)')
+        string(name: 'FIO_CYCLES', defaultValue: '10', description: 'Reboot/DC 测试循环次数 (-l)')
         string(name: 'FIO_DISKS', defaultValue: '', description: '指定磁盘 (例: sdb,sdc)')
     }
 
@@ -93,6 +94,7 @@ pipeline {
                                     RUN_MIX=${params.RUN_MIX} \
                                     RUN_SPECIFY=${params.RUN_SPECIFY} \
                                     RUN_RESTORE=${params.RUN_RESTORE} \
+                                    IGNORE_ERROR=${params.IGNORE_ERROR} \
                                     FIO_CYCLES=${params.FIO_CYCLES} \
                                     FIO_DISKS='${params.FIO_DISKS}' \
                                     sudo -E python3 nvme_raid_test.py || true
