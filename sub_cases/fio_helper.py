@@ -90,8 +90,10 @@ def run_fio_test(item_type=None, loops=None, is_async=False, stop_on_error=True,
 
         full_output = []
         for line in process.stdout:
-            print(line, end="")
-            full_output.append(line)
+            timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
+            timed_line = f"{timestamp} {line}"
+            print(timed_line, end="")
+            full_output.append(timed_line)
         
         process.wait()
         exit_code = process.returncode
