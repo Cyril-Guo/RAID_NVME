@@ -106,6 +106,10 @@ function help(){
 }
 function check_arguments()
 {
+    # Initialize loop counters if not set
+    if [[ -z "$loop" ]]; then loop=1; fi
+    if [[ -z "$beforeloop" ]]; then beforeloop=0; fi
+
     if [[ -z "$item" ]];then
 	item="LAWDISKSTRESS"
         echo "**********" `date +%m-%d" "%H:%M:%S` "current mode is $item **********"

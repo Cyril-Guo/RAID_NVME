@@ -1085,11 +1085,18 @@ function comparebw()
 	local k
 	local l
 	local m
+	if [[ -z "$beforeloop" || -z "$loop" ]]; then
+        return 0
+    fi
 	before_total_result=$Result_Dir/result_"$beforeloop".csv
 	current_total_result=$Result_Dir/result_"$loop".csv
 
-	cmp_lines=`cat $Result_Dir/result_"$beforeloop".csv | wc -l`
-	title=`head -n 1 $Result_Dir/result_"$loop".csv`
+    if [[ ! -f "$before_total_result" || ! -f "$current_total_result" ]]; then
+        return 0
+    fi
+
+	cmp_lines=`cat "$before_total_result" | wc -l`
+	title=`head -n 1 "$current_total_result"`
 	title_item=`echo "$title" | awk -F',' '{print NF}'`
 	let title_item=title_item-6
 	echo "Total data compare that result_x.cvs content compare" >$Cur_Dir/error.log
@@ -1255,7 +1262,7 @@ all()
             configure
             run_all $b
         done
-        if [ "$loop" -gt 1 ]; then
+        if [[ -n "$loop" ]] && [ "$loop" -gt 1 ]; then
             comparebw
             if [ "$error_flag" = "true" ]; then
                 echo "FIO + DC test fail occur great difference between $beforeloop and $loop,more detail message to see $result/error.log"
