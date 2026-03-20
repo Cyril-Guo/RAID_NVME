@@ -14,7 +14,7 @@ function record_errorinfo(){
     diff -u $MachineCheckLog/info_before.log $MachineCheckLog/info_after.log >> $TestErrorLog/machine_diff_error.log
     
     echo "--------------------------------------------------" >> $TestErrorLog/machine_diff_error.log
-    echo -e "\033[31m ERROR: MachineCheck inconsistencies found at loop $loop. Check $TestErrorLog/machine_diff_error.log for details.\033[0m"
+    echo -e " ERROR: MachineCheck inconsistencies found at loop $loop. Check $TestErrorLog/machine_diff_error.log for details."
     
     # Also record to diff_all.log
     echo -e "\n--- Loop $loop Error Record ---" >> $MessageRecordLog/diff_all.log

@@ -59,7 +59,8 @@ platform=`lscpu |grep -i 'model name'|awk -F':' '{print$2}'|sed  's/[[:space:]]/
 ####################
 show_produce_message() {
     local i
-    tput bold
+    # Suppress tput errors in non-interactive shells (like Jenkins)
+    tput bold >/dev/null 2>&1
     TEXT=$1
     length_text=${#TEXT}
     let length_title=80-length_text
@@ -69,6 +70,7 @@ show_produce_message() {
 		str="$str-"
 	done
 	TEXT="$str"$TEXT"$str"
-	echo -ne "\033[33m$TEXT\033[0m"
+	# Remove ANSI color codes to prevent messy logs in Web UI
+	echo -ne "$TEXT"
 	echo
 }

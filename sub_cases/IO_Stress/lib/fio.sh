@@ -182,7 +182,7 @@ do_dc()
 
 prepare_system() {
     if [[ -z $system_disk ]];then
-        echo -ne "\033[31m fail to find system disk, so exit \033[0m"
+        echo -ne " fail to find system disk, so exit "
         exit 1
     fi
     rm -rf /data/fiotest/ >/dev/null

@@ -150,9 +150,9 @@ function get_machinecheck()
 {
 	cd $Cur_Dir
 	if [[ -d MachineCheck ]];then
-        echo -e "\033[32m The machinecheck exists. The program continues to run.\033[0m  \n"
+        echo -e " The machinecheck exists. The program continues to run.  \n"
     else
-        echo -e "\033[31m MachineCheck toolkit not found. Skipping machine check.\033[0m  \n"
+        echo -e " MachineCheck toolkit not found. Skipping machine check.  \n"
     fi
 }
 

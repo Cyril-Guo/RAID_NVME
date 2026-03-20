@@ -195,13 +195,13 @@ function check_arguments()
         elif [[ $mode == "RTC" ]];then
 			show_produce_message "DC test start as RTC mode"
         else
-            echo -e "\033[31m the DC mode isn't supported, only utc or rtc, exit now.\033[0m  \n"
+            echo -e " the DC mode isn't supported, only utc or rtc, exit now.  \n"
             exit
         fi
     elif [[ $item == "RESTORE" ]];then
         show_produce_message "Restore mode selected"
     else
-        echo -e "\033[31m Unsupport test type,exit.\033[0m  \n"
+        echo -e " Unsupport test type,exit.  \n"
         exit 1
     fi
 
