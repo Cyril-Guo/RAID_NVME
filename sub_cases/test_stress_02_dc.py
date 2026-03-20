@@ -7,5 +7,6 @@ def test_dc_powercycle():
     run_fio_test(
         test_title="DC Powercycle 测试",
         cmd_args=["-i", "dc", "-l", cycles],
-        description=f"执行 DC 模式下的 Powercycle 测试，当前循环次数: {cycles}"
+        description=f"执行 DC 模式下的 Powercycle 测试，当前循环次数: {cycles}",
+        is_async=True
     )

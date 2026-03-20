@@ -4,12 +4,13 @@ import pytest
 import allure
 from datetime import datetime
 
-def run_fio_test(test_title, cmd_args, description=""):
+def run_fio_test(test_title, cmd_args, description="", is_async=False):
     """
     通用 FIO 测试执行函数
     :param test_title: Allure 报告中的显示标题
     :param cmd_args: 传给 Fio_All.sh 的参数列表
     :param description: 测试描述
+    :param is_async: 是否异步执行（用于重启/DC测试，触发后立即退出以防止 SSH 连接被强杀）
     """
     allure.dynamic.title(test_title)
     if description:
@@ -21,12 +22,17 @@ def run_fio_test(test_title, cmd_args, description=""):
         pytest.skip("ALLOW_DESTRUCTIVE_FIO 未开启，跳过破坏性 IO 测试")
 
     # 2. 准备路径
-    # 假设 helper 在 sub_cases/ 下，项目根目录是其上一级
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     io_stress_dir = os.path.join(base_dir, "sub_cases", "IO_Stress")
     fio_script = "./Fio_All.sh"
     
     cmd = ["bash", fio_script] + cmd_args
+    # 如果是异步模式，使用 nohup 并在后台运行，同时设置一个较大的 delay 确保 Python 有时间退出
+    if is_async:
+        # 强制增加 -d 参数（或确保参数中有 delay）
+        # 这里我们假设使用默认的 delay，但通过 nohup 保护进程
+        cmd = ["nohup"] + cmd + ["&"]
+        
     cmd_str = " ".join(cmd)
 
     with allure.step(f"执行 FIO 指令: {cmd_str}"):
@@ -34,6 +40,15 @@ def run_fio_test(test_title, cmd_args, description=""):
         print(f"{send_time} [START] {cmd_str}")
         
         # 3. 执行脚本
+        if is_async:
+            # 异步模式下，我们直接使用 os.system 或者 Popen 且不等待
+            # 为了防止 SSH 退出时杀掉后台进程，使用 setsid 或 nohup
+            async_cmd = f"setsid bash {fio_script} {' '.join(cmd_args)} > /dev/null 2>&1 &"
+            print(f"检测到重启/DC任务，采用异步触发模式...")
+            subprocess.Popen(async_cmd, shell=True, cwd=io_stress_dir)
+            print(f"测试已触发，正在安全退出 SSH 以防止连接中断报错...")
+            return
+
         process = subprocess.Popen(
             cmd,
             cwd=io_stress_dir,

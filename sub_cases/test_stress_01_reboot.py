@@ -7,5 +7,6 @@ def test_reboot_powercycle():
     run_fio_test(
         test_title="Reboot Powercycle 测试",
         cmd_args=["-i", "reboot", "-l", cycles],
-        description=f"执行 Reboot 模式下的 Powercycle 测试，当前循环次数: {cycles}"
+        description=f"执行 Reboot 模式下的 Powercycle 测试，当前循环次数: {cycles}",
+        is_async=True
     )
