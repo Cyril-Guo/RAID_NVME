@@ -29,28 +29,38 @@ function diff_messages()
         return 1
     else
         show_produce_message "Computed FIO deviation"
-        if [[ $loop != 0 ]];then
+        if [[ -n "$loop" && "$loop" != "0" ]];then
             date +%Y-%m-%d_%H:%M:%S | tee -a $Fio_Result_Dir/result_fio.log
-            fio_mode_list=($(cat $Fio_Result_Dir/result_0.csv | sed -n '2,$p' | awk '{print $1}'))
-            for fio_mode in ${fio_mode_list[*]};do
-                if [[ ! $fio_mode ]];then continue; fi
-                before_iops=$(cat $Fio_Result_Dir/result_0.csv | grep "^$fio_mode" | awk '{print $7}' | awk -F, '{print $1}')
-                after_iops=$(cat $Fio_Result_Dir/result_${loop}.csv | grep "^$fio_mode" | awk '{print $7}' | awk -F, '{print $1}')
-                # ... (Handle 'k' in IOPS as before) ...
-                if [[ $before_iops =~ k ]]; then before_iops=$(echo "$before_iops" | awk -Fk '{print $1}' | awk '{print $1*1000}'); fi
-                if [[ $after_iops =~ k ]]; then after_iops=$(echo "$after_iops" | awk -Fk '{print $1}' | awk '{print $1*1000}'); fi
-                
-                before_bw=$(cat $Fio_Result_Dir/result_0.csv | grep "^$fio_mode" | awk '{print $11}' | awk -FM '{print $1}')
-                after_bw=$(cat $Fio_Result_Dir/result_${loop}.csv | grep "^$fio_mode" | awk '{print $11}' | awk -FM '{print $1}')
-                
-                echo "$fio_mode" | tee -a $Fio_Result_Dir/result_fio.log
-                echo "Before Value: IOPS $before_iops, BW $before_bw" | tee -a $Fio_Result_Dir/result_fio.log
-                echo "After Value: IOPS $after_iops, BW $after_bw" | tee -a $Fio_Result_Dir/result_fio.log
-                
-                deviation_iops=$(echo "scale=2; if($after_iops > $before_iops) ($after_iops-$before_iops)/$before_iops*100 else ($before_iops-$after_iops)/$before_iops*100" | bc 2>/dev/null)
-                deviation_bw=$(echo "scale=2; if($after_bw > $before_bw) ($after_bw-$before_bw)/$before_bw*100 else ($before_bw-$after_bw)/$before_bw*100" | bc 2>/dev/null)
-                echo "Deviation: IOPS ${deviation_iops-0}%, BW ${deviation_bw-0}%" | tee -a $Fio_Result_Dir/result_fio.log
-            done
+            if [[ -f $Fio_Result_Dir/result_0.csv && -f $Fio_Result_Dir/result_${loop}.csv ]]; then
+                fio_mode_list=($(cat $Fio_Result_Dir/result_0.csv 2>/dev/null | sed -n '2,$p' | awk '{print $1}'))
+                for fio_mode in ${fio_mode_list[*]};do
+                    if [[ ! $fio_mode ]];then continue; fi
+                    before_iops=$(cat $Fio_Result_Dir/result_0.csv 2>/dev/null | grep "^$fio_mode" | awk '{print $7}' | awk -F, '{print $1}')
+                    after_iops=$(cat $Fio_Result_Dir/result_${loop}.csv 2>/dev/null | grep "^$fio_mode" | awk '{print $7}' | awk -F, '{print $1}')
+                    
+                    # Ensure values are numbers before processing
+                    [[ -z "$before_iops" || -z "$after_iops" ]] && continue
+
+                    # ... (Handle 'k' in IOPS as before) ...
+                    if [[ $before_iops =~ k ]]; then before_iops=$(echo "$before_iops" | awk -Fk '{print $1}' | awk '{print $1*1000}'); fi
+                    if [[ $after_iops =~ k ]]; then after_iops=$(echo "$after_iops" | awk -Fk '{print $1}' | awk '{print $1*1000}'); fi
+                    
+                    before_bw=$(cat $Fio_Result_Dir/result_0.csv 2>/dev/null | grep "^$fio_mode" | awk '{print $11}' | awk -FM '{print $1}')
+                    after_bw=$(cat $Fio_Result_Dir/result_${loop}.csv 2>/dev/null | grep "^$fio_mode" | awk '{print $11}' | awk -FM '{print $1}')
+                    
+                    [[ -z "$before_bw" || -z "$after_bw" ]] && continue
+
+                    echo "$fio_mode" | tee -a $Fio_Result_Dir/result_fio.log
+                    echo "Before Value: IOPS $before_iops, BW $before_bw" | tee -a $Fio_Result_Dir/result_fio.log
+                    echo "After Value: IOPS $after_iops, BW $after_bw" | tee -a $Fio_Result_Dir/result_fio.log
+                    
+                    deviation_iops=$(echo "scale=2; if($after_iops > $before_iops) ($after_iops-$before_iops)/$before_iops*100 else ($before_iops-$after_iops)/$before_iops*100" | bc 2>/dev/null)
+                    deviation_bw=$(echo "scale=2; if($after_bw > $before_bw) ($after_bw-$before_bw)/$before_bw*100 else ($before_bw-$after_bw)/$before_bw*100" | bc 2>/dev/null)
+                    echo "Deviation: IOPS ${deviation_iops-0}%, BW ${deviation_bw-0}%" | tee -a $Fio_Result_Dir/result_fio.log
+                done
+            else
+                echo "Wait for first complete loop to show performance deviation..."
+            fi
         fi
         
         cd $MachineCheck_Dir >/dev/null
