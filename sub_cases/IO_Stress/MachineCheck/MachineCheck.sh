@@ -1,6 +1,7 @@
 #!/bin/bash
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
+export TERM=linux
 Cur_Dir=$(cd $(dirname $0)|pwd)
 Result_Dir="$Cur_Dir/Result"
 
@@ -12,7 +13,7 @@ mkdir -p $Result_Dir
 ###########################################common function###################################################
 show_produce_message() {
         local i
-        tput bold
+        tput bold >/dev/null 2>&1
         TEXT=$1
         length_text=${#TEXT}
         let length_title=80-length_text
@@ -22,17 +23,17 @@ show_produce_message() {
                 str="$str-"
         done
         TEXT="$str"$TEXT"$str"
-        echo -ne "\033[32m$TEXT\033[0m"
+        echo -ne "$TEXT"
         echo
 }
 show_fail_message() {
-        tput bold
-        echo -ne "\033[31m$@\033[0m"
+        tput bold >/dev/null 2>&1
+        echo -ne "$@"
         echo
 }
 show_pass_message() {
-        tput bold
-        echo -ne "\033[32m$@\033[0m"
+        tput bold >/dev/null 2>&1
+        echo -ne "$@"
         echo
 }
 show_item() {
@@ -42,8 +43,8 @@ show_item() {
 }
 show_title() {
         _TEXT=$@
-        tput bold
-        echo -ne "\033[33m"["$_TEXT"]"\033[0m"
+        tput bold >/dev/null 2>&1
+        echo -ne "[$_TEXT]"
         echo
 }
 
@@ -51,7 +52,7 @@ show_title() {
 
 function install_systemtools()
 {
-    echo -e "\033[32m *************************install system tools********************************\033[0m  \n"
+    echo -e " *************************install system tools********************************  \n"
     if ! command -v nvme &> /dev/null; then
         if [[ -f /etc/os-release ]]; then
             source /etc/os-release
