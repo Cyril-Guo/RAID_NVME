@@ -114,7 +114,7 @@ function info_diff()
         if [ $flag == "STOP" ];then
             echo "stop_flag is STOP,so exit"
             collect_log
-            exit
+            test_end
         elif [ "$flag" == "NON-STOP" ];then
             echo "stop_flag is NON-STOP, ignore error and continue..."
             return 0

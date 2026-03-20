@@ -114,6 +114,16 @@ collect_log()
     echo "********** Log collection complete (Suffix: ${suffix}) **********"
 }
 
+test_end()
+{
+    echo ""
+    echo "=========================================="
+    echo "********** ALL TESTS COMPLETE **********"
+    echo "=========================================="
+    echo "********** NVME RAID Test Engine Exit **********"
+    exit 0
+}
+
 bmc_reset()
 {
     if [ "$bmc_reset" = "YES" ];then
@@ -1472,6 +1482,4 @@ function fio_cycle()
 {
     cd ${Cur_Dir}
     sh run_fio.sh "$item" "$check" "$bmc_reset" "$flag" "$delay" "$mode" "$wait" "$port" "$server_ip" "$LOOP" "$acserverport" "$safe" "$sysStaticIP" "$blackBoxStaticIP" "$runtime" "$filename" "$fs_type" "$disk_mode" "$specified_disk" "$remote" "$mix_io" "$log_interval"
-    echo "********** NVME RAID Test Engine Exit **********"
-    exit 0
 }
