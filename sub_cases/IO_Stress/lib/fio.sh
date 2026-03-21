@@ -989,8 +989,8 @@ function run_all()
         done
         cd $Job_Dir
     elif [[ $mix_io == YES ]];then
-        echo "**********" `date +%m-%d" "%H:%M:%S` "Running MIX FIO As All Mode,Reports For ALL Disk  **********"
-        num=`cat $Cur_Dir/MixIO1.csv |grep -v -i 'End'|wc -l`
+        echo "*********" `date +%m-%d" "%H:%M:%S` "Running MIX IO on All Mode, Reports For All Disk *********"
+        num=`cat $File_Dir/MixIO1.csv |grep -v -i 'End'|wc -l`
         totalnum=`expr $num - 1`
         for((jobnum=1;jobnum<=num;jobnum++));do
             echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/MIX1/$jobnum.txt
