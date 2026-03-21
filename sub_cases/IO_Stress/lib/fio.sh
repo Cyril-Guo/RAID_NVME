@@ -990,15 +990,15 @@ function run_all()
         cd $Job_Dir
     elif [[ $mix_io == YES ]];then
         echo "*********" `date +%m-%d" "%H:%M:%S` "Running MIX IO on All Mode, Reports For All Disk *********"
-        num=`cat $File_Dir/MixIO1.csv |grep -v -i 'End'|wc -l`
-        totalnum=`expr $num - 1`
+        num=`sed -n '2,$p' $File_Dir/MixIO1.csv | grep -v -i 'End' | wc -l`
+        totalnum=$num
         for((jobnum=1;jobnum<=num;jobnum++));do
             echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/MIX1/$jobnum.txt
             echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/MIX2/$jobnum.txt
             echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/MIX3/$jobnum.txt
             echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/MIX4/$jobnum.txt
 
-            echo "Job $jobnum/$num is Running.."
+            echo "Job $jobnum/$totalnum is Running.."
               
             fio $Config_Dir/MIX1/$jobnum-*.log --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio >>$Result_Dir/detresult/MIX1/$jobnum.txt &
             fio $Config_Dir/MIX2/$jobnum-*.log --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio >>$Result_Dir/detresult/MIX2/$jobnum.txt &
