@@ -10,7 +10,6 @@ pipeline {
         booleanParam(name: 'RUN_LAWDISK', defaultValue: true, description: '是否执行 Lawdisk Stress')
         booleanParam(name: 'RUN_FILESYSTEM', defaultValue: true, description: '是否执行 Filesystem Stress')
         booleanParam(name: 'RUN_MIX', defaultValue: true, description: '是否执行 Mixed IO Stress')
-        booleanParam(name: 'RUN_SPECIFY', defaultValue: false, description: '是否执行 指定盘测试')
         booleanParam(name: 'RUN_RESTORE', defaultValue: false, description: '是否执行 恢复/日志收集')
         booleanParam(name: 'IGNORE_ERROR', defaultValue: false, description: 'MachineCheck 结果不一致时是否继续测试 (非停止模式)')
         
@@ -92,7 +91,6 @@ pipeline {
                                     RUN_LAWDISK=${params.RUN_LAWDISK} \
                                     RUN_FILESYSTEM=${params.RUN_FILESYSTEM} \
                                     RUN_MIX=${params.RUN_MIX} \
-                                    RUN_SPECIFY=${params.RUN_SPECIFY} \
                                     RUN_RESTORE=${params.RUN_RESTORE} \
                                     IGNORE_ERROR=${params.IGNORE_ERROR} \
                                     FIO_CYCLES=${params.FIO_CYCLES} \
