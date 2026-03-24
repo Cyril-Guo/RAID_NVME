@@ -1,0 +1,41 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+import os
+import sys
+from threading import RLock
+
+single_lock = RLock()
+
+def Singleton(cls):
+    instance = {}
+    def _singleton_wrapper(*args, **kargs):
+        with single_lock:
+            if cls not in instance:
+                instance[cls] = cls(*args, **kargs)
+        return instance[cls]
+    return _singleton_wrapper
+
+@Singleton
+class Const:
+    def __init__(self):
+        self.CUR_DIR = sys.path[0]
+        self.TOOL_DIR = os.path.join(self.CUR_DIR, 'tool')
+        self.LOGAD = os.path.join(self.CUR_DIR, 'monitor_log')
+        self.MESSAGES_LOG = "/var/log/messages"
+        self.DMESG_LOG = "/var/log/dmesg"
+
+    # 自定义异常处理
+    class ConstValueError(TypeError):
+        pass
+
+    class ConstCaseError(TypeError):
+        pass
+
+    def __setattr__(self, name, value):
+        if name in self.__dict__:
+            raise self.ConstValueError("不能修改常量 {0} 的值 ".format(name))
+        if not name.isupper():
+            raise self.ConstCaseError("常量名称 {0} 必须大写".format(name))
+        self.__dict__[name] = value
+
+sys.modules[__name__] = Const()

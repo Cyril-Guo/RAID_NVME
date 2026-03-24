@@ -1,0 +1,23 @@
+运行方式：
+python3 main.py -h 查看运行帮助
+python3 main.py -r 43200 -i 1
+
+参数说明：
+    -r: 运行时间,默认43200s
+    -i: 监控时间间隔,默认1s
+    -g: 手动从现有日志生成html报告
+    -s: 按照指定时间间隔拆分html,单位为秒
+
+示例：
+    如果测试时间较长导致HTML报告过大,可以按小时拆分生成：
+    python3 main.py -i 1 -s 3600 -g
+
+
+日志说明：
+    路径：./monitor_log/
+    - 磁盘统计 (iostat): ./monitor_log/DISK/
+    - 系统资源 (CPU/Mem): ./monitor_log/SYSTEM/
+    - 异常日志: ./monitor_log/ExceptionLog/
+
+结果查看：
+    测试结束后，请在 monitor_log 文件夹下使用浏览器打开 result.html 查看包含 CPU、内存及磁盘性能的可视化结果。

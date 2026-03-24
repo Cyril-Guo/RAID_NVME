@@ -1,8 +1,64 @@
 import os
+import sys
 import subprocess
 import pytest
 import allure
 from datetime import datetime
+
+_monitor_started = False
+
+def start_stress_monitor():
+    """
+    根据环境变量 STRESS_MONITOR 开启后台压力监控工具
+    """
+    global _monitor_started
+    if _monitor_started:
+        return
+    
+    stress_monitor = os.environ.get("STRESS_MONITOR", "false").lower() == "true"
+    if not stress_monitor:
+        return
+
+    monitor_runtime = os.environ.get("MONITOR_RUNTIME", "").strip()
+    
+    # 监控工具路径
+    monitor_tool_dir = os.path.join(os.path.dirname(__file__), "Stress_Monitor_Tool")
+    monitor_main = os.path.join(monitor_tool_dir, "main.py")
+    
+    if not os.path.exists(monitor_main):
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️  未找到监控工具: {monitor_main}")
+        return
+
+    # 构建启动命令
+    cmd_args = [sys.executable, "main.py"]
+    if monitor_runtime:
+        cmd_args.extend(["-r", monitor_runtime])
+    
+    try:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 📊 正在后台启动 Stress_Monitor_Tool (Runtime: {monitor_runtime or 'Default'})...")
+        # 在工具目录下启动，以便其相对路径(SITLib等)生效
+        subprocess.Popen(
+            cmd_args,
+            cwd=monitor_tool_dir,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True  # 确保监控进程在主测试完成后(或意外中断时)能继续运行一段时间(如果设置了时长)
+        )
+        _monitor_started = True
+    except Exception as e:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ 启动监控工具失败: {e}")
+
+def stop_stress_monitor():
+    """
+    停止后台压力监控工具，触发其生成报告
+    """
+    try:
+        # 使用 pkill 发送 SIGINT (2) 信号，等同于 Ctrl+C
+        # Stress_Monitor_Tool/main.py 捕获该信号后会走 finally 生成报告
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🛑 正在停止 Stress_Monitor_Tool 并生成报告...")
+        subprocess.run(["pkill", "-2", "-f", "Stress_Monitor_Tool/main.py"], check=False)
+    except Exception as e:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ 停止监控工具失败: {e}")
 
 def run_fio_test(item_type=None, loops=None, is_async=False, stop_on_error=True, **kwargs):
     """
@@ -13,6 +69,12 @@ def run_fio_test(item_type=None, loops=None, is_async=False, stop_on_error=True,
     :param stop_on_error: 出现 MachineCheck 错误时是否停止 (True=STOP, False=NON-STOP)
     :param kwargs: 兼容旧版参数 (test_title, cmd_args, description)
     """
+    # 0. 尝试启动或停止后台监控
+    if item_type and item_type.lower() == "restore":
+        stop_stress_monitor()
+    else:
+        start_stress_monitor()
+
     # 1. 兼容性处理：如果 item_type 没传，尝试从 cmd_args 中提取
     cmd_args_legacy = kwargs.get("cmd_args", [])
     if not item_type:
@@ -25,10 +87,10 @@ def run_fio_test(item_type=None, loops=None, is_async=False, stop_on_error=True,
     # 2. 循环次数处理：从参数或环境变量获取
     if loops is None:
         try:
-            fio_cycles = os.environ.get("FIO_CYCLES", "1")
-            loops = int(fio_cycles) if fio_cycles and fio_cycles.strip() else 1
+            fio_cycles = os.environ.get("FIO_CYCLES", "10")
+            loops = int(fio_cycles) if fio_cycles and fio_cycles.strip() else 10
         except ValueError:
-            loops = 1
+            loops = 10
     
     # 3. 转换 stop_on_error 为脚本需要的参数
     flag_val = "STOP" if stop_on_error else "NON-STOP"

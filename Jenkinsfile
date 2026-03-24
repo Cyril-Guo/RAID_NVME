@@ -13,8 +13,10 @@ pipeline {
         booleanParam(name: 'RUN_RESTORE', defaultValue: false, description: '是否执行 恢复/日志收集')
         booleanParam(name: 'IGNORE_ERROR', defaultValue: false, description: 'MachineCheck 结果不一致时是否继续测试 (非停止模式)')
         
-        string(name: 'FIO_CYCLES', defaultValue: '10', description: 'Reboot/DC 测试循环次数 (-l)')
+        string(name: 'FIO_CYCLES', defaultValue: '', description: 'Reboot/DC 测试循环次数 (-l)，默认为 10')
         string(name: 'FIO_DISKS', defaultValue: '', description: '指定磁盘 (例: sdb,sdc)')
+        booleanParam(name: 'STRESS_MONITOR', defaultValue: false, description: '是否同时开启后台压力监控 (CPU/Mem/IO)')
+        string(name: 'MONITOR_RUNTIME', defaultValue: '', description: '后台监控运行总时长 (秒)，留空则使用默认配置 (43200s)')
     }
 
     environment {
@@ -95,6 +97,8 @@ pipeline {
                                     IGNORE_ERROR=${params.IGNORE_ERROR} \
                                     FIO_CYCLES=${params.FIO_CYCLES} \
                                     FIO_DISKS='${params.FIO_DISKS}' \
+                                    STRESS_MONITOR=${params.STRESS_MONITOR} \
+                                    MONITOR_RUNTIME='${params.MONITOR_RUNTIME}' \
                                     sudo -E python3 nvme_raid_test.py || true
                                 \" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), \$0 }' | tee test_execution_${ip}.log
                                 """
