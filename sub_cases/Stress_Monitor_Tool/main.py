@@ -112,11 +112,35 @@ def get_segment_timestamp(seg_time=3600):
                     except: continue
             if start_time != -1: break
 
-    curr_now = time.time()
-    if start_time == -1:
-        start_time = curr_now - 600 # Default to 10 mins ago
+    # Determine the end_time: Use the last recorded timestamp from logs instead of current time
+    # to avoid redundant empty segments if the monitor stopped long ago.
+    last_log_time = -1
+    for log_f in [os.path.join('SYSTEM', 'usage_cpu.log'), os.path.join('SYSTEM', 'usage_mem.log')]:
+        fpath = os.path.join(constant.LOGAD, log_f)
+        if os.path.exists(fpath):
+            try:
+                with open(fpath) as f:
+                    lines = f.readlines()
+                    if len(lines) > 1:
+                        # Find last valid line
+                        for i in range(len(lines)-1, 0, -1):
+                            last_line = lines[i].strip()
+                            if last_line:
+                                ts_str = last_line.split(',')[0]
+                                try:
+                                    lt = time.mktime(time.strptime(ts_str, "%Y-%m-%d %H:%M:%S"))
+                                    if lt > last_log_time:
+                                        last_log_time = lt
+                                    break # Found last timestamp in this file
+                                except: continue
+            except: pass
     
-    end_time = curr_now + 60 # Buffer
+    curr_now = time.time()
+    if last_log_time != -1:
+        end_time = last_log_time + 60 # Small buffer after last data point
+    else:
+        end_time = curr_now + 60 # Fallback to current time
+    
     duration = end_time - start_time
     
     # Only segment if duration exceeds seg_time
@@ -177,7 +201,9 @@ class StressMonitor(object):
     def prepare_log(self):
         # Cross-platform cleanup using native python calls
         sub_log_dir = os.path.join(constant.LOGAD, self.bmcip)
-        if os.path.exists(sub_log_dir):
+        # ONLY delete if it's NOT a reboot recovery (heuristic: if start_time.log doesn't exist)
+        st_file = os.path.join(constant.LOGAD, 'DISK', 'start_time.log')
+        if not os.path.exists(st_file) and os.path.exists(sub_log_dir):
             shutil.rmtree(sub_log_dir, ignore_errors=True)
             
         os.makedirs(os.path.join(sub_log_dir, "DISK"), exist_ok=True)
@@ -230,8 +256,11 @@ class StressMonitor(object):
     def prepare_system_stats(self):
         show_produce_message("prepare system stats")
         for ext, header in [('cpu', "Timestamp,CPU_Usage%"), ('mem', "Timestamp,Mem_Usage%")]:
-            with open(os.path.join(constant.LOGAD, 'SYSTEM', 'usage_{}.log'.format(ext)), 'w') as f:
-                f.write("{}\n".format(header))
+            fpath = os.path.join(constant.LOGAD, 'SYSTEM', 'usage_{}.log'.format(ext))
+            # Only write header if file is new or empty
+            if not os.path.exists(fpath) or os.path.getsize(fpath) == 0:
+                with open(fpath, 'w') as f:
+                    f.write("{}\n".format(header))
             with open(os.path.join(constant.LOGAD, 'SYSTEM', '{}.cfg'.format(ext)), 'w') as f:
                 f.write("usage\n")
 
@@ -269,12 +298,11 @@ class StressMonitor(object):
     def prepare_disk_io(self):
         show_produce_message("prepare disk io")
         for d in self.disk:
-            with open(os.path.join(constant.LOGAD, 'DISK', '{}_io.log'.format(d)), 'w') as f:
-                f.write("Timestamp,rkB/s,wkB/s\n")
-            with open(os.path.join(constant.LOGAD, 'DISK', '{}_iops.log'.format(d)), 'w') as f:
-                f.write("Timestamp,r/s,w/s\n")
-            with open(os.path.join(constant.LOGAD, 'DISK', '{}_util.log'.format(d)), 'w') as f:
-                f.write("Timestamp,util%\n")
+            for ext, header in [('io', "Timestamp,rkB/s,wkB/s"), ('iops', "Timestamp,r/s,w/s"), ('util', "Timestamp,util%")]:
+                fpath = os.path.join(constant.LOGAD, 'DISK', '{}_{}.log'.format(d, ext))
+                if not os.path.exists(fpath) or os.path.getsize(fpath) == 0:
+                    with open(fpath, 'w') as f:
+                        f.write("{}\n".format(header))
 
     def get_disk_io(self):
         disk_cfg = os.path.join(constant.LOGAD, 'DISK', 'io.cfg')
@@ -332,10 +360,19 @@ class StressMonitor(object):
 
     def monitor(self):
         show_produce_message("Starting monitor")
-        self.start_monitor_time = time.time()
-        # Persist start time for synchronization across instances
-        with open(os.path.join(constant.LOGAD, 'DISK', 'start_time.log'), 'w') as f:
-            f.write("{}".format(self.start_monitor_time))
+        # Persist start time only if it doesn't exist
+        st_file = os.path.join(constant.LOGAD, 'DISK', 'start_time.log')
+        if not os.path.exists(st_file):
+            self.start_monitor_time = time.time()
+            with open(st_file, 'w') as f:
+                f.write("{}".format(self.start_monitor_time))
+        else:
+            try:
+                with open(st_file) as f:
+                    self.start_monitor_time = float(f.read().strip())
+            except:
+                self.start_monitor_time = time.time()
+        
         self.endtime = self.start_monitor_time + self.runtime
         
         with open(os.path.join(constant.LOGAD, 'runtime.ini'), 'w') as f:
