@@ -16,7 +16,7 @@ pipeline {
         string(name: 'FIO_CYCLES', defaultValue: '', description: 'Reboot/DC 测试循环次数 (-l)，默认为 10')
         string(name: 'FIO_DISKS', defaultValue: '', description: '指定磁盘 (例: sdb,sdc)')
         booleanParam(name: 'STRESS_MONITOR', defaultValue: false, description: '是否同时开启后台压力监控 (CPU/Mem/IO)')
-        string(name: 'MONITOR_RUNTIME', defaultValue: '', description: '后台监控运行总时长 (秒)，留空则使用默认配置 (43200s)')
+        string(name: 'MONITOR_RUNTIME', defaultValue: '', description: '后台监控运行总时长 (秒)，留空则使用默认配置')
     }
 
     environment {
