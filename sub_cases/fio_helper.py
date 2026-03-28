@@ -29,8 +29,8 @@ def start_stress_monitor():
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️  未找到监控工具: {monitor_main}")
         return
 
-    # 构建启动命令
-    cmd_args = [sys.executable, "main.py"]
+    # 构建启动命令：使用绝对路径，便于 pkill -f 精准匹配
+    cmd_args = [sys.executable, monitor_main]
     if monitor_runtime:
         cmd_args.extend(["-r", monitor_runtime])
     
@@ -56,6 +56,7 @@ def stop_stress_monitor():
         # 使用 pkill 发送 SIGINT (2) 信号，等同于 Ctrl+C
         # Stress_Monitor_Tool/main.py 捕获该信号后会走 finally 生成报告
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🛑 正在停止 Stress_Monitor_Tool 并生成报告...")
+        # 改进 pkill 匹配逻辑，确保能精准搜寻到我们的监控进程
         subprocess.run(["pkill", "-2", "-f", "Stress_Monitor_Tool/main.py"], check=False)
     except Exception as e:
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ 停止监控工具失败: {e}")
