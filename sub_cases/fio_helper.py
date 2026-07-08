@@ -123,7 +123,7 @@ def run_fio_test(item_type=None, loops=None, is_async=False, stop_on_error=True,
         pytest.skip("ALLOW_DESTRUCTIVE_FIO 未开启，跳过破坏性 IO 测试")
 
     # 2. 准备路径
-    io_stress_dir = os.path.join(os.path.dirname(__file__), "IO_Stress")
+    io_stress_dir = os.path.join(os.path.dirname(__file__), "test_items", "IO_Stress")
     fio_script = "./Fio_All.sh"
     
     cmd_str = f"bash {fio_script} {' '.join(final_args)}"

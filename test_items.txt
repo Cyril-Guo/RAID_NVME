@@ -1,0 +1,35 @@
+# ============================================================
+# SMOKE 测试项配置文件
+# ------------------------------------------------------------
+# 用法与 target_ips.txt 一致：
+#   - 每行一个测试项，写上即执行；行首加 # 表示注释/禁用。
+#   - 空行、# 开头的行会被忽略。
+#
+# 可用测试项 (item)：
+#   reboot       Reboot Powercycle（重启循环 + FIO）
+#   dc           DC Powercycle（掉电循环 + FIO）
+#   lawdisk      裸盘压力测试
+#   filesystem   文件系统压力测试
+#   mix          混合 IO 压力测试
+#   restore      取消测试 / 清理环境 / 收集日志
+#
+# 可选全局参数（KEY=VALUE，写在本文件中即可生效）：
+#   FIO_CYCLES=10        Reboot/DC 循环次数
+#   IGNORE_ERROR=false   MachineCheck 结果不一致时是否继续 (true/false)
+#   FIO_DISKS=            指定磁盘，例如 sdb,sdc（留空为全部）
+#   STRESS_MONITOR=false 是否开启后台压力监控 (true/false)
+#   MONITOR_RUNTIME=     后台监控运行总时长（秒），留空用默认
+# ============================================================
+
+# ---- 全局参数 ----
+FIO_CYCLES=10
+IGNORE_ERROR=false
+STRESS_MONITOR=false
+
+# ---- 本次要执行的测试项 ----
+lawdisk
+filesystem
+mix
+# reboot
+# dc
+# restore

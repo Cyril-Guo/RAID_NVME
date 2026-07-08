@@ -4,20 +4,9 @@ def targetIPs = []
 pipeline {
     agent any
 
-    parameters {
-        booleanParam(name: 'RUN_REBOOT', defaultValue: true, description: '是否执行 Reboot Powercycle')
-        booleanParam(name: 'RUN_DC', defaultValue: true, description: '是否执行 DC Powercycle')
-        booleanParam(name: 'RUN_LAWDISK', defaultValue: true, description: '是否执行 Lawdisk Stress')
-        booleanParam(name: 'RUN_FILESYSTEM', defaultValue: true, description: '是否执行 Filesystem Stress')
-        booleanParam(name: 'RUN_MIX', defaultValue: true, description: '是否执行 Mixed IO Stress')
-        booleanParam(name: 'RUN_RESTORE', defaultValue: false, description: '是否执行 恢复/日志收集')
-        booleanParam(name: 'IGNORE_ERROR', defaultValue: false, description: 'MachineCheck 结果不一致时是否继续测试 (非停止模式)')
-        
-        string(name: 'FIO_CYCLES', defaultValue: '', description: 'Reboot/DC 测试循环次数 (-l)，默认为 10')
-        string(name: 'FIO_DISKS', defaultValue: '', description: '指定磁盘 (例: sdb,sdc)')
-        booleanParam(name: 'STRESS_MONITOR', defaultValue: false, description: '是否同时开启后台压力监控 (CPU/Mem/IO)')
-        string(name: 'MONITOR_RUNTIME', defaultValue: '', description: '后台监控运行总时长 (秒)，留空则使用默认配置')
-    }
+    // SMOKE 分支：不再使用图形化参数。
+    // 测试项及全局配置(循环次数/是否忽略错误/指定磁盘/监控等)全部在仓库根目录的
+    // test_items.txt 中维护，随代码一起部署到被测节点。
 
     environment {
         // 飞书机器人 Webhook 地址
@@ -83,22 +72,11 @@ pipeline {
                                 """
                                 
                                 echo "[${ip}] 4. 运行母测试脚本 (nvme_raid_test.py)..."
-                                // 将所有勾选参数和配置项透传给远程脚本
+                                // 测试项与全局配置均来自仓库内的 test_items.txt，无需再透传参数
                                 sh """
                                 ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
                                     cd ${remoteDir} && \
                                     ALLOW_DESTRUCTIVE_FIO=${env.ALLOW_DESTRUCTIVE_FIO} \
-                                    RUN_REBOOT=${params.RUN_REBOOT} \
-                                    RUN_DC=${params.RUN_DC} \
-                                    RUN_LAWDISK=${params.RUN_LAWDISK} \
-                                    RUN_FILESYSTEM=${params.RUN_FILESYSTEM} \
-                                    RUN_MIX=${params.RUN_MIX} \
-                                    RUN_RESTORE=${params.RUN_RESTORE} \
-                                    IGNORE_ERROR=${params.IGNORE_ERROR} \
-                                    FIO_CYCLES=${params.FIO_CYCLES} \
-                                    FIO_DISKS='${params.FIO_DISKS}' \
-                                    STRESS_MONITOR=${params.STRESS_MONITOR} \
-                                    MONITOR_RUNTIME='${params.MONITOR_RUNTIME}' \
                                     sudo -E python3 nvme_raid_test.py || true
                                 \" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), \$0 }' | tee test_execution_${ip}.log
                                 """

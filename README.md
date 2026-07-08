@@ -14,11 +14,15 @@
 ```text
 RAID_NVME/
 ├── Jenkinsfile            # Jenkins 流水线定义脚本，包含集群并发逻辑与飞书通知
-├── nvme_raid_test.py      # 主测试执行调度脚本
+├── nvme_raid_test.py      # 主测试执行调度脚本（从 test_items.txt 读取测试项）
 ├── requirements.txt       # Python 依赖包 (pytest, allure-pytest 等)
 ├── target_ips.txt         # 存放被测目标服务器的 IP 列表
+├── test_items.txt         # 测试项选择文件：勾选要执行的测试项及全局参数
 ├── conftest.py            # Pytest 全局配置
-└── sub_cases/             # 测试用例目录，将具体的 test_*.py 用例脚本存放在此
+└── sub_cases/             # 测试用例目录
+    ├── test_stress_*.py   # 各类 Pytest 测试用例
+    └── test_items/        # 测试项实现容器（未来可扩展更多冒烟功能测试）
+        └── IO_Stress/     # FIO 压力测试引擎 (Fio_All.sh、lib/、MachineCheck 等)
 ```
 
 ## 🔑 SSH 免密登录配置 (重要)
@@ -50,17 +54,26 @@ RAID_NVME/
 ### 1. 配置测试目标节点
 编辑项目根目录中的 `target_ips.txt`，将所有需要测试的节点 IP 地址逐行填入。
 
-### 2. 在 Jenkins 中触发任务 (带参数预览)
-在 Jenkins 界面点击 **"Build with Parameters"**，你可以看到以下可配置项：
+### 2. 配置要执行的测试项
+编辑项目根目录中的 `test_items.txt`（用法与 `target_ips.txt` 一致）：
 
-- **测试项勾选**: 自由选择运行 `Reboot`, `DC`, `Lawdisk`, `Filesystem`, `Mix` 或 `Specify` 等测试。
-- **FIO_CYCLES**: 设置 Powercycle 测试的循环次数 (默认 100)。
-- **FIO_DISKS**: 当勾选 `Specify` 测试时，在此输入要测试的磁盘名称 (如 `sdb,sdc`)。
-- **ALLOW_DESTRUCTIVE_FIO**: 选择是否开启破坏性写入。
+- **勾选测试项**：每行一个测试项关键字，写上即执行，行首加 `#` 即注释/禁用。可用项：
+  `reboot`、`dc`、`lawdisk`、`filesystem`、`mix`、`restore`。
+- **全局参数**（可选，`KEY=VALUE` 形式写在同一文件）：
+  - `FIO_CYCLES`：Reboot/DC 测试循环次数。
+  - `IGNORE_ERROR`：MachineCheck 结果不一致时是否继续 (true/false)。
+  - `FIO_DISKS`：指定磁盘 (如 `sdb,sdc`)，留空为全部。
+  - `STRESS_MONITOR` / `MONITOR_RUNTIME`：后台压力监控开关与时长。
 
-### 3. 查看结果
+> SMOKE 分支的 Jenkins 任务已取消图形化参数，测试项与配置完全由仓库内的
+> `test_items.txt` 决定，随代码一起部署到被测节点，保证"配置即代码"。
+
+### 3. 在 Jenkins 中触发任务
+在 Jenkins 界面直接点击 **"Build Now"** 即可（无需再选择参数）。
+
+### 4. 查看结果
 - **Allure 报告**: 详尽展示每个测试项的执行结果、耗时及日志。
-- **错误追踪**: 若测试失败，脚本会自动从远端抓取 `IO_Stress/log/TestErrorLog` 硬件报错日志并关联到报告中。
+- **错误追踪**: 若测试失败，脚本会自动从远端抓取 `test_items/IO_Stress/log/TestErrorLog` 硬件报错日志并关联到报告中。
 - **飞书通知**: 任务结束后，飞书群组会收到包含成功率和报告链接的统计卡片。
 
 ## ⚠️ 注意事项
