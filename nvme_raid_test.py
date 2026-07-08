@@ -52,7 +52,7 @@ def main():
 
     selected_items, config = parse_items_file(items_path)
 
-    # 将 KEY=VALUE 配置注入环境变量，供 fio_helper / 各测试用例读取
+    # 将 KEY=VALUE 配置注入环境变量，供各 test_smoke 用例自行读取
     for key, val in config.items():
         os.environ[key] = val
         print(f"[CONFIG] {key}={val}")
