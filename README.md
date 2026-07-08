@@ -59,39 +59,42 @@ RAID_NVME/
 编辑项目根目录中的 `target_ips.txt`，将所有需要测试的节点 IP 地址逐行填入。
 
 ### 2. 配置要执行的测试项
-编辑项目根目录中的 `test_items.txt`。配置分为**两个区域**，勾选与参数各自独立：
+编辑项目根目录中的 `test_items.txt`。**每个测试项就是一个 `[item]` 块**，开关和参数都在同一个块里，
+一处搞定，不用两头看。可用项：`reboot`、`dc`、`lawdisk`、`filesystem`、`mix`。
 
-**① 测试项选择区**（文件上半部分）：只放测试项名字，去掉行首 `#` 即启用，加回 `#` 即禁用。
-勾选测试项时不必再动参数，非常直观。可用项：`reboot`、`dc`、`lawdisk`、`filesystem`、`mix`、`restore`。
+想跑哪个，就把它块里的 `enable` 改成 `yes`（`no` 即跳过）；参数按需改，不改用默认值。
 
 ```text
-lawdisk
-filesystem
-mix
-# reboot
-# dc
-# restore
+# 要跑：enable = yes
+[lawdisk]
+enable          = yes
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = yes
+MONITOR_RUNTIME = 300
+
+# 不跑：enable = no
+[reboot]
+enable          = no
+FIO_CYCLES      = 10
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = no
+MONITOR_RUNTIME =
 ```
 
-**② 参数详情区**（文件下半部分）：每个测试项一个 `[item]` 块，只在这里改参数；
-未勾选项的参数会被忽略，各项参数与测试项一一对应，互不影响。
+参数含义：
 
 - `FIO_CYCLES`：电源循环次数（仅 `reboot`/`dc` 有效；压测项循环由 CSV 与 runtime 决定，不使用此参数）。
 - `IGNORE_ERROR`：MachineCheck 结果不一致时是否继续 (yes/no)。
-- `FIO_DISKS`：指定磁盘 (如 `sdb,sdc`)，留空为全部。
+- `FIO_DISKS`：指定数据盘 (如 `sdb,sdc`)，留空为全部数据盘。
 - `STRESS_MONITOR` / `MONITOR_RUNTIME`：后台压力监控开关与时长。
-- 例外：`restore` 仅涉及 `IGNORE_ERROR`、`FIO_DISKS`（负责停止监控与收尾清理）。
 
-```text
-[lawdisk]
-IGNORE_ERROR=no
-FIO_DISKS=
-STRESS_MONITOR=yes
-MONITOR_RUNTIME=300
-```
-
-> 只有“选择区”勾选的测试项才会执行，并按固定顺序（restore 始终最后收尾）运行；
+> 只有 `enable = yes` 的测试项会执行，并按固定顺序
+> （`reboot → dc → lawdisk → filesystem → mix`）运行；
 > 各项以自己 `[item]` 块中的参数独立执行，结果统一合并到同一份 Allure / JUnit 报告中。
+>
+> 停止/清理（restore）不再是测试项，已改由 Jenkins Web 的 `RESTORE` 选项随时触发（见下文）。
 
 > SMOKE 分支的 Jenkins 任务测试项与配置完全由仓库内的 `test_items.txt` 决定，
 > 随代码一起部署到被测节点，保证"配置即代码"。Web 界面仅保留一个 `RESTORE`

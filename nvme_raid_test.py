@@ -5,14 +5,14 @@ import xml.etree.ElementTree as ET
 import pytest
 
 
-# 测试项关键字 -> 测试文件（顺序即执行顺序，restore 放最后负责收尾）
+# 测试项关键字 -> 测试文件（字典顺序即执行顺序）
+# 注：停止/清理(restore)已改由 Jenkins Web 的 RESTORE 选项处理，不再作为测试项。
 TEST_ITEMS = {
     "reboot": "test_items/test_smoke_01_reboot.py",
     "dc": "test_items/test_smoke_02_dc.py",
     "lawdisk": "test_items/test_smoke_03_lawdisk.py",
     "filesystem": "test_items/test_smoke_04_filesystem.py",
     "mix": "test_items/test_smoke_05_mix.py",
-    "restore": "test_items/test_smoke_07_restore.py",
 }
 
 # 各测试项各自"涉及"的参数白名单：块内写了白名单之外的参数会被忽略，
@@ -26,7 +26,6 @@ ITEM_PARAMS = {
     "lawdisk": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
     "filesystem": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
     "mix": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
-    "restore": ["IGNORE_ERROR", "FIO_DISKS"],
 }
 
 # 所有可能被注入的参数（用于每项执行前清理上一项的残留）
@@ -40,18 +39,18 @@ JUNIT_FINAL = "report.xml"
 
 def parse_items_file(path):
     """
-    解析 test_items.txt（两段式格式）：
-      ① 测试项选择区：位于任何 [item] 块之前的“裸行”(不含 = )即被勾选的测试项，
-         行首 # 视为禁用。
-      ② 参数详情区：[item] 块内的 KEY=VALUE 为该项参数（无论是否被勾选都可预置）。
+    解析 test_items.txt（单块式格式）：
+      每个测试项对应一个 [item] 块，块内：
+        enable = yes/no   该项唯一的开关（yes 才执行）
+        其余 KEY = VALUE   为该项参数
 
     返回 (selected, params_map)：
-      selected:   按文件出现顺序排列的已勾选测试项列表
-      params_map: {item: {param: value}}，各 [item] 块的参数
+      selected:   enable=yes 的测试项列表（按文件出现顺序）
+      params_map: {item: {param: value}}（不含 enable）
     """
     selected = []
     params_map = {}
-    current = None  # 进入首个 [item] 块前为 None，用于区分选择区与详情区
+    current = None
 
     if not os.path.exists(path):
         print(f"[WARN] 未找到测试项配置文件: {path}")
@@ -67,10 +66,13 @@ def parse_items_file(path):
                 params_map.setdefault(current, {})
             elif "=" in line and current is not None:
                 key, val = line.split("=", 1)
-                params_map[current][key.strip()] = val.strip()
-            elif current is None:
-                # 尚未进入任何 [item] 块 -> 属于选择区，裸行即勾选的测试项
-                selected.append(line.lower())
+                key, val = key.strip(), val.strip()
+                if key.lower() == "enable":
+                    # enable 是块内唯一开关，不作为参数注入
+                    if val.lower() == "yes":
+                        selected.append(current)
+                else:
+                    params_map[current][key] = val
 
     return selected, params_map
 
@@ -141,12 +143,12 @@ def main():
     if invalid:
         print(f"[WARN] 忽略未知测试项 {invalid}，可用项: {list(TEST_ITEMS.keys())}")
 
-    # 已勾选且合法的测试项，按 TEST_ITEMS 顺序执行（restore 始终在最后收尾）
+    # 已勾选且合法的测试项，按 TEST_ITEMS 定义顺序执行
     selected_set = {item for item in selected if item in TEST_ITEMS}
     run_order = [item for item in TEST_ITEMS if item in selected_set]
 
     if not run_order:
-        print(f"未选择任何有效测试项，退出。请在 {ITEMS_FILE} 的“测试项选择区”取消注释需要执行的项。")
+        print(f"未选择任何有效测试项，退出。请在 {ITEMS_FILE} 中把要执行的项的 enable 改为 yes。")
         return
 
     print(f"选择的测试项: {run_order}")
