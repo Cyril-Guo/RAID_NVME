@@ -18,10 +18,10 @@
 
 # ==================== 测试项选择区 ====================
 # 去掉行首 # 启用，加回 # 禁用。可用项：
-#   lawdisk / filesystem / mix / reboot / dc / restore
+# lawdisk / filesystem / mix / reboot / dc / restore
 lawdisk
-filesystem
-mix
+# filesystem
+# mix
 # reboot
 # dc
 # restore
