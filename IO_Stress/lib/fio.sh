@@ -1181,7 +1181,8 @@ function change_config()
 
 function prepare()
 {
-    disks=$(lsblk -dn -o NAME | grep -vw "$system_disk")
+    # 仅选取 TYPE=disk 的真实块设备，排除 loop/rom 等虚拟设备，并剔除系统盘
+    disks=$(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}' | grep -vw "$system_disk")
     i=1
     unset disk
     for str in $disks
@@ -1367,8 +1368,9 @@ function do_fio() {
             exit 1
         fi
         if [[ "$specified_disk" =~ "null" ]];then
-            # 使用 -w 精确匹配整词，防止子串误匹配；系统盘被排除，绝不参与 IO
-            disk=$(lsblk -dn -o NAME | grep -vw "$system_disk" | sort)
+            # 仅选取 TYPE=disk 的真实块设备，排除 loop/rom 等虚拟设备；
+            # 再用 -w 精确匹配整词剔除系统盘，确保绝不对系统盘或虚拟设备做 IO
+            disk=$(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}' | grep -vw "$system_disk" | sort)
             OLD_IFS="$IFS"
             IFS=" "
             disk=($disk)
