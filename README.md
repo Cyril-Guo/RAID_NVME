@@ -101,11 +101,28 @@ MONITOR_RUNTIME =
 > 选项用于随时停止测试（见下文）。
 
 ### 3. 在 Jenkins 中触发任务
-在 Jenkins 界面点击 **"Build with Parameters"**：
+两种触发方式：
+
+**手动触发**：在 Jenkins 界面点击 **"Build with Parameters"**：
 - 直接构建（`RESTORE` 不勾选）即按 `test_items.txt` 执行测试。
 - 勾选 **`RESTORE`** 后构建：本次不执行测试，仅对 `target_ips.txt` 中所有节点
   **立即停止**正在运行的测试（含后台 FIO / 监控进程），并恢复系统环境
   （还原自动登录、开机自启等配置）。用于随时中止测试。
+
+**自动触发（被测驱动提交即测）**：`Jenkinsfile` 已配置 SCM 轮询，每 15 分钟检查
+被测驱动仓库 `kernel_driver`（`KERNEL_DRIVER_REPO`）的 `main` 分支，一旦发现新提交
+即自动运行冒烟测试。轮询**仅针对 `kernel_driver`**（其 `checkout` 设 `poll:true`），
+RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试框架推代码**不会**
+误触发破坏性测试。
+
+> 需要在 Jenkins 中预先完成一次性配置：
+> 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，
+>    凭据 ID 填 `kernel_driver_ssh`（与 `Jenkinsfile` 的 `KERNEL_DRIVER_CRED` 一致），
+>    私钥需对 `192.168.21.185` 的 `raid_max/kernel_driver` 有读取权限。
+> 2. **信任 Git 主机指纹**：Manage Jenkins → Security → Git Host Key Verification 配置为
+>    “Accept first connection” 或把 `192.168.21.185` 加入 known_hosts，否则首次克隆会因主机校验失败。
+> 3. 构建方式确定前，`构建与安装 kernel_driver` 为占位阶段（只打印 TODO，不做实际编译）。
+>    后续补充：把 `kernel_driver` 源码部署到各节点 → 编译 → 安装/加载驱动，再跑 FIO 冒烟。
 
 ### 4. 查看结果
 - **Allure 报告**: 详尽展示每个测试项的执行结果、耗时及日志。

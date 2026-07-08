@@ -1,8 +1,17 @@
 // 全局变量：存储从 target_ips.txt 读取的 IP 列表
 def targetIPs = []
+// 全局变量：本次触发对应的 kernel_driver 提交号（用于报告展示）
+def kernelDriverCommit = ''
 
 pipeline {
     agent any
+
+    // 自动触发：每 15 分钟轮询 kernel_driver 的 main 分支，一旦有新提交即触发本冒烟测试。
+    // 说明：轮询仅针对 kernel_driver（见准备阶段 checkout 的 poll:true）；RAID_NVME 测试
+    //       框架自身的 checkout 设为 poll:false，因此对框架的推送不会误触发破坏性测试。
+    triggers {
+        pollSCM('H/15 * * * *')
+    }
 
     // SMOKE 分支：测试项及全局配置(循环次数/是否忽略错误/指定磁盘/监控等)全部在
     // 仓库根目录的 test_items.txt 中维护，随代码一起部署到被测节点。
@@ -25,14 +34,47 @@ pipeline {
         TARGET_USER = 'root' 
         // 解锁破坏性写入测试开关 (1=允许)
         ALLOW_DESTRUCTIVE_FIO = '1'
+
+        // ===== kernel_driver 源码仓库（被测对象）=====
+        // main 分支有新提交时自动触发本冒烟测试
+        KERNEL_DRIVER_REPO   = 'git@192.168.21.185:raid_max/kernel_driver.git'
+        KERNEL_DRIVER_BRANCH = 'main'
+        // Jenkins 凭据 ID：访问 192.168.21.185 的 SSH 私钥（需在 Jenkins 中预先创建，见 README）
+        KERNEL_DRIVER_CRED   = 'kernel_driver_ssh'
     }
 
     stages {
         stage('准备阶段：拉取代码与读取 IP') {
             steps {
                 cleanWs()
-                checkout scm
-                
+
+                // RAID_NVME 测试框架：poll:false —— 不参与轮询，其推送不会触发本任务
+                checkout scm: scm, poll: false, changelog: true
+
+                // kernel_driver：poll:true —— 参与轮询，main 分支有提交即触发；浅克隆到子目录
+                script {
+                    if (!params.RESTORE) {
+                        checkout scm: [
+                            $class: 'GitSCM',
+                            branches: [[name: "*/${env.KERNEL_DRIVER_BRANCH}"]],
+                            userRemoteConfigs: [[
+                                url: env.KERNEL_DRIVER_REPO,
+                                credentialsId: env.KERNEL_DRIVER_CRED
+                            ]],
+                            extensions: [
+                                [$class: 'RelativeTargetDirectory', relativeTargetDir: 'kernel_driver'],
+                                [$class: 'CloneOption', shallow: true, depth: 1, noTags: true, timeout: 30]
+                            ]
+                        ], poll: true, changelog: true
+
+                        kernelDriverCommit = sh(
+                            script: "git -C kernel_driver rev-parse --short HEAD 2>/dev/null || echo unknown",
+                            returnStdout: true
+                        ).trim()
+                        echo "被测 kernel_driver(${env.KERNEL_DRIVER_BRANCH}) 当前提交: ${kernelDriverCommit}"
+                    }
+                }
+
                 script {
                     if (fileExists('target_ips.txt')) {
                         def ipContent = readFile('target_ips.txt').trim()
@@ -45,6 +87,21 @@ pipeline {
                     } else {
                         error "根目录下缺少 target_ips.txt 文件！"
                     }
+                }
+            }
+        }
+
+        stage('构建与安装 kernel_driver（占位，待补充）') {
+            when { expression { return !params.RESTORE } }
+            steps {
+                script {
+                    echo "被测驱动 kernel_driver 提交: ${kernelDriverCommit ?: '未知'}"
+                    echo "【占位】此阶段用于把本次提交的 kernel_driver 部署到各被测节点并编译、安装/加载驱动。"
+                    echo "【占位】构建方式待定（内核模块 .ko / 构建脚本 / 整棵内核），确定后在此实现真正的编译安装逻辑。"
+                    // TODO(kernel_driver 构建与安装):
+                    //   1) 将 kernel_driver 源码部署到各节点（当前已浅克隆在工作区 kernel_driver/ 目录）
+                    //   2) 在节点上编译驱动
+                    //   3) 安装并加载驱动（insmod/modprobe 或 make install）；失败应中止后续冒烟
                 }
             }
         }
@@ -77,7 +134,8 @@ pipeline {
 
                                 echo "[${ip}] 2. 部署清理脚本..."
                                 sh "ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
-                                sh "scp -o StrictHostKeyChecking=no -r * ${env.TARGET_USER}@${ip}:${remoteDir}/"
+                                // 排除 kernel_driver 源码大目录，避免把整棵内核树传到节点
+                                sh "scp -o StrictHostKeyChecking=no -r \$(ls | grep -vx kernel_driver) ${env.TARGET_USER}@${ip}:${remoteDir}/"
 
                                 echo "[${ip}] 3. 执行 restore 恢复系统环境(还原自动登录/开机自启等配置)..."
                                 sh """
@@ -115,7 +173,8 @@ pipeline {
                                 
                                 echo "[${ip}] 1. 部署代码..."
                                 sh "ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
-                                sh "scp -o StrictHostKeyChecking=no -r * ${env.TARGET_USER}@${ip}:${remoteDir}/"
+                                // 排除 kernel_driver 源码大目录（其部署/编译由上方占位阶段后续实现）
+                                sh "scp -o StrictHostKeyChecking=no -r \$(ls | grep -vx kernel_driver) ${env.TARGET_USER}@${ip}:${remoteDir}/"
                                 
                                 echo "[${ip}] 2. 安装 Python 依赖..."
                                 // 部分系统(如 RHEL 9.x 最小化安装)自带 python3 但无 pip，
@@ -260,7 +319,8 @@ EOF
                           { "is_short": true, "text": { "tag": "lark_md", "content": "**用户名:** dapustor" } },
                           { "is_short": true, "text": { "tag": "lark_md", "content": "**密码:** Admin@9000" } },
                           { "is_short": false, "text": { "tag": "lark_md", "content": "**时间周期：**\\n${startStr} ~ ${endStr}" } },
-                          { "is_short": false, "text": { "tag": "lark_md", "content": "**并发节点：**\\n${ipListStr}" } }
+                          { "is_short": false, "text": { "tag": "lark_md", "content": "**并发节点：**\\n${ipListStr}" } },
+                          { "is_short": false, "text": { "tag": "lark_md", "content": "**被测驱动(kernel_driver)：**\\n${kernelDriverCommit ?: '未知'}" } }
                         ]
                       },
                       {
