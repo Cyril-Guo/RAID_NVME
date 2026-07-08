@@ -36,8 +36,8 @@ def test_cancel_restore():
         loops = int(raw_cycles) if raw_cycles else 10
     except ValueError:
         loops = 10
-    # IGNORE_ERROR=true 表示忽略 MachineCheck 错误继续 -> 不停止
-    ignore_error = os.environ.get("IGNORE_ERROR", "").strip().lower() == "true"
+    # IGNORE_ERROR=yes 表示忽略 MachineCheck 错误继续 -> 不停止
+    ignore_error = os.environ.get("IGNORE_ERROR", "").strip().lower() == "yes"
     flag_val = "NON-STOP" if ignore_error else "STOP"
 
     # ---------- 3. 组装 Fio_All.sh 参数 ----------

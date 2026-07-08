@@ -10,53 +10,53 @@
 #
 # 参数含义：
 #   FIO_CYCLES      循环次数（reboot/dc 为电源循环次数；压测项为 FIO 循环次数）
-#   IGNORE_ERROR    MachineCheck 结果不一致时是否继续 (true/false)
+#   IGNORE_ERROR    MachineCheck 结果不一致时是否继续 (yes/no)
 #   FIO_DISKS       指定磁盘，如 sdb,sdc；留空为全部
-#   STRESS_MONITOR  是否开启后台压力监控 (true/false)
+#   STRESS_MONITOR  是否开启后台压力监控 (yes/no)
 #   MONITOR_RUNTIME 后台监控运行总时长（秒），留空用默认
 # ============================================================
 
-# ---- 裸盘压力测试 ----
+ ---- 裸盘压力测试 ----
 [lawdisk]
 FIO_CYCLES=10
-IGNORE_ERROR=false
+IGNORE_ERROR=no
 FIO_DISKS=
-STRESS_MONITOR=false
-MONITOR_RUNTIME=
+STRESS_MONITOR=yes
+MONITOR_RUNTIME=300
 
 # ---- 文件系统压力测试 ----
 [filesystem]
 FIO_CYCLES=10
-IGNORE_ERROR=false
+IGNORE_ERROR=no
 FIO_DISKS=
-STRESS_MONITOR=false
+STRESS_MONITOR=no
 MONITOR_RUNTIME=
 
 # ---- 混合 IO 压力测试 ----
 [mix]
 FIO_CYCLES=10
-IGNORE_ERROR=false
+IGNORE_ERROR=no
 FIO_DISKS=
-STRESS_MONITOR=false
+STRESS_MONITOR=no
 MONITOR_RUNTIME=
 
 # ---- Reboot 电源循环（默认禁用）----
 # [reboot]
 # FIO_CYCLES=10
-# IGNORE_ERROR=false
+# IGNORE_ERROR=no
 # FIO_DISKS=
-# STRESS_MONITOR=false
+# STRESS_MONITOR=no
 # MONITOR_RUNTIME=
 
 # ---- DC 掉电循环（默认禁用）----
 # [dc]
 # FIO_CYCLES=10
-# IGNORE_ERROR=false
+# IGNORE_ERROR=no
 # FIO_DISKS=
-# STRESS_MONITOR=false
+# STRESS_MONITOR=no
 # MONITOR_RUNTIME=
 
 # ---- 清理与恢复（默认禁用；仅涉及以下参数）----
 # [restore]
-# IGNORE_ERROR=false
+# IGNORE_ERROR=no
 # FIO_DISKS=

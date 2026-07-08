@@ -27,12 +27,12 @@ def test_dc_powercycle():
         loops = int(raw_cycles) if raw_cycles else 10
     except ValueError:
         loops = 10
-    # IGNORE_ERROR=true 表示忽略 MachineCheck 错误继续 -> 不停止
-    ignore_error = os.environ.get("IGNORE_ERROR", "").strip().lower() == "true"
+    # IGNORE_ERROR=yes 表示忽略 MachineCheck 错误继续 -> 不停止
+    ignore_error = os.environ.get("IGNORE_ERROR", "").strip().lower() == "yes"
     flag_val = "NON-STOP" if ignore_error else "STOP"
 
     # ---------- 2. 按需后台启动压力监控 ----------
-    if os.environ.get("STRESS_MONITOR", "").strip().lower() == "true":
+    if os.environ.get("STRESS_MONITOR", "").strip().lower() == "yes":
         monitor_dir = os.path.join(os.path.dirname(__file__), "..", "Stress_Monitor")
         monitor_main = os.path.join(monitor_dir, "main.py")
         if os.path.exists(monitor_main):
