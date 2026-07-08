@@ -148,8 +148,7 @@ function UPICheck(){
 
 function get_machinecheck()
 {
-	cd $Cur_Dir
-	if [[ -d MachineCheck ]];then
+	if [[ -d $MachineCheck_Dir ]];then
         echo -e " The machinecheck exists. The program continues to run.  \n"
     else
         echo -e " MachineCheck toolkit not found. Skipping machine check.  \n"

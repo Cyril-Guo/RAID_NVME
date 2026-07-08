@@ -7,12 +7,12 @@ import pytest
 
 # 测试项关键字 -> 测试文件（顺序即执行顺序，restore 放最后负责收尾）
 TEST_ITEMS = {
-    "reboot": "sub_cases/test_smoke_01_reboot.py",
-    "dc": "sub_cases/test_smoke_02_dc.py",
-    "lawdisk": "sub_cases/test_smoke_03_lawdisk.py",
-    "filesystem": "sub_cases/test_smoke_04_filesystem.py",
-    "mix": "sub_cases/test_smoke_05_mix.py",
-    "restore": "sub_cases/test_smoke_07_restore.py",
+    "reboot": "test_items/test_smoke_01_reboot.py",
+    "dc": "test_items/test_smoke_02_dc.py",
+    "lawdisk": "test_items/test_smoke_03_lawdisk.py",
+    "filesystem": "test_items/test_smoke_04_filesystem.py",
+    "mix": "test_items/test_smoke_05_mix.py",
+    "restore": "test_items/test_smoke_07_restore.py",
 }
 
 # 各测试项各自"涉及"的参数白名单：块内写了白名单之外的参数会被忽略，

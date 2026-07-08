@@ -13,17 +13,21 @@
 
 ```text
 RAID_NVME/
-├── Jenkinsfile            # Jenkins 流水线定义脚本，包含集群并发逻辑与飞书通知
-├── nvme_raid_test.py      # 主测试执行调度脚本（从 test_items.txt 读取测试项）
-├── requirements.txt       # Python 依赖包 (pytest, allure-pytest 等)
-├── target_ips.txt         # 存放被测目标服务器的 IP 列表
-├── test_items.txt         # 测试项选择文件：勾选要执行的测试项及全局参数
-├── conftest.py            # Pytest 全局配置
-└── sub_cases/             # 测试用例目录
-    ├── test_smoke_*.py    # 各类 Pytest 测试用例
-    └── test_items/        # 测试项实现容器（未来可扩展更多冒烟功能测试）
-        └── IO_Stress/     # FIO 压力测试引擎 (Fio_All.sh、lib/、MachineCheck 等)
+├── Jenkinsfile             # Jenkins 流水线定义脚本，包含集群并发逻辑与飞书通知
+├── nvme_raid_test.py       # 主测试执行调度脚本（从 test_items.txt 读取测试项）
+├── requirements.txt        # Python 依赖包 (pytest, allure-pytest 等)
+├── target_ips.txt          # 存放被测目标服务器的 IP 列表
+├── test_items.txt          # 测试项选择文件：勾选要执行的测试项及全局参数
+├── conftest.py             # Pytest 全局配置
+├── IO_Stress/              # FIO 压力测试引擎（共用）：Fio_All.sh、lib/ 等
+├── MachineCheck/           # 硬件检查工具（共用）：MachineCheck.sh 等
+├── Stress_Monitor_Tool/    # 后台压力监控工具（共用）
+└── test_items/             # 纯测试项：仅存放各 Pytest 测试用例
+    └── test_smoke_*.py     # 各测试用例（各自独立、自包含）
 ```
+
+> 说明：`IO_Stress`、`MachineCheck`、`Stress_Monitor_Tool` 为多个测试项共用的引擎/工具，
+> 统一放在根目录；`test_items/` 只保留纯粹的测试用例脚本，职责更清晰。
 
 ## 🔑 SSH 免密登录配置 (重要)
 
@@ -87,7 +91,7 @@ MONITOR_RUNTIME=
 
 ### 4. 查看结果
 - **Allure 报告**: 详尽展示每个测试项的执行结果、耗时及日志。
-- **错误追踪**: 若测试失败，脚本会自动从远端抓取 `test_items/IO_Stress/log/TestErrorLog` 硬件报错日志并关联到报告中。
+- **错误追踪**: 若测试失败，脚本会自动从远端抓取 `IO_Stress/log/TestErrorLog` 硬件报错日志并关联到报告中。
 - **飞书通知**: 任务结束后，飞书群组会收到包含成功率和报告链接的统计卡片。
 
 ## ⚠️ 注意事项
