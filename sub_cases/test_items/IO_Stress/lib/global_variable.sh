@@ -49,7 +49,7 @@ System_NFS_PC5=`[ -f /etc/os-release ] && grep "NFSDesktop" /etc/os-release | wc
 system_kylin=`[ -f /etc/issue ] && grep -i kylin /etc/issue | wc -l || echo 0`
 system_Kylin=`[ -f /etc/os-release ] && grep "kylin" /etc/os-release | wc -l || echo 0`
 system_Kylin_Debian=`[ -f /etc/os-release ] && grep "debian" /etc/os-release | wc -l || echo 0`
-system_Redhat9=`[ -f /etc/redhat-release ] && grep 'Red Hat Enterprise Linux release 9.0 ' /etc/redhat-release | wc -l || echo 0`
+system_Redhat9=`[ -f /etc/redhat-release ] && grep -E 'Red Hat Enterprise Linux release 9\.' /etc/redhat-release | wc -l || echo 0`
 system_UOS_Server=`[ -f /etc/os-release ] && grep 'UnionTech OS Server 20' /etc/os-release | wc -l || echo 0`
 system_ctyunos=`[ -f /etc/os-release ] && grep -i "NAME=\"ctyunos\"" /etc/os-release | wc -l || echo 0`
 system_Rocky9=`[ -f /etc/os-release ] && grep "Rocky Linux 9" /etc/os-release | wc -l || echo 0`
