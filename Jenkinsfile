@@ -57,7 +57,16 @@ pipeline {
                                 sh "scp -o StrictHostKeyChecking=no -r * ${env.TARGET_USER}@${ip}:${remoteDir}/"
                                 
                                 echo "[${ip}] 2. 安装 Python 依赖..."
-                                sh "ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'cd ${remoteDir} && (pip3 install -r requirements.txt --break-system-packages || pip install -r requirements.txt --break-system-packages)'"
+                                // 部分系统(如 RHEL 9.x 最小化安装)自带 python3 但无 pip，
+                                // 先按需引导 pip(ensurepip/包管理器)，再兼容新旧 pip 安装依赖。
+                                sh """
+                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
+                                    cd ${remoteDir}
+                                    python3 -m pip --version >/dev/null 2>&1 || python3 -m ensurepip --default-pip >/dev/null 2>&1 || true
+                                    python3 -m pip --version >/dev/null 2>&1 || dnf install -y python3-pip >/dev/null 2>&1 || yum install -y python3-pip >/dev/null 2>&1 || apt-get install -y python3-pip >/dev/null 2>&1 || zypper install -y python3-pip >/dev/null 2>&1 || true
+                                    python3 -m pip install -r requirements.txt --break-system-packages || python3 -m pip install -r requirements.txt
+                                '
+                                """
                                 
                                 echo "[${ip}] 3. 获取硬件环境信息..."
                                 sh """
