@@ -74,7 +74,7 @@ def main():
     print(f"选择的测试项: {[i for i in selected_items if i in TEST_ITEMS]}")
     print(f"运行的测试文件: {selected_tests}")
 
-    pytest_args = ["-v", "-s", "--tb=short", "--alluredir=allure-results"]
+    pytest_args = ["-v", "-s", "--tb=short", "--alluredir=allure-results", "--clean-alluredir"]
     pytest_args.extend(selected_tests)
     pytest_args.append("--junitxml=report.xml")
 
