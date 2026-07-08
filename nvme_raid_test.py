@@ -5,12 +5,12 @@ import pytest
 
 # 测试项关键字 -> 测试文件（顺序即执行顺序）
 TEST_ITEMS = {
-    "reboot": "sub_cases/test_stress_01_reboot.py",
-    "dc": "sub_cases/test_stress_02_dc.py",
-    "lawdisk": "sub_cases/test_stress_03_lawdisk.py",
-    "filesystem": "sub_cases/test_stress_04_filesystem.py",
-    "mix": "sub_cases/test_stress_05_mix.py",
-    "restore": "sub_cases/test_stress_07_restore.py",
+    "reboot": "sub_cases/test_smoke_01_reboot.py",
+    "dc": "sub_cases/test_smoke_02_dc.py",
+    "lawdisk": "sub_cases/test_smoke_03_lawdisk.py",
+    "filesystem": "sub_cases/test_smoke_04_filesystem.py",
+    "mix": "sub_cases/test_smoke_05_mix.py",
+    "restore": "sub_cases/test_smoke_07_restore.py",
 }
 
 # 测试项选择文件（与 target_ips.txt 风格一致）

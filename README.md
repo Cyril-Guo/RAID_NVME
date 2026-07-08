@@ -20,7 +20,7 @@ RAID_NVME/
 ├── test_items.txt         # 测试项选择文件：勾选要执行的测试项及全局参数
 ├── conftest.py            # Pytest 全局配置
 └── sub_cases/             # 测试用例目录
-    ├── test_stress_*.py   # 各类 Pytest 测试用例
+    ├── test_smoke_*.py    # 各类 Pytest 测试用例
     └── test_items/        # 测试项实现容器（未来可扩展更多冒烟功能测试）
         └── IO_Stress/     # FIO 压力测试引擎 (Fio_All.sh、lib/、MachineCheck 等)
 ```

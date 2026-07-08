@@ -13,7 +13,7 @@ pipeline {
         FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/17fe4cfd-5e49-4ceb-b8c4-f002d74340ee'
         // 远程登录用户名
         TARGET_USER = 'root' 
-        // 解锁破坏性写入测试开关 (可在环境变量或参数中开启)
+        // 解锁破坏性写入测试开关 (1=允许)
         ALLOW_DESTRUCTIVE_FIO = '1'
     }
 
@@ -49,6 +49,7 @@ pipeline {
                         
                         parallelTasks["Node_${ip}"] = {
                             stage("Test on ${ip}") {
+                                // 每次构建使用独立的远程工作目录，避免多次构建互相污染
                                 def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_${env.BUILD_NUMBER}"
                                 
                                 echo "[${ip}] 1. 部署代码..."
