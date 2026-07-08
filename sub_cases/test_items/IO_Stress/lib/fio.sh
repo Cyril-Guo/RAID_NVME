@@ -180,22 +180,6 @@ do_dc()
 
 
 
-prepare_system() {
-    if [[ -z $system_disk ]];then
-        echo -ne " fail to find system disk, so exit "
-        exit 1
-    fi
-    rm -rf /data/fiotest/ >/dev/null
-    mkdir -p /data/fiotest/$system_disk
-    dd if=/dev/zero of=/data/fiotest/$system_disk/test_${system_disk} bs=1G count=10 conv=fsync
-    # touch /data/fiotest/$system_disk/test_${system_disk}
-    if [ "$item" = "LAWDISKSTRESS" ] || [ "$item" = "REBOOT" ] || [ "$item" = "DC" ];then
-        disk[${#disk[*]}]="/data/fiotest/$system_disk/test_${system_disk}"
-    elif [ "$item" = "FILESYSTEMSTRESS" ];then
-        add_file[${#add_file[*]}]="/data/fiotest/$system_disk/test_${system_disk}"
-    fi
-}
-
 function partition(){
     disk_partition=$1
     totoal_num=$2
@@ -534,28 +518,17 @@ function set_Disk()
     cp $Cur_Dir/configuration $Cur_Dir/configuration.tmp
     if [[ $disk_mode == ALL || $disk_mode == SUBALL ]];then
         if [[ $item == LAWDISKSTRESS || $item == REBOOT || $item == DC || $item == AC ]];then
-            if [[ $item != LAWDISKSTRESS ]]; then
-                prepare_system
-            fi
-            
+            # 仅对非系统盘的裸设备下发 IO（系统盘已在 do_fio 中被排除，不再对系统盘做任何 IO）
             for str in ${disk[@]}
             do
-                if [[ $str =~ "test_${system_disk}" ]];then
-                    job_name=`echo $str | awk -F '/' '{print $4}'`
-                    echo "["$job_name"]" >>$Cur_Dir/configuration.tmp
-                    echo "filename="${str} >>$Cur_Dir/configuration.tmp
-                    echo "size=100%" >>$Cur_Dir/configuration.tmp
-                    continue
-                fi
-                
                 Hard_Disk="/dev/"$str
                 echo "["$str"]" >>$Cur_Dir/configuration.tmp
                 echo "filename="$Hard_Disk >>$Cur_Dir/configuration.tmp
                 echo "size=100%" >>$Cur_Dir/configuration.tmp
             done
         elif [[ $item == FILESYSTEMSTRESS ]];then
+            # 仅对非系统盘新建的文件系统做 IO，不在系统盘上创建任何测试文件
             prepare_filesystem
-            prepare_system
             echo "size=100%" >>$Cur_Dir/configuration.tmp
             for str in ${add_file[@]}
             do
@@ -1208,7 +1181,7 @@ function change_config()
 
 function prepare()
 {
-    disks=$(lsblk -dn -o NAME | grep -v "$system_disk")
+    disks=$(lsblk -dn -o NAME | grep -vw "$system_disk")
     i=1
     unset disk
     for str in $disks
@@ -1388,25 +1361,23 @@ function do_fio() {
 
         get_config_filelist
         get_system_disk
+        # 安全护栏：无法识别系统盘时直接中止，避免误把系统盘当作数据盘
+        if [[ -z "$system_disk" ]];then
+            echo -ne " Fail to detect system disk. Refuse to run to avoid any IO on OS disk. Exit.\n"
+            exit 1
+        fi
         if [[ "$specified_disk" =~ "null" ]];then
-            disk=$(lsblk -dn -o NAME | grep -v "$system_disk" | sort)
+            # 使用 -w 精确匹配整词，防止子串误匹配；系统盘被排除，绝不参与 IO
+            disk=$(lsblk -dn -o NAME | grep -vw "$system_disk" | sort)
             OLD_IFS="$IFS"
             IFS=" "
             disk=($disk)
             IFS="$OLD_IFS"
             test_disk=`echo ${disk[@]}|sed 's/ /,/g'`
         elif [[ $specified_disk =~ $system_disk ]];then
-            echo "Specified Disk Contain System Disk [$system_disk]"
-            echo "Wait 20 seconds , Please press Ctrl C to stop it"
-            echo "Wait 20 seconds , Please press Ctrl C to stop it"
-            echo "Wait 20 seconds , Please press Ctrl C to stop it"
-            sleep 20
-            disk=$(echo ${specified_disk} | sed 's/,/ /g')
-            OLD_IFS="$IFS"
-            IFS=" "
-            disk=($disk)
-            IFS="$OLD_IFS"
-            test_disk=$specified_disk
+            # 指定磁盘中包含系统盘：为保证不对系统盘做 IO，直接中止
+            echo "Specified disk contains system disk [$system_disk]. Refuse to run to avoid IO on OS disk. Exit."
+            exit 1
         else
             disk=$(echo ${specified_disk} | sed 's/,/ /g')
             OLD_IFS="$IFS"
