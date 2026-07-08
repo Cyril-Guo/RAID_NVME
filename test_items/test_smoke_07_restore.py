@@ -24,9 +24,9 @@ def _ts():
 def test_cancel_restore():
     # ---------- 1. 停止后台压力监控并触发其生成报告 ----------
     try:
-        print(f"[{_ts()}] 🛑 正在停止 Stress_Monitor_Tool 并生成报告...")
+        print(f"[{_ts()}] 🛑 正在停止 Stress_Monitor 并生成报告...")
         # 发送 SIGINT(2)，等同 Ctrl+C；main.py 捕获后走 finally 生成报告
-        subprocess.run(["pkill", "-2", "-f", "Stress_Monitor_Tool/main.py"], check=False)
+        subprocess.run(["pkill", "-2", "-f", "Stress_Monitor/main.py"], check=False)
     except Exception as e:
         print(f"[{_ts()}] ❌ 停止监控工具失败: {e}")
 

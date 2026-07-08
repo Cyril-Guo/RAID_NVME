@@ -21,12 +21,12 @@ RAID_NVME/
 ├── conftest.py             # Pytest 全局配置
 ├── IO_Stress/              # FIO 压力测试引擎（共用）：Fio_All.sh、lib/ 等
 ├── MachineCheck/           # 硬件检查工具（共用）：MachineCheck.sh 等
-├── Stress_Monitor_Tool/    # 后台压力监控工具（共用）
+├── Stress_Monitor/         # 后台压力监控工具（共用）
 └── test_items/             # 纯测试项：仅存放各 Pytest 测试用例
     └── test_smoke_*.py     # 各测试用例（各自独立、自包含）
 ```
 
-> 说明：`IO_Stress`、`MachineCheck`、`Stress_Monitor_Tool` 为多个测试项共用的引擎/工具，
+> 说明：`IO_Stress`、`MachineCheck`、`Stress_Monitor` 为多个测试项共用的引擎/工具，
 > 统一放在根目录；`test_items/` 只保留纯粹的测试用例脚本，职责更清晰。
 
 ## 🔑 SSH 免密登录配置 (重要)

@@ -33,14 +33,14 @@ def test_dc_powercycle():
 
     # ---------- 2. 按需后台启动压力监控 ----------
     if os.environ.get("STRESS_MONITOR", "").strip().lower() == "true":
-        monitor_dir = os.path.join(os.path.dirname(__file__), "..", "Stress_Monitor_Tool")
+        monitor_dir = os.path.join(os.path.dirname(__file__), "..", "Stress_Monitor")
         monitor_main = os.path.join(monitor_dir, "main.py")
         if os.path.exists(monitor_main):
             monitor_cmd = [sys.executable, monitor_main]
             runtime = os.environ.get("MONITOR_RUNTIME", "").strip()
             if runtime:
                 monitor_cmd.extend(["-r", runtime])
-            print(f"[{_ts()}] 📊 后台启动 Stress_Monitor_Tool (Runtime: {runtime or 'Default'})...")
+            print(f"[{_ts()}] 📊 后台启动 Stress_Monitor (Runtime: {runtime or 'Default'})...")
             subprocess.Popen(
                 monitor_cmd, cwd=monitor_dir,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
