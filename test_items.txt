@@ -1,20 +1,34 @@
 # ============================================================
 # SMOKE 测试项配置文件
 # ------------------------------------------------------------
-# 用法：
-#   - 每个测试项是一个独立配置块，块头形如 [item]。
-#   - 取消注释 [item] 即执行该项；在 [item] 前加 # 即禁用整块。
-#   - 块内 KEY=VALUE 是该项的专属参数，只列出与该项相关的参数，
-#     不涉及的参数不会出现（即使写了也会被忽略）。
-#   - 空行与 # 注释行会被忽略。
+# 配置分两步：
+#   ① 勾选测试项：在下方【测试项选择区】，去掉行首 # 即启用该项，
+#      加回 # 即禁用。勾选顺序不影响实际执行顺序。
+#   ② 调整参数：如需自定义某项参数，到下方【参数详情区】对应的
+#      [item] 块中修改；不改动则使用其默认值。
 #
 # 参数含义：
-#   FIO_CYCLES      电源循环次数（仅 reboot/dc 有效；压测项循环由 CSV 与 runtime 决定）
+#   FIO_CYCLES      电源循环次数（仅 reboot/dc 有效）
 #   IGNORE_ERROR    MachineCheck 结果不一致时是否继续 (yes/no)
 #   FIO_DISKS       指定磁盘，如 sdb,sdc；留空为全部
 #   STRESS_MONITOR  是否开启后台压力监控 (yes/no)
 #   MONITOR_RUNTIME 后台监控运行总时长（秒），留空用默认
 # ============================================================
+
+
+# ==================== 测试项选择区 ====================
+# 去掉行首 # 启用，加回 # 禁用。可用项：
+#   lawdisk / filesystem / mix / reboot / dc / restore
+lawdisk
+filesystem
+mix
+# reboot
+# dc
+# restore
+
+
+# ==================== 参数详情区 ====================
+# 以下为各测试项的参数，仅对已勾选的项生效；未勾选项的参数会被忽略。
 
 # ---- 裸盘压力测试 ----
 [lawdisk]
@@ -37,23 +51,23 @@ FIO_DISKS=
 STRESS_MONITOR=no
 MONITOR_RUNTIME=
 
-# ---- Reboot 电源循环（默认禁用）----
-# [reboot]
-# FIO_CYCLES=10
-# IGNORE_ERROR=no
-# FIO_DISKS=
-# STRESS_MONITOR=no
-# MONITOR_RUNTIME=
+# ---- Reboot 电源循环 ----
+[reboot]
+FIO_CYCLES=10
+IGNORE_ERROR=no
+FIO_DISKS=
+STRESS_MONITOR=no
+MONITOR_RUNTIME=
 
-# ---- DC 掉电循环（默认禁用）----
-# [dc]
-# FIO_CYCLES=10
-# IGNORE_ERROR=no
-# FIO_DISKS=
-# STRESS_MONITOR=no
-# MONITOR_RUNTIME=
+# ---- DC 掉电循环 ----
+[dc]
+FIO_CYCLES=10
+IGNORE_ERROR=no
+FIO_DISKS=
+STRESS_MONITOR=no
+MONITOR_RUNTIME=
 
-# ---- 清理与恢复（默认禁用；仅涉及以下参数）----
-# [restore]
-# IGNORE_ERROR=no
-# FIO_DISKS=
+# ---- 清理与恢复 ----
+[restore]
+IGNORE_ERROR=no
+FIO_DISKS=

@@ -40,19 +40,22 @@ JUNIT_FINAL = "report.xml"
 
 def parse_items_file(path):
     """
-    按块解析 test_items.txt：
-      [item]     -> 启用该测试项，开启其配置块
-      KEY=VALUE  -> 归属当前块的参数
-      空行 / #   -> 忽略
+    解析 test_items.txt（两段式格式）：
+      ① 测试项选择区：位于任何 [item] 块之前的“裸行”(不含 = )即被勾选的测试项，
+         行首 # 视为禁用。
+      ② 参数详情区：[item] 块内的 KEY=VALUE 为该项参数（无论是否被勾选都可预置）。
 
-    返回按文件出现顺序排列的 [(item, {param: value}), ...]。
+    返回 (selected, params_map)：
+      selected:   按文件出现顺序排列的已勾选测试项列表
+      params_map: {item: {param: value}}，各 [item] 块的参数
     """
-    ordered = []
-    current_params = None
+    selected = []
+    params_map = {}
+    current = None  # 进入首个 [item] 块前为 None，用于区分选择区与详情区
 
     if not os.path.exists(path):
         print(f"[WARN] 未找到测试项配置文件: {path}")
-        return ordered
+        return selected, params_map
 
     with open(path, "r", encoding="utf-8") as f:
         for raw in f:
@@ -60,14 +63,16 @@ def parse_items_file(path):
             if not line or line.startswith("#"):
                 continue
             if line.startswith("[") and line.endswith("]"):
-                item = line[1:-1].strip().lower()
-                current_params = {}
-                ordered.append((item, current_params))
-            elif "=" in line and current_params is not None:
+                current = line[1:-1].strip().lower()
+                params_map.setdefault(current, {})
+            elif "=" in line and current is not None:
                 key, val = line.split("=", 1)
-                current_params[key.strip()] = val.strip()
+                params_map[current][key.strip()] = val.strip()
+            elif current is None:
+                # 尚未进入任何 [item] 块 -> 属于选择区，裸行即勾选的测试项
+                selected.append(line.lower())
 
-    return ordered
+    return selected, params_map
 
 
 def run_single_item(item, params, clean_allure):
@@ -129,26 +134,26 @@ def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     items_path = os.path.join(base_dir, ITEMS_FILE)
 
-    parsed = parse_items_file(items_path)
+    selected, params_map = parse_items_file(items_path)
 
     # 校验并提示未知测试项
-    invalid = [item for item, _ in parsed if item not in TEST_ITEMS]
+    invalid = [item for item in selected if item not in TEST_ITEMS]
     if invalid:
         print(f"[WARN] 忽略未知测试项 {invalid}，可用项: {list(TEST_ITEMS.keys())}")
 
-    # 汇总每项配置（同项重复出现时后者覆盖），并按 TEST_ITEMS 顺序执行
-    item_config = {item: params for item, params in parsed if item in TEST_ITEMS}
-    run_order = [item for item in TEST_ITEMS if item in item_config]
+    # 已勾选且合法的测试项，按 TEST_ITEMS 顺序执行（restore 始终在最后收尾）
+    selected_set = {item for item in selected if item in TEST_ITEMS}
+    run_order = [item for item in TEST_ITEMS if item in selected_set]
 
     if not run_order:
-        print(f"未选择任何有效测试项，退出。请在 {ITEMS_FILE} 中取消注释需要执行的项。")
+        print(f"未选择任何有效测试项，退出。请在 {ITEMS_FILE} 的“测试项选择区”取消注释需要执行的项。")
         return
 
     print(f"选择的测试项: {run_order}")
 
     exit_codes = []
     for idx, item in enumerate(run_order):
-        code = run_single_item(item, item_config[item], clean_allure=(idx == 0))
+        code = run_single_item(item, params_map.get(item, {}), clean_allure=(idx == 0))
         exit_codes.append(int(code))
 
     # 合并各项 JUnit 报告为单一 report.xml
