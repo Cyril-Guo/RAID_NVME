@@ -64,7 +64,7 @@ RAID_NVME/
 - **勾选测试项**：取消注释块头 `[item]` 即执行该项；在 `[item]` 前加 `#` 即禁用整块。
   可用项：`reboot`、`dc`、`lawdisk`、`filesystem`、`mix`、`restore`。
 - **块内参数**：`KEY=VALUE` 只列出与该项相关的参数，不涉及的参数不会出现（写了也会被忽略）。
-  - `FIO_CYCLES`：循环次数（reboot/dc 为电源循环次数；压测项为 FIO 循环次数）。
+  - `FIO_CYCLES`：电源循环次数（仅 `reboot`/`dc` 有效；压测项循环由 CSV 与 runtime 决定，不使用此参数）。
   - `IGNORE_ERROR`：MachineCheck 结果不一致时是否继续 (yes/no)。
   - `FIO_DISKS`：指定磁盘 (如 `sdb,sdc`)，留空为全部。
   - `STRESS_MONITOR` / `MONITOR_RUNTIME`：后台压力监控开关与时长。
@@ -74,7 +74,6 @@ RAID_NVME/
 
 ```text
 [lawdisk]
-FIO_CYCLES=10
 IGNORE_ERROR=no
 FIO_DISKS=
 STRESS_MONITOR=no

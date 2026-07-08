@@ -18,11 +18,14 @@ TEST_ITEMS = {
 # 各测试项各自"涉及"的参数白名单：块内写了白名单之外的参数会被忽略，
 # 保证测试项与参数一一对应、互不影响。
 ITEM_PARAMS = {
+    # reboot / dc 的 FIO_CYCLES 表示电源循环次数，有实际意义。
     "reboot": ["FIO_CYCLES", "IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
     "dc": ["FIO_CYCLES", "IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
-    "lawdisk": ["FIO_CYCLES", "IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
-    "filesystem": ["FIO_CYCLES", "IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
-    "mix": ["FIO_CYCLES", "IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
+    # 压测项(lawdisk/filesystem/mix)的循环由 CSV 配置与 runtime 决定，
+    # 底层 Fio_All.sh 会将 LOOP 固定为 1，故不涉及 FIO_CYCLES。
+    "lawdisk": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
+    "filesystem": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
+    "mix": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
     "restore": ["IGNORE_ERROR", "FIO_DISKS"],
 }
 

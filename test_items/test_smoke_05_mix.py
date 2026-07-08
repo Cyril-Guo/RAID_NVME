@@ -2,7 +2,7 @@
 Smoke 测试 —— 混合 IO(Mixed IO)FIO 压力测试。
 
 本用例完全自包含，不依赖任何共享辅助函数，读完本文件即可理解全部流程：
-  1. 从环境变量（由 test_items.txt 注入）解析循环次数与错误处理策略；
+  1. 从环境变量（由 test_items.txt 注入）解析错误处理策略；
   2. 按需在后台启动压力监控工具；
   3. 组装并同步执行 Fio_All.sh 的 lawdiskstress 流程（追加 --mix_io yes 启用混合读写），
      实时透传输出；
@@ -23,11 +23,8 @@ def _ts():
 
 def test_mix_stress():
     # ---------- 1. 解析运行参数（全部来自 test_items.txt 注入的环境变量）----------
-    raw_cycles = os.environ.get("FIO_CYCLES", "").strip()
-    try:
-        loops = int(raw_cycles) if raw_cycles else 10
-    except ValueError:
-        loops = 10
+    # 说明：压测项的循环由 IO_Stress 的 CSV 配置与 runtime 决定，
+    # 底层 Fio_All.sh 会将 LOOP 固定为 1，故此处不再使用 FIO_CYCLES。
     # IGNORE_ERROR=yes 表示忽略 MachineCheck 错误继续 -> 不停止
     ignore_error = os.environ.get("IGNORE_ERROR", "").strip().lower() == "yes"
     flag_val = "NON-STOP" if ignore_error else "STOP"
@@ -49,15 +46,15 @@ def test_mix_stress():
             )
 
     # ---------- 3. 组装 Fio_All.sh 参数（混合 IO 模式追加 --mix_io yes）----------
-    fio_args = ["-i", "lawdiskstress", "-l", str(loops), "-f", flag_val, "--mix_io", "yes"]
+    fio_args = ["-i", "lawdiskstress", "-f", flag_val, "--mix_io", "yes"]
     fio_disks = os.environ.get("FIO_DISKS", "").strip()
     if fio_disks:
         fio_args.extend(["-u", fio_disks])
 
     # ---------- 4. Allure 报告标题与描述 ----------
-    allure.dynamic.title(f"FIO 测试: mix (混合 IO, 循环 {loops} 次)")
+    allure.dynamic.title("FIO 测试: mix (混合 IO)")
     allure.dynamic.description(
-        f"混合读写 FIO 压力测试，循环 {loops} 次；"
+        f"混合读写 FIO 压力测试；"
         f"出现 MachineCheck 错误时{'不停止' if ignore_error else '停止'}。"
     )
 
