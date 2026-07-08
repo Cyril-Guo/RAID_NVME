@@ -272,7 +272,12 @@ function restore()
     echo "- Killing running FIO and script processes..."
     pkill -9 fio >/dev/null 2>&1
     pkill -9 -f run_fio.sh >/dev/null 2>&1
-    pkill -9 -f Fio_All.sh >/dev/null 2>&1
+    # 排除当前 restore 进程自身(经由 Fio_All.sh 启动)，避免自杀导致后续环境恢复中断
+    for pid in $(pgrep -f Fio_All.sh 2>/dev/null); do
+        [ "$pid" = "$$" ] && continue
+        [ "$pid" = "$PPID" ] && continue
+        kill -9 "$pid" >/dev/null 2>&1
+    done
     pkill -9 -f nvme_raid_test.py >/dev/null 2>&1
     
     # 2. Restore system config files

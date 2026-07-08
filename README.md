@@ -93,11 +93,16 @@ MONITOR_RUNTIME=300
 > 只有“选择区”勾选的测试项才会执行，并按固定顺序（restore 始终最后收尾）运行；
 > 各项以自己 `[item]` 块中的参数独立执行，结果统一合并到同一份 Allure / JUnit 报告中。
 
-> SMOKE 分支的 Jenkins 任务已取消图形化参数，测试项与配置完全由仓库内的
-> `test_items.txt` 决定，随代码一起部署到被测节点，保证"配置即代码"。
+> SMOKE 分支的 Jenkins 任务测试项与配置完全由仓库内的 `test_items.txt` 决定，
+> 随代码一起部署到被测节点，保证"配置即代码"。Web 界面仅保留一个 `RESTORE`
+> 选项用于随时停止测试（见下文）。
 
 ### 3. 在 Jenkins 中触发任务
-在 Jenkins 界面直接点击 **"Build Now"** 即可（无需再选择参数）。
+在 Jenkins 界面点击 **"Build with Parameters"**：
+- 直接构建（`RESTORE` 不勾选）即按 `test_items.txt` 执行测试。
+- 勾选 **`RESTORE`** 后构建：本次不执行测试，仅对 `target_ips.txt` 中所有节点
+  **立即停止**正在运行的测试（含后台 FIO / 监控进程），并恢复系统环境
+  （还原自动登录、开机自启等配置）。用于随时中止测试。
 
 ### 4. 查看结果
 - **Allure 报告**: 详尽展示每个测试项的执行结果、耗时及日志。

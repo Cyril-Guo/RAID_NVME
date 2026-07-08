@@ -4,9 +4,19 @@ def targetIPs = []
 pipeline {
     agent any
 
-    // SMOKE 分支：不再使用图形化参数。
-    // 测试项及全局配置(循环次数/是否忽略错误/指定磁盘/监控等)全部在仓库根目录的
-    // test_items.txt 中维护，随代码一起部署到被测节点。
+    // SMOKE 分支：测试项及全局配置(循环次数/是否忽略错误/指定磁盘/监控等)全部在
+    // 仓库根目录的 test_items.txt 中维护，随代码一起部署到被测节点。
+    //
+    // 唯一保留的图形化选项：RESTORE(停止并清理)。勾选后本次构建不执行测试，
+    // 仅对所有目标节点强制停止正在运行的测试(含后台 FIO / 监控进程)并恢复系统环境，
+    // 方便随时中止测试。
+    parameters {
+        booleanParam(
+            name: 'RESTORE',
+            defaultValue: false,
+            description: '仅停止并清理：立即停止所有目标节点上正在运行的测试(含后台 FIO / 监控进程)并恢复系统环境，本次构建不执行测试。'
+        )
+    }
 
     environment {
         // 飞书机器人 Webhook 地址
@@ -39,7 +49,58 @@ pipeline {
             }
         }
 
+        stage('停止与清理：集群并发 Restore') {
+            when { expression { return params.RESTORE } }
+            steps {
+                script {
+                    def restoreTasks = [:]
+
+                    for (int i = 0; i < targetIPs.size(); i++) {
+                        def ip = targetIPs[i]
+
+                        restoreTasks["Restore_${ip}"] = {
+                            stage("Restore on ${ip}") {
+                                // 独立临时目录，仅用于本次清理，结束后删除
+                                def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_restore_${env.BUILD_NUMBER}"
+
+                                echo "[${ip}] 1. 立即强制停止正在运行的测试进程(含后台)..."
+                                // 先直接 pkill，确保即使部署/脚本异常也能第一时间停住测试
+                                sh """
+                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
+                                    pkill -9 -f nvme_raid_test.py 2>/dev/null || true
+                                    pkill -2 -f Stress_Monitor/main.py 2>/dev/null || true
+                                    pkill -9 -f run_fio.sh 2>/dev/null || true
+                                    pkill -9 -f Fio_All.sh 2>/dev/null || true
+                                    pkill -9 fio 2>/dev/null || true
+                                ' || true
+                                """
+
+                                echo "[${ip}] 2. 部署清理脚本..."
+                                sh "ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
+                                sh "scp -o StrictHostKeyChecking=no -r * ${env.TARGET_USER}@${ip}:${remoteDir}/"
+
+                                echo "[${ip}] 3. 执行 restore 恢复系统环境(还原自动登录/开机自启等配置)..."
+                                sh """
+                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
+                                    cd ${remoteDir}/IO_Stress && bash ./Fio_All.sh -i restore || true
+                                '
+                                """
+
+                                echo "[${ip}] 4. 清理临时目录..."
+                                sh "ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir}' || true"
+
+                                echo "[${ip}] ✅ 测试已停止，系统环境已恢复。"
+                            }
+                        }
+                    }
+                    // 并发对所有节点执行停止与清理
+                    parallel restoreTasks
+                }
+            }
+        }
+
         stage('执行阶段：集群并发测试') {
+            when { expression { return !params.RESTORE } }
             steps {
                 script {
                     def parallelTasks = [:]
@@ -107,6 +168,7 @@ pipeline {
         }
 
         stage('后期处理：测试环境属性合并') {
+            when { expression { return !params.RESTORE } }
             steps {
                 sh '''
                 # 合并所有节点的属性文件
@@ -120,6 +182,12 @@ pipeline {
     post {
         always {
             script {
+                // RESTORE(停止/清理)模式不产生测试报告，直接结束
+                if (params.RESTORE) {
+                    echo "🛑 停止与清理任务已完成，未执行测试，跳过报告生成与通知。"
+                    return
+                }
+
                 sh 'sudo chown -R jenkins:jenkins . || true'
 
                 // 聚合 JUnit XML 报告
