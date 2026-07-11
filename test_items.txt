@@ -20,7 +20,7 @@
 
 # ==================== lawdisk =====================
 [lawdisk]
-enable          = no
+enable          = yes
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = yes
