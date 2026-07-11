@@ -26,6 +26,67 @@ arguments_accept()
     log_interval=${22}
 }
 
+POWERCYCLE_PLAN_FILE="powercycle_auto.csv"
+POWERCYCLE_STATE_FILE="$ResultLog/powercycle_state.json"
+POWERCYCLE_STATE_NEXT_FILE="$ResultLog/powercycle_state.next.json"
+
+function powercycle_mode_enabled() {
+    [[ "$item" == "DC" || "$item" == "REBOOT" ]]
+}
+
+function get_min_test_disk_size_bytes() {
+    local min_size=""
+    local old_ifs="$IFS"
+    IFS=" "
+    local disks=($(echo "${test_disk}" | sed 's/,/ /g'))
+    IFS="$old_ifs"
+
+    for disk_name in "${disks[@]}"; do
+        [[ -z "$disk_name" ]] && continue
+        local disk_size
+        disk_size=$(blockdev --getsize64 "/dev/${disk_name}" 2>/dev/null)
+        [[ -z "$disk_size" ]] && continue
+        if [[ -z "$min_size" || "$disk_size" -lt "$min_size" ]]; then
+            min_size="$disk_size"
+        fi
+    done
+
+    echo "$min_size"
+}
+
+function prepare_powercycle_plan() {
+    local min_disk_size
+    min_disk_size=$(get_min_test_disk_size_bytes)
+    if [[ -z "$min_disk_size" ]]; then
+        echo "Failed to detect test disk size for powercycle plan." | tee -a "$Result_Dir/result.log"
+        return 1
+    fi
+
+    rm -f "$Cur_Dir/$POWERCYCLE_PLAN_FILE" "$POWERCYCLE_STATE_NEXT_FILE"
+
+    python3 "$Cur_Dir/powercycle_random.py" plan \
+        --state "$POWERCYCLE_STATE_FILE" \
+        --staged-state "$POWERCYCLE_STATE_NEXT_FILE" \
+        --csv "$Cur_Dir/$POWERCYCLE_PLAN_FILE" \
+        --current-loop "$loop" \
+        --total-loops "$LOOP" \
+        --min-disk-size-bytes "$min_disk_size" | tee -a "$Result_Dir/result.log"
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+        echo "Failed to generate random powercycle plan." | tee -a "$Result_Dir/result.log"
+        return 1
+    fi
+
+    filename="$POWERCYCLE_PLAN_FILE"
+    echo "Use generated powercycle plan file: $filename" | tee -a "$Result_Dir/result.log"
+    return 0
+}
+
+function commit_powercycle_state() {
+    if [[ -f "$POWERCYCLE_STATE_NEXT_FILE" ]]; then
+        mv -f "$POWERCYCLE_STATE_NEXT_FILE" "$POWERCYCLE_STATE_FILE"
+    fi
+}
+
 
 
 
@@ -298,6 +359,9 @@ function gen_config_file()
     run_time=`sed -n "$line" $File_Dir/$filename |awk -F "," '{print $5}'`
     numjobs=`sed -n "$line" $File_Dir/$filename |awk -F "," '{print $6}'`
     offset=`sed -n "$line" $File_Dir/$filename |awk -F "," '{print $7}'`
+    io_size=`sed -n "$line" $File_Dir/$filename |awk -F "," '{print $8}'`
+    verify_mode=`sed -n "$line" $File_Dir/$filename |awk -F "," '{print $9}'`
+    verify_type=`sed -n "$line" $File_Dir/$filename |awk -F "," '{print $10}'`
     check_="$blocksize"
     if [[ $check_ == "End" ]];then
         echo "Job files are under $Config_Dir"
@@ -361,6 +425,12 @@ function gen_config_file()
         sed -i '/randrepeat/d' $Cur_Dir/configuration.tmp
         sed -i '/norandommap/d' $Cur_Dir/configuration.tmp
         sed -i '/ramp_time/d' $Cur_Dir/configuration.tmp
+        sed -i '/verify=/d' $Cur_Dir/configuration.tmp
+        sed -i '/verify_fatal=/d' $Cur_Dir/configuration.tmp
+        sed -i '/verify_dump=/d' $Cur_Dir/configuration.tmp
+        sed -i '/verify_only=/d' $Cur_Dir/configuration.tmp
+        sed -i '/do_verify=/d' $Cur_Dir/configuration.tmp
+        sed -i '/size=/d' $Cur_Dir/configuration.tmp
         if [[ $disk_mode == "SUBALL" ]];then
             sed -i '/group_reporting/d' $Cur_Dir/configuration.tmp
         fi
@@ -371,13 +441,32 @@ function gen_config_file()
             sed -i "9i norandommap"  $Cur_Dir/configuration.tmp
             sed -i "9i ramp_time=5" $Cur_Dir/configuration.tmp
         fi
+        if [[ -n "$verify_mode" ]]; then
+            sed -i '/runtime=/d' $Cur_Dir/configuration.tmp
+            sed -i '/time_based/d' $Cur_Dir/configuration.tmp
+            sed -i "9i size=config_size" $Cur_Dir/configuration.tmp
+            sed -i "9i verify_dump=1" $Cur_Dir/configuration.tmp
+            sed -i "9i verify_fatal=1" $Cur_Dir/configuration.tmp
+            sed -i "9i verify=config_verify_type" $Cur_Dir/configuration.tmp
+            if [[ "$verify_mode" == "VERIFY" ]]; then
+                sed -i "9i verify_only=1" $Cur_Dir/configuration.tmp
+            else
+                sed -i "9i do_verify=0" $Cur_Dir/configuration.tmp
+            fi
+        fi
         sed  "s/config_blocksize/$blocksize/" $Cur_Dir/configuration.tmp > $Config_Dir/$config_file
         sed -i "s/config_mode/$mode_/" $Config_Dir/$config_file
         sed -i "s/run_time/$run_time/" $Config_Dir/$config_file
         sed -i "s/config_iodepth/$iodepth/" $Config_Dir/$config_file
         sed -i "s/num_jobs/$numjobs/" $Config_Dir/$config_file
         sed -i "s/read_percentage/$read_percentage/" $Config_Dir/$config_file
-        sed -i "s/off_set/${offset}%/" $Config_Dir/$config_file
+        if [[ -n "$verify_mode" ]]; then
+            sed -i "s/off_set/${offset}/" $Config_Dir/$config_file
+            sed -i "s/config_size/${io_size}/" $Config_Dir/$config_file
+            sed -i "s/config_verify_type/${verify_type}/" $Config_Dir/$config_file
+        else
+            sed -i "s/off_set/${offset}%/" $Config_Dir/$config_file
+        fi
 	sed -i "s/config_log_avg_msec/$log_interval/"  $Config_Dir/$config_file
 
     
@@ -907,6 +996,11 @@ do
       ################
 
       fio "$configuration" >> $Result_Dir/detresult/"${loop}_$jobnum.txt"
+      local fio_rc=$?
+      if [[ $fio_rc -ne 0 ]]; then
+          echo "FIO command failed on disk ${str1}, config ${configuration}, rc=${fio_rc}" | tee -a $Result_Dir/result.log
+          return $fio_rc
+      fi
 
 
       sed -i '$d' $configuration
@@ -952,6 +1046,11 @@ function run_all()
 
 
             fio "$configuration" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio >> $Result_Dir/detresult/"${loop}_$jobnum.txt"
+            local fio_rc=$?
+            if [[ $fio_rc -ne 0 ]]; then
+                echo "FIO command failed, config ${configuration}, rc=${fio_rc}" | tee -a $Result_Dir/result.log
+                return $fio_rc
+            fi
 
             result_handle_pre
             printf "%-10s %-12s %-10s %-12s %-10s %-10s %-8s %-18s %-18s %-12s %-11s %-10s %-10s\n" $rw, $iodepth, $size, $jobs_run, $readiops, $writeiops, $iops, $readbw, $writebw, $bw, $Lat, $CPUusr, $CPUsys >>$Result_Dir/result_$loop.csv
@@ -1004,6 +1103,11 @@ function run_suball()
 
 
         fio "$configuration" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio >> $Result_Dir/detresult/"${loop}_$jobnum.txt"
+        local fio_rc=$?
+        if [[ $fio_rc -ne 0 ]]; then
+            echo "FIO command failed, config ${configuration}, rc=${fio_rc}" | tee -a $Result_Dir/result.log
+            return $fio_rc
+        fi
 
         OLD_IFS="$IFS"
         IFS=" "
@@ -1345,22 +1449,23 @@ sleep 1
 
 function run_mode() {
     if [ "$disk_mode" = "BOTH" ];then
-        all
-        single
+        all || return $?
+        single || return $?
     elif [ "$disk_mode" = "ALL" ];then
-        all
+        all || return $?
     elif [ "$disk_mode" = "SUBALL" ];then
-        sub_all
+        sub_all || return $?
     elif [ "$disk_mode" = "SINGLE" ];then
-        single
+        single || return $?
     else
         echo "do not support disk mode $disk_mode"
+        return 1
     fi
+    return 0
 }
 
 function do_fio() {
 
-        get_config_filelist
         get_system_disk
         # 安全护栏：无法识别系统盘时直接中止，避免误把系统盘当作数据盘
         if [[ -z "$system_disk" ]];then
@@ -1397,10 +1502,19 @@ function do_fio() {
             change_config
         fi
 
+        if powercycle_mode_enabled; then
+            prepare_powercycle_plan || return $?
+        fi
+
+        get_config_filelist
         set_Disk
-        run_mode
+        run_mode || return $?
+        if powercycle_mode_enabled; then
+            commit_powercycle_state
+        fi
         rm -rf $Cur_Dir/configuration.tmp*
-            close_mount
+        close_mount
+        return 0
 }
 
 function do_reboot()

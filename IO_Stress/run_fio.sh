@@ -32,6 +32,13 @@ show_produce_message "start do Fio $item_"
 sleep 3
 if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
     do_fio
+    fio_rc=$?
+    if [ $fio_rc -ne 0 ]; then
+        echo "FIO stage failed in $item_ mode, rc=$fio_rc"
+        collect_log
+        test_end
+        exit $fio_rc
+    fi
 
     info_diff
 
@@ -40,6 +47,13 @@ if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
 elif [ "$item_" = "LAWDISKSTRESS" ] || [ "$item_" = "FILESYSTEMSTRESS" ];then
 
     do_fio
+    fio_rc=$?
+    if [ $fio_rc -ne 0 ]; then
+        echo "FIO stage failed in $item_ mode, rc=$fio_rc"
+        collect_log
+        test_end
+        exit $fio_rc
+    fi
 
     info_diff
     #do_reboot
