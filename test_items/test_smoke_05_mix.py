@@ -38,7 +38,7 @@ def test_mix_stress():
             runtime = os.environ.get("MONITOR_RUNTIME", "").strip()
             if runtime:
                 monitor_cmd.extend(["-r", runtime])
-            print(f"[{_ts()}] 📊 后台启动 Stress_Monitor (Runtime: {runtime or 'Default'})...")
+            print(f"[{_ts()}] Start Stress_Monitor in background (Runtime: {runtime or 'Default'})...")
             subprocess.Popen(
                 monitor_cmd, cwd=monitor_dir,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
