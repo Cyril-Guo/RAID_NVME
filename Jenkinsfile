@@ -20,6 +20,10 @@ def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
 pipeline {
     agent any
 
+    options {
+        disableConcurrentBuilds()
+    }
+
     triggers {
         pollSCM('H/15 * * * *')
     }
@@ -216,15 +220,6 @@ pipeline {
             }
         }
 
-        stage('Merge Environment Metadata') {
-            when { expression { return !params.RESTORE } }
-            steps {
-                sh '''
-                cat allure-results/environment_*.properties > allure-results/environment.properties 2>/dev/null || true
-                rm -f allure-results/environment_*.properties
-                '''
-            }
-        }
     }
 
     post {
@@ -236,6 +231,13 @@ pipeline {
                 }
 
                 sh 'sudo chown -R jenkins:jenkins . || true'
+
+                sh '''
+                mkdir -p allure-results
+                cat allure-results/environment_*.properties > allure-results/environment.properties 2>/dev/null || true
+                rm -f allure-results/environment_*.properties
+                python3 ci/junit_to_allure.py
+                '''
 
                 junit testResults: 'report_*.xml', allowEmptyResults: true
 
