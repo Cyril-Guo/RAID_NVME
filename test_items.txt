@@ -20,7 +20,7 @@
 
 # ==================== lawdisk =====================
 [lawdisk]
-enable          = yes
+enable          = no
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = yes
@@ -29,7 +29,7 @@ MONITOR_RUNTIME = 300
 
 # ==================== filesystem ==================
 [filesystem]
-enable          = yes
+enable          = no
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = yes
@@ -38,7 +38,7 @@ MONITOR_RUNTIME = 300
 
 # ==================== mix =========================
 [mix]
-enable          = no
+enable          = yes
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = no
