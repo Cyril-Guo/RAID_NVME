@@ -20,6 +20,17 @@ def _ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _collect_failure_lines(text):
+    markers = (
+        "FIO command failed",
+        "FIO stage failed",
+        "MachineCheck inconsistencies found",
+        "ERROR: MachineCheck",
+        "test fail occur",
+    )
+    return [line.strip() for line in text.splitlines() if any(marker in line for marker in markers)]
+
+
 def test_lawdiskstress():
     # ---------- 1. 解析运行参数（全部来自 test_items.txt 注入的环境变量）----------
     # 说明：压测项的循环由 IO_Stress 的 CSV 配置与 runtime 决定，
@@ -79,14 +90,18 @@ def test_lawdiskstress():
             full_output.append(timed_line)
         process.wait()
         exit_code = process.returncode
+        output_text = "".join(full_output)
+        output_failures = _collect_failure_lines(output_text)
 
         allure.attach(
-            "".join(full_output), name="终端完整输出",
+            output_text, name="终端完整输出",
             attachment_type=allure.attachment_type.TEXT,
         )
         if exit_code != 0:
             print(f"{_ts()} [ERROR] 脚本执行失败，退出码: {exit_code}")
             pytest.fail(f"FIO 脚本执行失败，返回码: {exit_code}")
+        if output_failures:
+            pytest.fail("FIO 输出中检测到失败关键字:\n" + "\n".join(output_failures[:10]))
         print(f"{_ts()} [SUCCESS] 脚本执行完成")
 
     # ---------- 7. 结果汇总 ----------
@@ -95,5 +110,6 @@ def test_lawdiskstress():
         with open(result_log, "r") as f:
             res_content = f.read()
         allure.attach(res_content, name="测试结果汇总", attachment_type=allure.attachment_type.TEXT)
-        if "Fail" in res_content:
-            pytest.fail("测试结果中检测到失败关键字")
+        result_failures = _collect_failure_lines(res_content)
+        if "Fail" in res_content or result_failures:
+            pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:10] or ["Fail"]))

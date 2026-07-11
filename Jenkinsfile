@@ -204,7 +204,12 @@ pipeline {
                                 echo "[${ip}] copy back reports"
                                 sh """
                                 mkdir -p allure-results
-                                scp -o StrictHostKeyChecking=no -r ${env.TARGET_USER}@${ip}:${remoteDir}/allure-results/. ./allure-results/ || true
+                                rm -rf allure-results-${ip}
+                                scp -o StrictHostKeyChecking=no -r ${env.TARGET_USER}@${ip}:${remoteDir}/allure-results ./allure-results-${ip} || true
+                                if [ -d allure-results-${ip} ]; then
+                                    cp -R allure-results-${ip}/. ./allure-results/ || true
+                                    rm -rf allure-results-${ip}
+                                fi
                                 scp -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip}:${remoteDir}/report.xml ./report_${ip}.xml || true
                                 """
 
