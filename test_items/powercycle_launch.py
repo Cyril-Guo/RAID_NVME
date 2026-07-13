@@ -42,6 +42,7 @@ def trigger_background_fio(io_stress_dir, item, fio_args, wait_seconds=2):
             log_handle.write("{} [LAUNCH] command={}\n".format(ts(), command_text))
         with open(launch_log, "ab") as log_handle, open(os.devnull, "rb") as stdin_handle:
             env = os.environ.copy()
+            env["POWER_CYCLE_DIRECT_RUN"] = "1"
             env["POWER_CYCLE_FORCE_ONCE"] = "1"
             process = subprocess.Popen(
                 command,
@@ -72,9 +73,10 @@ def trigger_background_fio(io_stress_dir, item, fio_args, wait_seconds=2):
         return_code = process.poll()
         if return_code is not None:
             launch_log_text = _attach_if_exists(launch_log, "{} launch log".format(item))
+            command_log_text = _attach_if_exists(command_log, "{} command log".format(item))
             pytest.fail(
-                "Background FIO {} exited before reaching power-cycle command, rc={}.\n{}"
-                .format(item, return_code, launch_log_text[-4000:])
+                "Background FIO {} exited before reaching power-cycle command, rc={}.\n{}\n{}"
+                .format(item, return_code, launch_log_text[-3000:], command_log_text[-1000:])
             )
 
         time.sleep(wait_seconds)

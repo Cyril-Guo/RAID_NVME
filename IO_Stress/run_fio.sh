@@ -42,7 +42,7 @@ if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
 
     info_diff
 
-    do_reboot
+    do_reboot || exit $?
 
 elif [ "$item_" = "LAWDISKSTRESS" ] || [ "$item_" = "FILESYSTEMSTRESS" ];then
 

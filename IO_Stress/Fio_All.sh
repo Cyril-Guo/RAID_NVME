@@ -28,6 +28,13 @@ fi
 intializer
 #######################
 
+if [[ "$POWER_CYCLE_DIRECT_RUN" == "1" && ( "$item" == "REBOOT" || "$item" == "DC" ) ]]; then
+    echo "POWER_CYCLE_DIRECT_RUN=1: skip legacy autologin setup and run current power-cycle directly."
+    info_check
+    fio_cycle
+    exit $?
+fi
+
 backup
 
 autologin
