@@ -23,10 +23,7 @@ pipeline {
 
     options {
         disableConcurrentBuilds()
-    }
-
-    triggers {
-        pollSCM('H/15 * * * *')
+        skipDefaultCheckout()
     }
 
     parameters {
