@@ -206,7 +206,11 @@ pipeline {
                                     cd ${remoteDir}
                                     python3 -m pip --version >/dev/null 2>&1 || python3 -m ensurepip --default-pip >/dev/null 2>&1 || true
                                     python3 -m pip --version >/dev/null 2>&1 || dnf install -y python3-pip >/dev/null 2>&1 || yum install -y python3-pip >/dev/null 2>&1 || apt-get install -y python3-pip >/dev/null 2>&1 || zypper install -y python3-pip >/dev/null 2>&1 || true
-                                    python3 -m pip install -r requirements.txt --break-system-packages || python3 -m pip install -r requirements.txt
+                                    if python3 -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages"; then
+                                        python3 -m pip install --break-system-packages -r requirements.txt
+                                    else
+                                        python3 -m pip install -r requirements.txt
+                                    fi
                                 '
                                 """
 
