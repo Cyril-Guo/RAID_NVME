@@ -17,9 +17,9 @@
 [selection]
 reboot      = no
 dc          = no
-lawdisk     = no
-filesystem  = no
-mix         = yes
+lawdisk     = yes
+filesystem  = yes
+mix         = no
 
 
 # ============================================================
@@ -53,14 +53,14 @@ MONITOR_RUNTIME =
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = yes
-MONITOR_RUNTIME = 300
+MONITOR_RUNTIME = 1000
 
 
 [filesystem]
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = yes
-MONITOR_RUNTIME = 300
+MONITOR_RUNTIME = 1000
 
 
 [mix]
