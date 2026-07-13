@@ -1,5 +1,6 @@
 def targetIPs = []
 def kernelDriverCommit = ''
+def shouldRunTests = true
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
     sh """
@@ -51,7 +52,7 @@ pipeline {
             steps {
                 cleanWs()
 
-                checkout scm: scm, poll: false, changelog: true
+                checkout scm: scm, poll: false, changelog: false
 
                 script {
                     if (!params.RESTORE) {
@@ -73,10 +74,26 @@ pipeline {
                             returnStdout: true
                         ).trim()
                         echo "kernel_driver(${env.KERNEL_DRIVER_BRANCH}) commit: ${kernelDriverCommit}"
+
+                        def scmTriggered = currentBuild.getBuildCauses('hudson.triggers.SCMTrigger$SCMTriggerCause').size() > 0
+                        def kernelDriverChanged = currentBuild.changeSets.any { changeSet ->
+                            changeSet.items && changeSet.items.length > 0
+                        }
+
+                        if (scmTriggered && !kernelDriverChanged) {
+                            shouldRunTests = false
+                            currentBuild.result = 'NOT_BUILT'
+                            echo 'SCM build was not caused by kernel_driver changes. Skip NVMe RAID smoke tests.'
+                        }
                     }
                 }
 
                 script {
+                    if (!shouldRunTests && !params.RESTORE) {
+                        echo 'Skip target node loading because this SCM build has no kernel_driver changes.'
+                        return
+                    }
+
                     if (!fileExists('target_ips.txt')) {
                         error 'Missing target_ips.txt in repository root.'
                     }
@@ -94,7 +111,7 @@ pipeline {
         }
 
         stage('Kernel Driver Placeholder') {
-            when { expression { return !params.RESTORE } }
+            when { expression { return !params.RESTORE && shouldRunTests } }
             steps {
                 script {
                     echo "kernel_driver commit for this run: ${kernelDriverCommit ?: 'unknown'}"
@@ -150,7 +167,7 @@ pipeline {
         }
 
         stage('Run Tests') {
-            when { expression { return !params.RESTORE } }
+            when { expression { return !params.RESTORE && shouldRunTests } }
             steps {
                 script {
                     def parallelTasks = [:]
@@ -232,6 +249,11 @@ pipeline {
             script {
                 if (params.RESTORE) {
                     echo 'Restore-only build finished.'
+                    return
+                }
+
+                if (!shouldRunTests) {
+                    echo 'No kernel_driver change detected. Nothing to report.'
                     return
                 }
 
