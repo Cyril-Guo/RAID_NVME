@@ -272,6 +272,7 @@ function restore()
     echo "- Killing running FIO and script processes..."
     pkill -9 fio >/dev/null 2>&1
     pkill -9 -f run_fio.sh >/dev/null 2>&1
+    pkill -9 -f powercycle_direct.sh >/dev/null 2>&1
     # 排除当前 restore 进程自身(经由 Fio_All.sh 启动)，避免自杀导致后续环境恢复中断
     for pid in $(pgrep -f Fio_All.sh 2>/dev/null); do
         [ "$pid" = "$$" ] && continue

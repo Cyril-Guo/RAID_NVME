@@ -33,8 +33,6 @@ def test_trigger_background_fio_uses_popen_and_writes_pid(tmp_path, monkeypatch)
         ["-i", "reboot", "-l", "10", "-f", "STOP"],
     )
 
-    assert calls[0][0] == ["bash", "./Fio_All.sh", "-i", "reboot", "-l", "10", "-f", "STOP"]
+    assert calls[0][0] == ["bash", "./powercycle_direct.sh", "-i", "reboot", "-l", "10", "-f", "STOP"]
     assert calls[0][1]["start_new_session"] is True
-    assert calls[0][1]["env"]["POWER_CYCLE_DIRECT_RUN"] == "1"
-    assert calls[0][1]["env"]["POWER_CYCLE_FORCE_ONCE"] == "1"
     assert (io_stress_dir / "log" / "ResultLog" / "reboot_launch.pid").read_text(encoding="utf-8") == "12345\n"

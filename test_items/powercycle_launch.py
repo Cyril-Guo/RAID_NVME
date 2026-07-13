@@ -32,7 +32,7 @@ def trigger_background_fio(io_stress_dir, item, fio_args, wait_seconds=2):
     launch_log = os.path.join(io_stress_dir, "log", "ResultLog", "{}_launch.log".format(item))
     pid_file = os.path.join(io_stress_dir, "log", "ResultLog", "{}_launch.pid".format(item))
     command_log = os.path.join(result_log_dir, "{}_command.log".format(item))
-    command = ["bash", "./Fio_All.sh"] + fio_args
+    command = ["bash", "./powercycle_direct.sh"] + fio_args
     command_text = " ".join(shlex.quote(arg) for arg in command)
     trigger_timeout = int(os.environ.get("POWER_CYCLE_TRIGGER_TIMEOUT", "900"))
 
@@ -42,8 +42,6 @@ def trigger_background_fio(io_stress_dir, item, fio_args, wait_seconds=2):
             log_handle.write("{} [LAUNCH] command={}\n".format(ts(), command_text))
         with open(launch_log, "ab") as log_handle, open(os.devnull, "rb") as stdin_handle:
             env = os.environ.copy()
-            env["POWER_CYCLE_DIRECT_RUN"] = "1"
-            env["POWER_CYCLE_FORCE_ONCE"] = "1"
             process = subprocess.Popen(
                 command,
                 cwd=io_stress_dir,

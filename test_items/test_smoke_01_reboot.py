@@ -71,7 +71,7 @@ def test_reboot_powercycle():
 
     # ---------- 6. 异步触发（重启会中断 SSH，触发后立即返回）----------
     io_stress_dir = os.path.join(os.path.dirname(__file__), "..", "IO_Stress")
-    cmd_str = f"bash ./Fio_All.sh {' '.join(fio_args)}"
+    cmd_str = f"bash ./powercycle_direct.sh {' '.join(fio_args)}"
     with allure.step(f"异步触发 FIO 指令: {cmd_str}"):
         print(f"{_ts()} [START] {cmd_str}")
         print("检测到重启任务，采用异步(setsid)触发模式...")
