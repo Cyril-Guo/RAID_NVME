@@ -16,10 +16,10 @@
 
 [selection]
 reboot      = no
-dc          = yes
-lawdisk     = no
-filesystem  = no
-mix         = no
+dc          = no
+lawdisk     = yes
+filesystem  = yes
+mix         = yes
 
 
 # ============================================================
