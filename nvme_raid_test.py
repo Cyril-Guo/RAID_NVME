@@ -32,6 +32,7 @@ def parse_items_file(path):
     selected = []
     params_map = {}
     current = None
+    selection_items = []
 
     if not os.path.exists(path):
         print(f"[ERROR] Missing config file: {path}")
@@ -44,17 +45,25 @@ def parse_items_file(path):
                 continue
             if line.startswith("[") and line.endswith("]"):
                 current = line[1:-1].strip().lower()
-                params_map.setdefault(current, {})
+                if current != "selection":
+                    params_map.setdefault(current, {})
                 continue
             if "=" not in line or current is None:
                 continue
 
             key, value = [part.strip() for part in line.split("=", 1)]
-            if key.lower() == "enable":
+            enabled = value.lower() in ("yes", "y", "true", "1", "on")
+            if current == "selection":
+                if enabled:
+                    selection_items.append(key.strip().lower())
+            elif key.lower() == "enable":
                 if value.lower() == "yes":
                     selected.append(current)
             else:
                 params_map[current][key] = value
+
+    if selection_items:
+        selected = selection_items
 
     return selected, params_map
 
