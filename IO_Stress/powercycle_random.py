@@ -5,6 +5,7 @@ import math
 import os
 import random
 from dataclasses import asdict, dataclass
+from typing import Optional
 
 
 MIN_BLOCK_BYTES = 512
@@ -39,7 +40,7 @@ class PowercycleModel:
     num_jobs: int = 1
 
 
-def _aligned_random(rng: random.Random, minimum: int, maximum: int, *, avoid_alignment: int | None = None) -> int:
+def _aligned_random(rng: random.Random, minimum: int, maximum: int, *, avoid_alignment: Optional[int] = None) -> int:
     if maximum < minimum:
         raise ValueError(f"invalid range: {minimum}..{maximum}")
     start = math.ceil(minimum / ALIGNMENT_BYTES) * ALIGNMENT_BYTES
@@ -62,7 +63,7 @@ def _bounded_region_limit(disk_size: int) -> int:
     return min(MAX_REGION_BYTES, max(MIN_REGION_BYTES, disk_size // 8))
 
 
-def generate_model(min_disk_size_bytes: int, rng: random.Random | None = None) -> PowercycleModel:
+def generate_model(min_disk_size_bytes: int, rng: Optional[random.Random] = None) -> PowercycleModel:
     rng = rng or random.Random()
     if min_disk_size_bytes < MIN_REGION_BYTES * 2:
         raise ValueError(f"disk too small for powercycle model: {min_disk_size_bytes}")
@@ -124,7 +125,7 @@ def write_state(path: str, payload: dict) -> None:
         json.dump(payload, handle, indent=2, sort_keys=True)
 
 
-def build_plan(state: dict, current_loop: int, total_loops: int, min_disk_size_bytes: int, rng: random.Random | None = None):
+def build_plan(state: dict, current_loop: int, total_loops: int, min_disk_size_bytes: int, rng: Optional[random.Random] = None):
     rng = rng or random.Random()
     rows: list[list[str]] = []
     summary: list[str] = []

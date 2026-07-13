@@ -55,12 +55,17 @@ function get_min_test_disk_size_bytes() {
 }
 
 function prepare_powercycle_plan() {
+    local power_log="$ResultLog/reboot_command.log"
+    if [ "$item" = "DC" ]; then
+        power_log="$ResultLog/dc_command.log"
+    fi
     local min_disk_size
     min_disk_size=$(get_min_test_disk_size_bytes)
     if [[ -z "$min_disk_size" ]]; then
-        echo "Failed to detect test disk size for powercycle plan." | tee -a "$Result_Dir/result.log"
+        echo "Failed to detect test disk size for powercycle plan." | tee -a "$Result_Dir/result.log" "$power_log"
         return 1
     fi
+    echo "$(date '+%F %T') [PLAN] min_disk_size_bytes=$min_disk_size" | tee -a "$power_log"
 
     rm -f "$Cur_Dir/$POWERCYCLE_PLAN_FILE" "$POWERCYCLE_STATE_NEXT_FILE"
 
@@ -70,14 +75,14 @@ function prepare_powercycle_plan() {
         --csv "$Cur_Dir/$POWERCYCLE_PLAN_FILE" \
         --current-loop "$loop" \
         --total-loops "$LOOP" \
-        --min-disk-size-bytes "$min_disk_size" | tee -a "$Result_Dir/result.log"
+        --min-disk-size-bytes "$min_disk_size" 2>&1 | tee -a "$Result_Dir/result.log" "$power_log"
     if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-        echo "Failed to generate random powercycle plan." | tee -a "$Result_Dir/result.log"
+        echo "Failed to generate random powercycle plan." | tee -a "$Result_Dir/result.log" "$power_log"
         return 1
     fi
 
     filename="$POWERCYCLE_PLAN_FILE"
-    echo "Use generated powercycle plan file: $filename" | tee -a "$Result_Dir/result.log"
+    echo "Use generated powercycle plan file: $filename" | tee -a "$Result_Dir/result.log" "$power_log"
     return 0
 }
 

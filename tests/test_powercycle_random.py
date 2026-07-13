@@ -1,4 +1,5 @@
 import json
+import ast
 from pathlib import Path
 
 from IO_Stress.powercycle_random import (
@@ -21,6 +22,18 @@ def test_generate_model_stays_in_required_range():
     assert model.offset % ALIGNMENT_BYTES == 0
     assert model.size >= MIN_REGION_BYTES
     assert model.offset + model.size <= 8 * 1024 * 1024 * 1024
+
+
+def test_powercycle_random_uses_python39_compatible_annotations():
+    source = Path("IO_Stress/powercycle_random.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    forbidden = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr)
+    ]
+    assert forbidden == []
 
 
 def test_build_plan_verifies_previous_then_writes_next():
