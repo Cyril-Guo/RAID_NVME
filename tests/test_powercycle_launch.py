@@ -16,6 +16,8 @@ def test_trigger_background_fio_uses_popen_and_writes_pid(tmp_path, monkeypatch)
     def fake_popen(command, **kwargs):
         calls.append((command, kwargs))
         Path(kwargs["stdout"].name).write_text("launch ok\n", encoding="utf-8")
+        result_log_dir = Path(kwargs["cwd"]) / "log" / "ResultLog"
+        (result_log_dir / "reboot_command.log").write_text("[REBOOT] request start\n", encoding="utf-8")
         return DummyProcess()
 
     monkeypatch.setattr(powercycle_launch.subprocess, "Popen", fake_popen)

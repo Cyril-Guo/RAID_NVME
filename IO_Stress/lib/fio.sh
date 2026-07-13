@@ -212,6 +212,8 @@ dc_utc()
     echo "Alarm is $Alarmtime"
     cat /proc/driver/rtc
     sleep 5
+    echo "$(date '+%F %T') [DC] request start, mode=UTC, user=$(id -un), uid=$(id -u)" | tee -a "$ResultLog/dc_command.log"
+    sleep ${POWER_CYCLE_COMMAND_GRACE:-15}
     poweroff
 }
 
@@ -227,6 +229,8 @@ dc_rtc()
     date -s $Shutdown_Hour:$Shutdown_Min:$Shutdown_Sec
     # Sync system clock to hardware RTC before DC, but don't fail if hwclock is missing
     hwclock -w 2>/dev/null || timedatectl set-local-rtc 0 >> /dev/null 2>&1 || true
+    echo "$(date '+%F %T') [DC] request start, mode=RTC, user=$(id -un), uid=$(id -u)" | tee -a "$ResultLog/dc_command.log"
+    sleep ${POWER_CYCLE_COMMAND_GRACE:-15}
     poweroff
 }
 
@@ -1523,6 +1527,7 @@ function request_system_reboot()
     local rc=1
 
     echo "$(date '+%F %T') [REBOOT] request start, user=$(id -un), uid=$(id -u)" | tee -a "$reboot_cmd_log"
+    sleep ${POWER_CYCLE_COMMAND_GRACE:-15}
 
     if [ "$(id -u)" -eq 0 ]; then
         systemctl reboot -i >>"$reboot_cmd_log" 2>&1 || reboot >>"$reboot_cmd_log" 2>&1 || shutdown -r now >>"$reboot_cmd_log" 2>&1
