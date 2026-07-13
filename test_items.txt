@@ -15,8 +15,8 @@
 # ============================================================
 
 [selection]
-reboot      = yes
-dc          = no
+reboot      = no
+dc          = yes
 lawdisk     = no
 filesystem  = no
 mix         = no
@@ -42,7 +42,7 @@ MONITOR_RUNTIME =
 
 
 [dc]
-FIO_CYCLES      = 10
+FIO_CYCLES      = 5
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = no
