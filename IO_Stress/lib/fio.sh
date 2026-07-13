@@ -1517,6 +1517,25 @@ function do_fio() {
         return 0
 }
 
+function request_system_reboot()
+{
+    local reboot_cmd_log="$ResultLog/reboot_command.log"
+    local rc=1
+
+    echo "$(date '+%F %T') [REBOOT] request start, user=$(id -un), uid=$(id -u)" | tee -a "$reboot_cmd_log"
+
+    if [ "$(id -u)" -eq 0 ]; then
+        systemctl reboot -i >>"$reboot_cmd_log" 2>&1 || reboot >>"$reboot_cmd_log" 2>&1 || shutdown -r now >>"$reboot_cmd_log" 2>&1
+        rc=$?
+    else
+        sudo -n systemctl reboot -i >>"$reboot_cmd_log" 2>&1 || sudo -n reboot >>"$reboot_cmd_log" 2>&1 || sudo -n shutdown -r now >>"$reboot_cmd_log" 2>&1
+        rc=$?
+    fi
+
+    echo "$(date '+%F %T') [REBOOT] command returned rc=$rc" | tee -a "$reboot_cmd_log"
+    return $rc
+}
+
 function do_reboot()
 {
 
@@ -1535,7 +1554,7 @@ function do_reboot()
         if [ "$item" = "REBOOT" ];then
             autoopen
             sync
-            reboot
+            request_system_reboot || exit $?
             sleep 60
             exit
         elif [ "$item" = "DC" ];then

@@ -15,6 +15,8 @@ from datetime import datetime
 import pytest
 import allure
 
+from test_items.powercycle_launch import trigger_background_fio
+
 
 def _ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -73,8 +75,5 @@ def test_reboot_powercycle():
     with allure.step(f"异步触发 FIO 指令: {cmd_str}"):
         print(f"{_ts()} [START] {cmd_str}")
         print("检测到重启任务，采用异步(setsid)触发模式...")
-        subprocess.Popen(
-            f"setsid bash ./Fio_All.sh {' '.join(fio_args)} > /dev/null 2>&1 &",
-            shell=True, cwd=io_stress_dir,
-        )
+        trigger_background_fio(io_stress_dir, "reboot", fio_args)
         print("测试已触发，安全退出 SSH 以防重启导致连接中断报错。")
