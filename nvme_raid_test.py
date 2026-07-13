@@ -4,7 +4,6 @@ import shutil
 import subprocess
 import sys
 import time
-import uuid
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -161,6 +160,60 @@ def stop_monitor_for_item(base_dir):
         time.sleep(1)
 
 
+def result_matches_item(result, item):
+    text = " ".join(
+        str(result.get(key, "")).lower()
+        for key in ("name", "fullName", "historyId", "testCaseId")
+    )
+    aliases = {
+        "lawdisk": ("lawdisk", "lawdiskstress"),
+        "filesystem": ("filesystem", "filesystemstress"),
+        "mix": ("mix", "mix_stress"),
+        "reboot": ("reboot", "reboot_powercycle"),
+        "dc": ("dc", "dc_powercycle"),
+    }
+    return any(alias in text for alias in aliases.get(item, (item,)))
+
+
+def attach_monitor_archive_to_result(item, base_dir, archive_name):
+    allure_dir = os.path.join(base_dir, ALLURE_DIR)
+    attachment = {
+        "name": "monitor_log_{}".format(item),
+        "source": archive_name,
+        "type": "application/gzip",
+    }
+
+    for name in os.listdir(allure_dir):
+        if not name.endswith("-result.json"):
+            continue
+        path = os.path.join(allure_dir, name)
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                result = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not result_matches_item(result, item):
+            continue
+
+        attachments = result.setdefault("attachments", [])
+        if not any(existing.get("source") == archive_name for existing in attachments):
+            attachments.append(attachment)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(result, handle, ensure_ascii=False)
+        return True
+
+    sidecar = os.path.join(allure_dir, "monitor_attachments.json")
+    try:
+        with open(sidecar, "r", encoding="utf-8") as handle:
+            pending = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        pending = []
+    pending.append({"item": item, "attachment": attachment})
+    with open(sidecar, "w", encoding="utf-8") as handle:
+        json.dump(pending, handle, ensure_ascii=False)
+    return False
+
+
 def add_allure_monitor_archive(item, base_dir):
     _, monitor_log = monitor_paths(base_dir)
     if not os.path.isdir(monitor_log):
@@ -172,28 +225,7 @@ def add_allure_monitor_archive(item, base_dir):
     archive_name = "monitor_log_{}.tar.gz".format(item)
     base_name = os.path.join(allure_dir, "monitor_log_{}".format(item))
     shutil.make_archive(base_name, "gztar", root_dir=os.path.dirname(monitor_log), base_dir=os.path.basename(monitor_log))
-
-    now_ms = int(time.time() * 1000)
-    result = {
-        "uuid": str(uuid.uuid4()),
-        "historyId": "monitor-log-{}".format(item),
-        "testCaseId": "monitor-log-{}".format(item),
-        "name": "Monitor log - {}".format(item),
-        "fullName": "monitor.log.{}".format(item),
-        "status": "passed",
-        "stage": "finished",
-        "start": now_ms,
-        "stop": now_ms,
-        "attachments": [
-            {
-                "name": "monitor_log_{}".format(item),
-                "source": archive_name,
-                "type": "application/gzip",
-            }
-        ],
-    }
-    with open(os.path.join(allure_dir, "{}-result.json".format(result["uuid"])), "w", encoding="utf-8") as handle:
-        json.dump(result, handle)
+    attach_monitor_archive_to_result(item, base_dir, archive_name)
 
 
 def main():

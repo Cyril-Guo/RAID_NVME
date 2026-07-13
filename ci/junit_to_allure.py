@@ -30,6 +30,75 @@ def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
 
+def result_key(classname, name):
+    return f"{classname}::{name}"
+
+
+def existing_history_ids(allure_dir):
+    ids = set()
+    for path in glob.glob(os.path.join(allure_dir, "*-result.json")):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                result = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+        history_id = result.get("historyId")
+        if history_id:
+            ids.add(history_id)
+    return ids
+
+
+def result_matches_item(result, item):
+    text = " ".join(
+        str(result.get(key, "")).lower()
+        for key in ("name", "fullName", "historyId", "testCaseId")
+    )
+    aliases = {
+        "lawdisk": ("lawdisk", "lawdiskstress"),
+        "filesystem": ("filesystem", "filesystemstress"),
+        "mix": ("mix", "mix_stress"),
+        "reboot": ("reboot", "reboot_powercycle"),
+        "dc": ("dc", "dc_powercycle"),
+    }
+    return any(alias in text for alias in aliases.get(item, (item,)))
+
+
+def attach_pending_monitor_logs(allure_dir):
+    sidecar = os.path.join(allure_dir, "monitor_attachments.json")
+    try:
+        with open(sidecar, "r", encoding="utf-8") as handle:
+            pending = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return 0
+
+    attached = 0
+    for path in glob.glob(os.path.join(allure_dir, "*-result.json")):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                result = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        changed = False
+        for entry in pending:
+            if not result_matches_item(result, entry.get("item", "")):
+                continue
+            attachment = entry.get("attachment")
+            if not attachment:
+                continue
+            attachments = result.setdefault("attachments", [])
+            if not any(existing.get("source") == attachment.get("source") for existing in attachments):
+                attachments.append(attachment)
+                attached += 1
+                changed = True
+
+        if changed:
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(result, handle, ensure_ascii=False)
+
+    return attached
+
+
 def write_result(allure_dir, suite_name, case):
     test_uuid = str(uuid.uuid4())
     status, detail = status_from_case(case)
@@ -37,8 +106,8 @@ def write_result(allure_dir, suite_name, case):
     classname = case.attrib.get("classname", suite_name or "unknown")
     result = {
         "uuid": test_uuid,
-        "historyId": f"{classname}::{name}",
-        "testCaseId": f"{classname}::{name}",
+        "historyId": result_key(classname, name),
+        "testCaseId": result_key(classname, name),
         "fullName": f"{classname}#{name}",
         "name": name,
         "status": status,
@@ -69,11 +138,7 @@ def main():
     allure_dir = "allure-results"
     ensure_dir(allure_dir)
 
-    existing = glob.glob(os.path.join(allure_dir, "*-result.json"))
-    if existing:
-        print(f"allure result files already exist: {len(existing)}")
-        return 0
-
+    existing_ids = existing_history_ids(allure_dir)
     junit_files = glob.glob("report_*.xml")
     generated = 0
     for junit_file in junit_files:
@@ -85,10 +150,16 @@ def main():
         for suite in normalize_root(root):
             suite_name = suite.attrib.get("name", "unknown")
             for case in suite.findall("testcase"):
+                name = case.attrib.get("name", "unknown")
+                classname = case.attrib.get("classname", suite_name or "unknown")
+                if result_key(classname, name) in existing_ids:
+                    continue
                 write_result(allure_dir, suite_name, case)
+                existing_ids.add(result_key(classname, name))
                 generated += 1
 
-    print(f"generated allure result files from junit: {generated}")
+    attached = attach_pending_monitor_logs(allure_dir)
+    print(f"generated allure result files from junit: {generated}, attached monitor logs: {attached}")
     return 0
 
 
