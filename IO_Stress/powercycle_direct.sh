@@ -26,8 +26,32 @@ fi
 
 export POWER_CYCLE_FORCE_ONCE=1
 
+command_log="$ResultLog/reboot_command.log"
+if [[ "$item" == "DC" ]]; then
+    command_log="$ResultLog/dc_command.log"
+fi
+
 echo "POWER_CYCLE_DIRECT_START item=$item LOOP=$LOOP flag=$flag disks=${specified_disk:-null}"
 intializer
-info_check
+echo "$(date '+%F %T') [DIRECT] initialized item=$item LOOP=$LOOP flag=$flag disks=${specified_disk:-null}" | tee -a "$command_log"
 
-bash ./run_fio.sh "$item" "$check" "$bmc_reset" "$flag" "$delay" "$mode" "$wait" "$port" "$server_ip" "$LOOP" "$acserverport" "$safe" "$sysStaticIP" "$blackBoxStaticIP" "$runtime" "$filename" "$fs_type" "$disk_mode" "$specified_disk" "$remote" "$mix_io" "$log_interval"
+info_check
+echo "$(date '+%F %T') [DIRECT] machinecheck before finished" | tee -a "$command_log"
+
+loop=0
+beforeloop=0
+Second=$(date +%s)
+
+do_fio
+fio_rc=$?
+echo "$(date '+%F %T') [DIRECT] do_fio rc=$fio_rc" | tee -a "$command_log"
+if [[ $fio_rc -ne 0 ]]; then
+    collect_log
+    test_end
+    exit $fio_rc
+fi
+
+do_reboot
+reboot_rc=$?
+echo "$(date '+%F %T') [DIRECT] do_reboot rc=$reboot_rc" | tee -a "$command_log"
+exit $reboot_rc
