@@ -219,6 +219,39 @@ EOF
 function autoopen()
 {
     show_produce_message "autoopen"
+    if command -v systemctl >/dev/null 2>&1; then
+        local resume_script="$CP_ROOT_DIR/powercycle_resume.sh"
+        local resume_service="/etc/systemd/system/raid-nvme-powercycle-resume.service"
+        cat > "$resume_script" <<EOF
+#!/bin/bash
+cd "$CP_ROOT_DIR"
+mkdir -p "$ResultLog"
+echo "\$(date '+%F %T') [RESUME] start on boot, tty output=/dev/tty1" | tee -a "$ResultLog/powercycle_resume.log" /dev/tty1
+bash "$CP_ROOT_DIR/run_fio.sh" "$item" "$check" "$bmc_reset" "$flag" "$delay" "$mode" "$wait" "$port" "$server_ip" "$LOOP" "$acserverport" "$safe" "$sysStaticIP" "$blackBoxStaticIP" "$runtime" "$filename" "$fs_type" "$disk_mode" "$specified_disk" "$remote" "$mix_io" "$log_interval" 2>&1 | tee -a "$ResultLog/powercycle_resume.log" /dev/tty1
+exit \${PIPESTATUS[0]}
+EOF
+        chmod +x "$resume_script"
+        cat > "$resume_service" <<EOF
+[Unit]
+Description=RAID NVMe powercycle resume
+After=multi-user.target
+
+[Service]
+Type=simple
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/bin/bash "$resume_script"
+StandardOutput=journal+console
+StandardError=journal+console
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        systemctl daemon-reload
+        systemctl enable raid-nvme-powercycle-resume.service
+        echo "Installed systemd resume service: $resume_service" | tee -a "$ResultLog/powercycle_resume.log"
+        return 0
+    fi
 	if [[ "$system_SUSE" -eq 1 ]];then
 	    echo "cd $CP_ROOT_DIR" >> /etc/bash.bashrc
         echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /etc/bash.bashrc
@@ -293,6 +326,13 @@ function restore()
     done
 
     # 3. Cleanup systemd service if it was used for reboot tests
+    if command -v systemctl >/dev/null 2>&1; then
+        echo "- Cleaning up powercycle resume service..."
+        systemctl disable raid-nvme-powercycle-resume.service >/dev/null 2>&1
+        rm -f /etc/systemd/system/raid-nvme-powercycle-resume.service
+        rm -f "$CP_ROOT_DIR/powercycle_resume.sh"
+        systemctl daemon-reload >/dev/null 2>&1
+    fi
     if [ -f /etc/os-release ] && grep -iq "Ubuntu" /etc/os-release ; then
         echo "- Cleaning up systemd services..."
         systemctl disable fio-test.service >/dev/null 2>&1
