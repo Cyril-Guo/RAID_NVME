@@ -8,9 +8,11 @@ Installation: System tools (nvme-cli, sdparm, smartctl, fio, nmon) are now insta
 
 2.Fio DC
     run as: sh Fio_All.sh -i dc -l 10
+    Power-cycle FIO uses a generated random WRITE/VERIFY plan.
 
 3.Fio Reboot
     run as: sh Fio_All.sh -i reboot -l 10
+    Power-cycle FIO uses a generated random WRITE/VERIFY plan.
 
 4.MachineCheck
     default YES
@@ -19,9 +21,9 @@ Installation: System tools (nvme-cli, sdparm, smartctl, fio, nmon) are now insta
 
 5.specify csv file
     default
-        DC:   DC.csv
+        DC/Reboot: generated powercycle_auto.csv
         Stress:   Input_Config_Disk_Full_Scan.csv
-     you can set param '-n ***.csv' to specify Configure file
+     you can set param '-n ***.csv' to specify stress Configure file
      eg:sh Fio_All.sh -i [lawdiskstress|filesystemstress]  -n Input_Config_Disk_Full_Scan.csv
 
 6.specify disk

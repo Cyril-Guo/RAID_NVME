@@ -12,7 +12,7 @@ def ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def trigger_background_fio(io_stress_dir, item, fio_args, wait_seconds=15):
+def trigger_background_fio(io_stress_dir, item, fio_args, wait_seconds=2):
     os.makedirs(os.path.join(io_stress_dir, "log", "ResultLog"), exist_ok=True)
     launch_log = os.path.join(io_stress_dir, "log", "ResultLog", "{}_launch.log".format(item))
     pid_file = os.path.join(io_stress_dir, "log", "ResultLog", "{}_launch.pid".format(item))

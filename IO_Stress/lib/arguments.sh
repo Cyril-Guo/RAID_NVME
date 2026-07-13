@@ -94,7 +94,7 @@ function help(){
    echo "   -w <60|...>: S5 delay time, the default value is 120s"
    echo "   -l <500|...>: the LOOPs, and the default value is 1000"
    #echo "   -r <43200|...>: runtime for stress"
-   echo "   -n <Input_Config_Disk_Full_Scan.csv|...>: filename for stress"
+   echo "   -n <Input_Config_Disk_Full_Scan.csv|...>: filename for stress only"
    echo "   -t <non-fs|...>: fs_type for stress"
    echo "   -o <all|single|both>: disk_mode for Disk"
    echo "   -u <sda,sdb,...>: specify disk"
@@ -170,13 +170,7 @@ function check_arguments()
         fi
     elif [[ $item == "REBOOT" ]];then
         show_produce_message "Reboot test start"
-        if [[ -z "$filename" ]];then
-            filename="DC.csv"
-        fi
     elif [[ $item == "DC" ]];then
-        if [[ -z "$filename" ]];then
-            filename="DC.csv"
-        fi
         if [[ -z "$mode" ]];then
             mode="UTC"
         fi
@@ -225,7 +219,7 @@ function check_arguments()
     fi
 
 
-    if [[ -z "$filename" ]];then
+    if [[ -z "$filename" && "$item" != "DC" && "$item" != "REBOOT" ]];then
         filename="Input_Config_Disk_Full_Scan.csv"
     fi
     if [[ -z "$specified_disk" ]];then
