@@ -277,7 +277,7 @@ ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
                     results: [[path: 'allure-results']]
                 )
 
-                archiveArtifacts artifacts: 'test_execution_*.log', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'test_execution_*.log, allure-results/monitor_log_*.tar.gz', allowEmptyArchive: true
 
                 def metricsOutput = sh(script: """
                     python3 - << 'EOF'

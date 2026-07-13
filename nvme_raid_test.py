@@ -1,5 +1,10 @@
 import os
+import json
+import shutil
+import subprocess
 import sys
+import time
+import uuid
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -119,6 +124,78 @@ def validate_selection(selected):
     return invalid, missing
 
 
+def stress_monitor_enabled(params):
+    return params.get("STRESS_MONITOR", "").strip().lower() == "yes"
+
+
+def monitor_paths(base_dir):
+    monitor_dir = os.path.join(base_dir, "Stress_Monitor")
+    monitor_main = os.path.join(monitor_dir, "main.py")
+    monitor_log = os.path.join(monitor_dir, "monitor_log")
+    return monitor_main, monitor_log
+
+
+def clean_monitor_log(base_dir):
+    _, monitor_log = monitor_paths(base_dir)
+    if os.path.exists(monitor_log):
+        shutil.rmtree(monitor_log, ignore_errors=True)
+
+
+def stop_monitor_for_item(base_dir):
+    monitor_main, _ = monitor_paths(base_dir)
+    subprocess.run(
+        ["pkill", "-TERM", "-f", monitor_main],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    for _ in range(30):
+        result = subprocess.run(
+            ["pgrep", "-f", monitor_main],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode != 0:
+            return
+        time.sleep(1)
+
+
+def add_allure_monitor_archive(item, base_dir):
+    _, monitor_log = monitor_paths(base_dir)
+    if not os.path.isdir(monitor_log):
+        return
+
+    allure_dir = os.path.join(base_dir, ALLURE_DIR)
+    os.makedirs(allure_dir, exist_ok=True)
+
+    archive_name = "monitor_log_{}.tar.gz".format(item)
+    base_name = os.path.join(allure_dir, "monitor_log_{}".format(item))
+    shutil.make_archive(base_name, "gztar", root_dir=os.path.dirname(monitor_log), base_dir=os.path.basename(monitor_log))
+
+    now_ms = int(time.time() * 1000)
+    result = {
+        "uuid": str(uuid.uuid4()),
+        "historyId": "monitor-log-{}".format(item),
+        "testCaseId": "monitor-log-{}".format(item),
+        "name": "Monitor log - {}".format(item),
+        "fullName": "monitor.log.{}".format(item),
+        "status": "passed",
+        "stage": "finished",
+        "start": now_ms,
+        "stop": now_ms,
+        "attachments": [
+            {
+                "name": "monitor_log_{}".format(item),
+                "source": archive_name,
+                "type": "application/gzip",
+            }
+        ],
+    }
+    with open(os.path.join(allure_dir, "{}-result.json".format(result["uuid"])), "w", encoding="utf-8") as handle:
+        json.dump(result, handle)
+
+
 def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     items_path = os.path.join(base_dir, ITEMS_FILE)
@@ -146,9 +223,14 @@ def main():
 
     exit_codes = []
     for index, item in enumerate(run_order):
-        exit_codes.append(
-            run_single_item(item, params_map.get(item, {}), clean_allure=(index == 0))
-        )
+        params = params_map.get(item, {})
+        if stress_monitor_enabled(params):
+            clean_monitor_log(base_dir)
+        exit_code = run_single_item(item, params, clean_allure=(index == 0))
+        if stress_monitor_enabled(params):
+            stop_monitor_for_item(base_dir)
+            add_allure_monitor_archive(item, base_dir)
+        exit_codes.append(exit_code)
 
     merge_junit_reports(run_order, os.path.join(base_dir, JUNIT_FINAL))
     sys.exit(max(exit_codes) if exit_codes else 0)

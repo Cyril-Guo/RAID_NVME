@@ -232,27 +232,33 @@ class StressMonitor(object):
 
     def prepare_disk(self):
         show_produce_message("prepare disk")
-        def get_system_disk_root():
-            # Use more accurate way to get the parent disk of the root partition
-            stdout, _ = cmd(r'''lsblk -no pkname /''')
-            if not stdout: # fallback
-                stdout, _ = cmd(r'''lsblk | awk '$7 == "/" {print $1}' | sed 's/[^a-zA-Z]//g' ''')
-            return stdout.strip() if stdout else ""
+        def disk_has_root_mount(disk_name):
+            stdout, _ = cmd(r'''lsblk -nr -o MOUNTPOINT /dev/{} 2>/dev/null | grep -x '/' | wc -l'''.format(disk_name))
+            return stdout.strip() != "0"
 
-        self.system_disk = get_system_disk_root()
+        def get_system_disks(disk_names):
+            return {disk for disk in disk_names if disk_has_root_mount(disk)}
+
         disk_raw, _ = cmd(r'''lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}' ''')
         if not disk_raw:
             disk_raw, _ = cmd(r'''iostat -x 1 1 | sed -n '7,$p' |awk {'print $1'}|grep -E -v '^dm' ''')
-        # Robust exclusion: system disk (with partitions) and loop devices
+
         all_disks = [d for d in get_split_by_LF(disk_raw) if d]
+        self.system_disks = get_system_disks(all_disks)
         self.disk = []
         source_disks = self.requested_disks if self.requested_disks else all_disks
         for d in source_disks:
             if d.startswith('loop'): continue
-            if self.system_disk and d.startswith(self.system_disk): continue
+            if d in self.system_disks: continue
             self.disk.append(d)
+
+        if not self.disk:
+            show_fail_message("No non-system target disks found for monitor. requested={}, system_disks={}".format(
+                self.requested_disks or "auto", sorted(self.system_disks)
+            ))
+            sys.exit(1)
         
-        print("System disk identified: {}, Target disks for monitor: {}".format(self.system_disk, self.disk))
+        print("System disks identified: {}, Target disks for monitor: {}".format(sorted(self.system_disks), self.disk))
         
         with open(os.path.join(constant.LOGAD, 'DISK', 'io.cfg'), 'w') as f:
             for d in self.disk: f.write('{}\n'.format(d))
