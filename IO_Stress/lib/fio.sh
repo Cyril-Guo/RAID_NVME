@@ -981,7 +981,7 @@ totalnum=$num
 cd $Config_Dir
 jobnum=1
 #echo "Test-Mode,Queue-Depth,Blocksize,ReadIOPS,WriteIOPS,IOPS,Read_Bandwidth,Write_Bandwindth,Bandwidth,Latency,CPUusr%,CPUsys%"
-for configuration in `ls -p $Config_Dir | grep -v / | sort -n -k 1 -t -`
+for configuration in `ls -p $Config_Dir | grep -v / | grep '\.log$' | sort -n -k 1 -t -`
 do
    echo "fio $configuration"
    echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/"${loop}_$jobnum.txt"
@@ -1044,7 +1044,7 @@ function run_all()
         jobnum=1
         printf "%-10s %-12s %-10s %-12s %-10s %-10s %-8s %-18s %-18s %-12s %-11s %-10s %-10s\n" Test-Mode, Queue-Depth, Blocksize, NumJbs, ReadIOPS, WriteIOPS, IOPS, Read_Bandwidth, Write_Bandwindth, Bandwidth, Latency, CPUusr%, CPUsys% >>$Result_Dir/result_$loop.csv
         rm -rf stor*
-	for configuration in `ls -p $Config_Dir | grep -v / | sort -n -k 1 -t -`
+	for configuration in `ls -p $Config_Dir | grep -v / | grep '\.log$' | sort -n -k 1 -t -`
         do
             echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/"${loop}_$jobnum.txt"
             echo "Job $jobnum/$totalnum is Running.."
@@ -1101,7 +1101,7 @@ function run_suball()
     totalnum=`expr $num - 1`
     jobnum=1
     #echo " Disk Test-Mode,Queue-Depth,Blocksize,ReadIOPS,WriteIOPS,IOPS,Read_Bandwidth,Write_Bandwindth,Bandwidth,Latency,CPUusr%,CPUsys%">> $Result_Dir/result_"$loop".csv
-    for configuration in `ls -p $Config_Dir | grep -v / | sort -n -k 1 -t -`
+    for configuration in `ls -p $Config_Dir | grep -v / | grep '\.log$' | sort -n -k 1 -t -`
     do
         echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/"${loop}_$jobnum.txt"
         echo "Job $jobnum/$totalnum is Running.."
