@@ -1,5 +1,6 @@
 def targetIPs = []
 def kernelDriverCommit = ''
+def kernelDriverFullCommit = ''
 def shouldRunTests = true
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
@@ -24,6 +25,10 @@ pipeline {
     options {
         disableConcurrentBuilds()
         skipDefaultCheckout()
+    }
+
+    triggers {
+        cron('H/15 * * * *')
     }
 
     parameters {
@@ -64,23 +69,38 @@ pipeline {
                                 [$class: 'RelativeTargetDirectory', relativeTargetDir: 'kernel_driver'],
                                 [$class: 'CloneOption', shallow: true, depth: 1, noTags: true, timeout: 30]
                             ]
-                        ], poll: true, changelog: true
+                        ], poll: false, changelog: false
 
+                        kernelDriverFullCommit = sh(
+                            script: "git -C kernel_driver rev-parse HEAD 2>/dev/null || echo unknown",
+                            returnStdout: true
+                        ).trim()
                         kernelDriverCommit = sh(
                             script: "git -C kernel_driver rev-parse --short HEAD 2>/dev/null || echo unknown",
                             returnStdout: true
                         ).trim()
                         echo "kernel_driver(${env.KERNEL_DRIVER_BRANCH}) commit: ${kernelDriverCommit}"
 
-                        def scmTriggered = currentBuild.getBuildCauses('hudson.triggers.SCMTrigger$SCMTriggerCause').size() > 0
-                        def kernelDriverChanged = currentBuild.changeSets.any { changeSet ->
-                            changeSet.items && changeSet.items.length > 0
-                        }
+                        def timerTriggered = currentBuild.getBuildCauses('hudson.triggers.TimerTrigger$TimerTriggerCause').size() > 0
+                        def markerName = "${env.JOB_NAME}_${env.KERNEL_DRIVER_BRANCH}".replaceAll('[^A-Za-z0-9_.-]', '_')
+                        def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
+                        def markerPath = "${jenkinsHome}/.raid_nvme/${markerName}.kernel_driver_commit"
+                        def previousKernelDriverCommit = sh(
+                            script: "cat '${markerPath}' 2>/dev/null || true",
+                            returnStdout: true
+                        ).trim()
 
-                        if (scmTriggered && !kernelDriverChanged) {
+                        if (timerTriggered && previousKernelDriverCommit == kernelDriverFullCommit) {
                             shouldRunTests = false
                             currentBuild.result = 'NOT_BUILT'
-                            echo 'SCM build was not caused by kernel_driver changes. Skip NVMe RAID smoke tests.'
+                            echo "kernel_driver has no new commit since last triggered run (${kernelDriverCommit}). Skip NVMe RAID smoke tests."
+                        }
+
+                        if (shouldRunTests && kernelDriverFullCommit != 'unknown') {
+                            sh """
+                            mkdir -p '${jenkinsHome}/.raid_nvme'
+                            printf '%s\\n' '${kernelDriverFullCommit}' > '${markerPath}'
+                            """
                         }
                     }
                 }
