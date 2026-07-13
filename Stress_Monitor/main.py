@@ -167,20 +167,14 @@ def show_html(mode, interval, test_item, segment_time):
     print("Segments Found: {}. Generating HTML reports...".format(len(segments)))
     
     for result_idx, segment in enumerate(segments):
-        # Apply 2-min buffer: skip first 120s and last 120s of the segment
-        buffered_segment = [segment[0] + 120, segment[1] - 120]
-        if buffered_segment[0] >= buffered_segment[1]:
-            # If segment is too short for buffer, fallback to original but skip first/last points
-            buffered_segment = segment
-            
         ori_dict = {"DISK_IO": [], "DISK_IOPS": [], "SYSTEM_CPU": [], "SYSTEM_MEM": [], "DISK_UTIL": []}
 
         # Order of calls determines order in HTML
-        process_result_vatal(ori_dict, buffered_segment, echart_div_id="DISK", img_title="io")
-        process_result_vatal(ori_dict, buffered_segment, echart_div_id="DISK", img_title="iops")
-        process_result_vatal(ori_dict, buffered_segment, echart_div_id="SYSTEM", img_title="cpu")
-        process_result_vatal(ori_dict, buffered_segment, echart_div_id="SYSTEM", img_title="mem")
-        process_result_vatal(ori_dict, buffered_segment, echart_div_id="DISK", img_title="util")
+        process_result_vatal(ori_dict, segment, echart_div_id="DISK", img_title="io")
+        process_result_vatal(ori_dict, segment, echart_div_id="DISK", img_title="iops")
+        process_result_vatal(ori_dict, segment, echart_div_id="SYSTEM", img_title="cpu")
+        process_result_vatal(ori_dict, segment, echart_div_id="SYSTEM", img_title="mem")
+        process_result_vatal(ori_dict, segment, echart_div_id="DISK", img_title="util")
 
         MixInHTML.mixin(ori_dict, result_idx + 1, mode, interval, test_item)
 
@@ -188,15 +182,29 @@ def show_html(mode, interval, test_item, segment_time):
     cmd(r'''cp -rf {} {}'''.format(constant.LOGAD, os.path.abspath(os.path.join(constant.CUR_DIR, '../log'))))
 
 class StressMonitor(object):
-    def __init__(self, runtime, mode='fio', interval=1, bmcip=None):
+    def __init__(self, runtime, mode='fio', interval=1, bmcip=None, disks=''):
         self.runtime = int(runtime)
         self.endtime = time.time() + self.runtime
         self.bmcip = bmcip if bmcip else ""
         self.interval = interval
         self.mode = "fio"
         self.start_monitor_time = time.time()
+        self.monitor_skip_seconds = 120
+        self.iostat_start_time = self.start_monitor_time
+        self.requested_disks = self.normalize_disk_list(disks)
         self.redhat7, _ = cmd(r'''less /etc/redhat-release |grep -i 'release 7' |wc -l''')
         self.redhat9, _ = cmd(r'''less /etc/redhat-release |grep -i 'release 9' |wc -l''')
+
+    def normalize_disk_list(self, disks):
+        normalized = []
+        for disk in (disks or "").replace(';', ',').split(','):
+            disk = disk.strip()
+            if not disk:
+                continue
+            disk = os.path.basename(disk)
+            if disk not in normalized:
+                normalized.append(disk)
+        return normalized
 
     def prepare_log(self):
         # Cross-platform cleanup using native python calls
@@ -232,11 +240,14 @@ class StressMonitor(object):
             return stdout.strip() if stdout else ""
 
         self.system_disk = get_system_disk_root()
-        disk_raw, _ = cmd(r'''iostat -x 1 1 | sed -n '7,$p' |awk {'print $1'}|grep -E -v '^dm' ''')
+        disk_raw, _ = cmd(r'''lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}' ''')
+        if not disk_raw:
+            disk_raw, _ = cmd(r'''iostat -x 1 1 | sed -n '7,$p' |awk {'print $1'}|grep -E -v '^dm' ''')
         # Robust exclusion: system disk (with partitions) and loop devices
         all_disks = [d for d in get_split_by_LF(disk_raw) if d]
         self.disk = []
-        for d in all_disks:
+        source_disks = self.requested_disks if self.requested_disks else all_disks
+        for d in source_disks:
             if d.startswith('loop'): continue
             if self.system_disk and d.startswith(self.system_disk): continue
             self.disk.append(d)
@@ -249,9 +260,15 @@ class StressMonitor(object):
             for d in self.disk: f.write('{}\n'.format(d))
         with open(os.path.join(constant.LOGAD, 'DISK', 'util.cfg'), 'w') as f:
             for d in self.disk: f.write('{}\n'.format(d))
-        # Start iostat background process
+    def start_iostat(self):
+        self.iostat_start_time = time.time()
+        with open(os.path.join(constant.LOGAD, 'DISK', 'iostat_start_time.log'), 'w') as f:
+            f.write("{}".format(self.iostat_start_time))
         iostat_cmd = r'''iostat -x {} >> {} &'''.format(self.interval, os.path.join(constant.LOGAD, "DISK", "iostat_runtime.log"))
         os.system(iostat_cmd)
+
+    def stop_iostat(self):
+        cmd(r'''ps -ef | grep -i 'iostat -x' | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null ''')
 
     def prepare_system_stats(self):
         show_produce_message("prepare system stats")
@@ -312,6 +329,13 @@ class StressMonitor(object):
         
         runtime_log = os.path.join(constant.LOGAD, 'DISK', 'iostat_runtime.log')
         if not os.path.exists(runtime_log): return
+        iostat_start_file = os.path.join(constant.LOGAD, 'DISK', 'iostat_start_time.log')
+        if os.path.exists(iostat_start_file):
+            try:
+                with open(iostat_start_file) as f:
+                    self.iostat_start_time = float(f.read().strip())
+            except:
+                self.iostat_start_time = self.start_monitor_time
 
         # Extract samples for each disk
         for d in disk:
@@ -343,8 +367,7 @@ class StressMonitor(object):
                             for idx, line in enumerate(ft.readlines()):
                                 out = line.strip().split()
                                 if not out: continue
-                                # Use start_monitor_time as base (aligned offset)
-                                ts_val = self.start_monitor_time + idx * self.interval
+                                ts_val = self.iostat_start_time + idx * self.interval
                                 ts_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts_val))
                                 f.write("{},{}\n".format(ts_str, ','.join(out)))
         cmd(r'''rm -rf {}/*.tmp'''.format(os.path.join(constant.LOGAD, 'DISK')))
@@ -356,7 +379,7 @@ class StressMonitor(object):
             Timer(self.interval, self.recursive_monitor, args=[end_time]).start()
         else:
             show_produce_message("Stopping iostat background monitor")
-            cmd(r'''ps -ef | grep -i 'iostat -x' | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null ''')
+            self.stop_iostat()
 
     def monitor(self):
         show_produce_message("Starting monitor")
@@ -374,19 +397,40 @@ class StressMonitor(object):
                 self.start_monitor_time = time.time()
         
         self.endtime = self.start_monitor_time + self.runtime
+        active_start = self.start_monitor_time + self.monitor_skip_seconds
+        active_end = self.endtime - self.monitor_skip_seconds
         
         with open(os.path.join(constant.LOGAD, 'runtime.ini'), 'w') as f:
             f.write("{}".format(self.runtime // 3600))
         
-        # Start recursive system stats collector
-        self.recursive_monitor(self.endtime)
+        if active_start >= active_end:
+            print("Monitor runtime is too short after 2-min head/tail skip; no samples collected.")
+            while time.time() <= self.endtime and gflag == 0:
+                time.sleep(1)
+            return
+
+        delay = active_start - time.time()
+        if delay > 0:
+            print("Skip first {}s before monitoring test disks.".format(int(delay)))
+            time.sleep(delay)
+
+        if gflag == 0 and time.time() < active_end:
+            self.start_iostat()
+            self.recursive_monitor(active_end)
         
-        while time.time() <= self.endtime and gflag == 0:
-            remaining = int(self.endtime - time.time())
+        while time.time() <= active_end and gflag == 0:
+            remaining = int(active_end - time.time())
             if remaining > 0:
                 if remaining % 60 == 0 or remaining <= 10:
                     print("Monitoring... {}s remaining".format(remaining))
             time.sleep(1)
+
+        self.stop_iostat()
+
+        tail_delay = self.endtime - time.time()
+        if tail_delay > 0 and gflag == 0:
+            print("Skip last {}s after monitoring test disks.".format(int(tail_delay)))
+            time.sleep(tail_delay)
             
         show_produce_message('Monitoring complete')
         cmd(r'''rm -rf tmp*.log tmp.txt''')
@@ -426,7 +470,7 @@ if __name__ == '__main__':
         sys.exit(1)
 
     try:
-        sm = StressMonitor(runtime=args.RUNTIME, mode='fio', interval=args.INTERVAL)
+        sm = StressMonitor(runtime=args.RUNTIME, mode='fio', interval=args.INTERVAL, disks=args.DISKS)
         if not args.GENERATEONLY:
             sm.prepare_log()
             sm.start()
@@ -437,7 +481,7 @@ if __name__ == '__main__':
         # Final cleanup and report generation
         cmd(r'''ps -ef | grep -i 'iostat -x' | grep -v grep | awk '{print $2}' | xargs kill -9 2>/dev/null ''')
         # Re-initialize for report generation to ensure all final logs are processed
-        report_sm = StressMonitor(runtime=args.RUNTIME, mode='fio', interval=args.INTERVAL)
+        report_sm = StressMonitor(runtime=args.RUNTIME, mode='fio', interval=args.INTERVAL, disks=args.DISKS)
         # We need the start time from the actual run, let's try to get it from start_time.log if it exists
         st_file = os.path.join(constant.LOGAD, 'DISK', 'start_time.log')
         if os.path.exists(st_file):

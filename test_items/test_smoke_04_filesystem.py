@@ -48,6 +48,9 @@ def test_filesystemstress():
             runtime = os.environ.get("MONITOR_RUNTIME", "").strip()
             if runtime:
                 monitor_cmd.extend(["-r", runtime])
+            monitor_disks = os.environ.get("FIO_DISKS", "").strip()
+            if monitor_disks:
+                monitor_cmd.extend(["-d", monitor_disks])
             print(f"[{_ts()}] Start Stress_Monitor in background (Runtime: {runtime or 'Default'})...")
             subprocess.Popen(
                 monitor_cmd, cwd=monitor_dir,
