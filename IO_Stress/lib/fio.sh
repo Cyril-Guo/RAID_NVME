@@ -1469,11 +1469,16 @@ function run_mode() {
 }
 
 function do_fio() {
+        local power_log="$ResultLog/reboot_command.log"
+        if [ "$item" = "DC" ]; then
+            power_log="$ResultLog/dc_command.log"
+        fi
 
         get_system_disk
         # 安全护栏：无法识别系统盘时直接中止，避免误把系统盘当作数据盘
         if [[ -z "$system_disk" ]];then
             echo -ne " Fail to detect system disk. Refuse to run to avoid any IO on OS disk. Exit.\n"
+            echo "$(date '+%F %T') [FIO] failed: system disk not detected" | tee -a "$power_log"
             exit 1
         fi
         if [[ "$specified_disk" =~ "null" ]];then
@@ -1500,6 +1505,11 @@ function do_fio() {
 
         echo -ne "System_Disk is $system_disk\n"
         echo -ne "The test disk is: $test_disk\n"
+        echo "$(date '+%F %T') [FIO] system_disk=$system_disk test_disk=${test_disk:-EMPTY} specified_disk=$specified_disk disk_mode=$disk_mode" | tee -a "$power_log"
+        if [[ -z "$test_disk" ]]; then
+            echo "No non-system test disk found. Set FIO_DISKS to the target data disk, for example sdb or nvme1n1." | tee -a "$power_log"
+            return 1
+        fi
         if [ "$fs_type" != "NON-FS" ];then
             echo "**********" `date +%m-%d" "%H:%M:%S` "preparing **********"
             prepare
@@ -1507,14 +1517,22 @@ function do_fio() {
         fi
 
         if powercycle_mode_enabled; then
-            prepare_powercycle_plan || return $?
+            prepare_powercycle_plan
+            plan_rc=$?
+            echo "$(date '+%F %T') [FIO] prepare_powercycle_plan rc=$plan_rc filename=$filename" | tee -a "$power_log"
+            [[ $plan_rc -ne 0 ]] && return $plan_rc
         fi
 
         get_config_filelist
+        echo "$(date '+%F %T') [FIO] config_list=$(cat "$Cur_Dir/config_list1.log" 2>/dev/null | tr '\n' ' ')" | tee -a "$power_log"
         set_Disk
-        run_mode || return $?
+        run_mode
+        run_rc=$?
+        echo "$(date '+%F %T') [FIO] run_mode rc=$run_rc" | tee -a "$power_log"
+        [[ $run_rc -ne 0 ]] && return $run_rc
         if powercycle_mode_enabled; then
             commit_powercycle_state
+            echo "$(date '+%F %T') [FIO] committed powercycle state" | tee -a "$power_log"
         fi
         rm -rf $Cur_Dir/configuration.tmp*
         close_mount
