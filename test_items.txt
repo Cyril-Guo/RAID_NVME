@@ -15,10 +15,10 @@
 # ============================================================
 
 [selection]
-reboot      = no
+reboot      = yes
 dc          = no
-lawdisk     = yes
-filesystem  = yes
+lawdisk     = no
+filesystem  = no
 mix         = no
 
 
