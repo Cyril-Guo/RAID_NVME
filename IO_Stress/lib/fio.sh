@@ -1593,8 +1593,8 @@ function do_reboot()
     fi
 
     if [ "$loop" -ge "$LOOP" ]; then
-        echo "$(date '+%F %T') [POWER] no remaining power-cycle, skip command" | tee -a "$command_log"
-        return 1
+        echo "$(date '+%F %T') [POWER] all power-cycle loops completed, no remaining reboot/dc command" | tee -a "$command_log"
+        return 2
     fi
 
     let beforeloop=$loop

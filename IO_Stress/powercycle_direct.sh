@@ -54,4 +54,8 @@ fi
 do_reboot
 reboot_rc=$?
 echo "$(date '+%F %T') [DIRECT] do_reboot rc=$reboot_rc" | tee -a "$command_log"
+if [[ $reboot_rc -eq 2 ]]; then
+    collect_log
+    test_end
+fi
 exit $reboot_rc
