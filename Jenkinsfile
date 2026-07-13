@@ -209,13 +209,14 @@ pipeline {
                                 echo "[${ip}] run nvme_raid_test.py"
                                 def testStatus = sh(
                                     returnStatus: true,
-                                    script: """
-                                    ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
-                                        cd ${remoteDir} && \
-                                        ALLOW_DESTRUCTIVE_FIO=${env.ALLOW_DESTRUCTIVE_FIO} \
-                                        sudo -E python3 nvme_raid_test.py
-                                    \" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), \$0 }' | tee test_execution_${ip}.log
-                                    """
+                                    script: """#!/bin/bash
+set -o pipefail
+ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
+    cd ${remoteDir} && \
+    ALLOW_DESTRUCTIVE_FIO=${env.ALLOW_DESTRUCTIVE_FIO} \
+    sudo -E python3 nvme_raid_test.py
+\" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), \$0 }' | tee test_execution_${ip}.log
+"""
                                 )
 
                                 echo "[${ip}] copy back reports"
@@ -232,6 +233,10 @@ pipeline {
 
                                 if (testStatus != 0) {
                                     error "[${ip}] nvme_raid_test.py failed with exit code ${testStatus}"
+                                }
+
+                                if (!fileExists("report_${ip}.xml")) {
+                                    error "[${ip}] Missing report_${ip}.xml. nvme_raid_test.py did not produce a JUnit report."
                                 }
                             }
                         }

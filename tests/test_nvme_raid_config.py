@@ -3,6 +3,15 @@ from pathlib import Path
 from nvme_raid_test import parse_items_file
 
 
+def test_repository_test_items_file_is_valid():
+    config = Path(__file__).resolve().parents[1] / "test_items.txt"
+
+    selected, params = parse_items_file(config)
+
+    assert selected
+    assert "mix" in params
+
+
 def test_parse_selection_block_controls_enabled_items(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
