@@ -1543,45 +1543,71 @@ function request_system_reboot()
 
 function do_reboot()
 {
+    local command_log="$ResultLog/reboot_command.log"
+    if [ "$item" = "DC" ]; then
+        command_log="$ResultLog/dc_command.log"
+    fi
 
-    while [ "$loop" -lt "$LOOP" ]
-    do
-        let beforeloop=$loop
-        let loop=$loop+1
-        echo "Current loop is $loop"
-        echo $loop $Second >> $ResultLog/reboot.log
-        sleep 2
-        echo "The system will delay in $delay second"
-        sleep 1
-        echo "Press Ctrl+c to stop running"
-        sleep $delay
+    case "$loop" in
+        ''|*[!0-9]*)
+            echo "$(date '+%F %T') [POWER] invalid loop='$loop', reset to 0" | tee -a "$command_log"
+            loop=0
+            ;;
+    esac
+    case "$LOOP" in
+        ''|*[!0-9]*)
+            echo "$(date '+%F %T') [POWER] invalid LOOP='$LOOP', reset to 1" | tee -a "$command_log"
+            LOOP=1
+            ;;
+    esac
 
-        if [ "$item" = "REBOOT" ];then
-            autoopen
-            sync
-            request_system_reboot || exit $?
+    echo "$(date '+%F %T') [POWER] enter do_reboot item=$item loop=$loop LOOP=$LOOP force=${POWER_CYCLE_FORCE_ONCE:-0}" | tee -a "$command_log"
+
+    if [ "$POWER_CYCLE_FORCE_ONCE" = "1" ] && [ "$loop" -ge "$LOOP" ]; then
+        echo "$(date '+%F %T') [POWER] force one power-cycle for initial Jenkins trigger" | tee -a "$command_log"
+        loop=0
+        LOOP=1
+    fi
+
+    if [ "$loop" -ge "$LOOP" ]; then
+        echo "$(date '+%F %T') [POWER] no remaining power-cycle, skip command" | tee -a "$command_log"
+        return 1
+    fi
+
+    let beforeloop=$loop
+    let loop=$loop+1
+    echo "Current loop is $loop"
+    echo $loop $Second >> $ResultLog/reboot.log
+    sleep 2
+    echo "The system will delay in $delay second"
+    sleep 1
+    echo "Press Ctrl+c to stop running"
+    sleep $delay
+
+    if [ "$item" = "REBOOT" ];then
+        autoopen
+        sync
+        request_system_reboot || exit $?
+        sleep 60
+        exit
+    elif [ "$item" = "DC" ];then
+        autoopen
+        sync
+        if [ "$mode" = "UTC" ];then
+            dc_utc
             sleep 60
             exit
-        elif [ "$item" = "DC" ];then
-            autoopen
-            sync
-            if [ "$mode" = "UTC" ];then
-                dc_utc
-                sleep 60
-                exit
-            elif [ "$mode" = "RTC" ];then
-                dc_rtc
-                sleep 60
-                exit
-            else
-                echo "unsupport mode, exit"
-                exit
-            fi
+        elif [ "$mode" = "RTC" ];then
+            dc_rtc
+            sleep 60
+            exit
         else
-            echo "$item Test Complete once"
+            echo "unsupport mode, exit"
+            exit
         fi
-
-    done
+    else
+        echo "$item Test Complete once"
+    fi
 
 #    echo "FIO + DC test has been run $LOOP,it will be exit,if you want to run more times please modify the var loops"
 

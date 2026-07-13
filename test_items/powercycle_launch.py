@@ -41,9 +41,12 @@ def trigger_background_fio(io_stress_dir, item, fio_args, wait_seconds=2):
             log_handle.write("{} [LAUNCH] cwd={}\n".format(ts(), os.path.abspath(io_stress_dir)))
             log_handle.write("{} [LAUNCH] command={}\n".format(ts(), command_text))
         with open(launch_log, "ab") as log_handle, open(os.devnull, "rb") as stdin_handle:
+            env = os.environ.copy()
+            env["POWER_CYCLE_FORCE_ONCE"] = "1"
             process = subprocess.Popen(
                 command,
                 cwd=io_stress_dir,
+                env=env,
                 stdin=stdin_handle,
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
