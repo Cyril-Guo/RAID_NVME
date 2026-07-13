@@ -16,29 +16,33 @@ def trigger_background_fio(io_stress_dir, item, fio_args, wait_seconds=2):
     os.makedirs(os.path.join(io_stress_dir, "log", "ResultLog"), exist_ok=True)
     launch_log = os.path.join(io_stress_dir, "log", "ResultLog", "{}_launch.log".format(item))
     pid_file = os.path.join(io_stress_dir, "log", "ResultLog", "{}_launch.pid".format(item))
-    quoted_args = " ".join(shlex.quote(arg) for arg in fio_args)
-    launch_cmd = (
-        "nohup setsid bash ./Fio_All.sh {} > {} 2>&1 < /dev/null & echo $! > {}"
-        .format(quoted_args, shlex.quote(launch_log), shlex.quote(pid_file))
-    )
-
-    subprocess.run(["bash", "-lc", launch_cmd], cwd=io_stress_dir, check=True)
-    time.sleep(wait_seconds)
+    command = ["bash", "./Fio_All.sh"] + fio_args
+    command_text = " ".join(shlex.quote(arg) for arg in command)
 
     try:
-        with open(pid_file, "r", encoding="utf-8") as handle:
-            pid = handle.read().strip()
-    except OSError:
-        pid = ""
+        with open(launch_log, "a", encoding="utf-8") as log_handle:
+            log_handle.write("{} [LAUNCH] cwd={}\n".format(ts(), os.path.abspath(io_stress_dir)))
+            log_handle.write("{} [LAUNCH] command={}\n".format(ts(), command_text))
+        with open(launch_log, "ab") as log_handle, open(os.devnull, "rb") as stdin_handle:
+            process = subprocess.Popen(
+                command,
+                cwd=io_stress_dir,
+                stdin=stdin_handle,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                close_fds=True,
+            )
+    except Exception as exc:
+        pytest.fail("Failed to launch background FIO {}: {}".format(item, exc))
 
-    if not pid:
-        pytest.fail("Failed to get background FIO {} pid.".format(item))
+    pid = str(process.pid)
+    with open(pid_file, "w", encoding="utf-8") as handle:
+        handle.write(pid + "\n")
 
-    still_running = subprocess.run(
-        ["bash", "-lc", "kill -0 {} 2>/dev/null".format(shlex.quote(pid))],
-        cwd=io_stress_dir,
-        check=False,
-    ).returncode == 0
+    time.sleep(wait_seconds)
+    return_code = process.poll()
+    still_running = return_code is None
 
     log_text = ""
     if os.path.exists(launch_log):
@@ -48,8 +52,8 @@ def trigger_background_fio(io_stress_dir, item, fio_args, wait_seconds=2):
 
     if not still_running:
         pytest.fail(
-            "Background FIO {} process exited before power-cycle was triggered.\n{}"
-            .format(item, log_text[-4000:])
+            "Background FIO {} process exited before power-cycle was triggered, rc={}.\n{}"
+            .format(item, return_code, log_text[-4000:])
         )
 
     print("{} [INFO] Background FIO {} process is running, pid={}.".format(ts(), item, pid))
