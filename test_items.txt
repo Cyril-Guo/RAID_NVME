@@ -19,7 +19,7 @@ reboot      = no
 dc          = no
 lawdisk     = yes
 filesystem  = yes
-mix         = yes
+mix         = no
 
 
 # ============================================================
