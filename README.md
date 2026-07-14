@@ -109,19 +109,25 @@ MONITOR_RUNTIME =
   **立即停止**正在运行的测试（含后台 FIO / 监控进程），并恢复系统环境
   （还原自动登录、开机自启等配置）。用于随时中止测试。
 
-**自动触发（被测驱动提交即测）**：`Jenkinsfile` 已配置 SCM 轮询，每 15 分钟检查
-被测驱动仓库 `kernel_driver`（`KERNEL_DRIVER_REPO`）的 `main` 分支，一旦发现新提交
-即自动运行冒烟测试。轮询**仅针对 `kernel_driver`**（其 `checkout` 设 `poll:true`），
+**自动触发（kernel_driver MR 有新事件即测）**：`Jenkinsfile` 已配置每 15 分钟检查
+`kernel_driver` 的打开中 Merge Request。只要打开中的 MR 列表里任一 MR 的 `updated_at`
+或 MR 头部 `sha` 发生变化，即自动运行冒烟测试。测试会选取最近更新的 MR，checkout 其
+source branch，并固定到该 MR 当前 `sha`。
+
 RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试框架推代码**不会**
-误触发破坏性测试。
+误触发破坏性测试。没有打开中的 MR，或 MR 状态相对上次轮询没有变化时，定时构建会跳过。
 
 > 需要在 Jenkins 中预先完成一次性配置：
 > 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，
 >    凭据 ID 填 `kernel_driver_ssh`（与 `Jenkinsfile` 的 `KERNEL_DRIVER_CRED` 一致），
 >    私钥需对 `192.168.21.185` 的 `raid_max/kernel_driver` 有读取权限。
-> 2. **信任 Git 主机指纹**：Manage Jenkins → Security → Git Host Key Verification 配置为
+> 2. **添加 GitLab API Token 凭据**：Manage Jenkins → Credentials → 新增 *Secret text*，
+>    凭据 ID 填 `kernel_driver_gitlab_token`（与 `Jenkinsfile` 的
+>    `KERNEL_DRIVER_GITLAB_TOKEN_CRED` 一致）。Token 只需要能读取
+>    `raid_max/kernel_driver` 的 Merge Request API。
+> 3. **信任 Git 主机指纹**：Manage Jenkins → Security → Git Host Key Verification 配置为
 >    “Accept first connection” 或把 `192.168.21.185` 加入 known_hosts，否则首次克隆会因主机校验失败。
-> 3. 构建方式确定前，`构建与安装 kernel_driver` 为占位阶段（只打印 TODO，不做实际编译）。
+> 4. 构建方式确定前，`构建与安装 kernel_driver` 为占位阶段（只打印 TODO，不做实际编译）。
 >    后续补充：把 `kernel_driver` 源码部署到各节点 → 编译 → 安装/加载驱动，再跑 FIO 冒烟。
 
 ### 4. 查看结果

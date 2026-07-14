@@ -1,6 +1,11 @@
 def targetIPs = []
 def kernelDriverCommit = ''
 def kernelDriverFullCommit = ''
+def kernelDriverRef = ''
+def kernelDriverMrIid = ''
+def kernelDriverMrTitle = ''
+def kernelDriverMrUpdatedAt = ''
+def kernelDriverMrUrl = ''
 def shouldRunTests = true
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
@@ -47,6 +52,9 @@ pipeline {
         KERNEL_DRIVER_REPO = 'git@192.168.21.185:raid_max/kernel_driver.git'
         KERNEL_DRIVER_BRANCH = 'main'
         KERNEL_DRIVER_CRED = 'kernel_driver_ssh'
+        KERNEL_DRIVER_GITLAB_API = 'http://192.168.21.185:8081/api/v4'
+        KERNEL_DRIVER_GITLAB_PROJECT = 'raid_max%2Fkernel_driver'
+        KERNEL_DRIVER_GITLAB_TOKEN_CRED = 'kernel_driver_gitlab_token'
     }
 
     stages {
@@ -58,9 +66,90 @@ pipeline {
 
                 script {
                     if (!params.RESTORE) {
+                        def timerTriggered = currentBuild.getBuildCauses('hudson.triggers.TimerTrigger$TimerTriggerCause').size() > 0
+                        def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
+                        def markerName = "${env.JOB_NAME}_kernel_driver_open_mrs".replaceAll('[^A-Za-z0-9_.-]', '_')
+                        def markerPath = "${jenkinsHome}/.raid_nvme/${markerName}.signature"
+                        def mrProps = [:]
+
+                        withCredentials([string(credentialsId: env.KERNEL_DRIVER_GITLAB_TOKEN_CRED, variable: 'GITLAB_TOKEN')]) {
+                            sh '''
+                            set -eu
+                            curl -fsS \
+                              --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+                              "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page=100" \
+                              -o kernel_driver_mrs.json
+
+                            python3 - <<'PY' > kernel_driver_mr.properties
+import json
+
+with open('kernel_driver_mrs.json', encoding='utf-8') as fh:
+    merge_requests = json.load(fh)
+
+def prop_value(value):
+    return str(value or '').replace('\\n', ' ').replace('\\r', ' ')
+
+if not merge_requests:
+    print('MR_COUNT=0')
+    print('MR_SIGNATURE=none')
+else:
+    signature_parts = [
+        f"{mr.get('iid')}:{mr.get('updated_at')}:{mr.get('sha')}"
+        for mr in sorted(merge_requests, key=lambda item: item.get('iid') or 0)
+    ]
+    latest = merge_requests[0]
+    print(f"MR_COUNT={len(merge_requests)}")
+    print(f"MR_SIGNATURE={prop_value('|'.join(signature_parts))}")
+    print(f"MR_IID={prop_value(latest.get('iid'))}")
+    print(f"MR_TITLE={prop_value(latest.get('title'))}")
+    print(f"MR_SOURCE_BRANCH={prop_value(latest.get('source_branch'))}")
+    print(f"MR_TARGET_BRANCH={prop_value(latest.get('target_branch'))}")
+    print(f"MR_SHA={prop_value(latest.get('sha'))}")
+    print(f"MR_UPDATED_AT={prop_value(latest.get('updated_at'))}")
+    print(f"MR_WEB_URL={prop_value(latest.get('web_url'))}")
+PY
+                            '''
+                        }
+
+                        readFile('kernel_driver_mr.properties').split('\\r?\\n').each { line ->
+                            if (line.contains('=')) {
+                                def parts = line.split('=', 2)
+                                mrProps[parts[0]] = parts[1]
+                            }
+                        }
+
+                        def mrCount = (mrProps.MR_COUNT ?: '0').toInteger()
+                        def currentMrSignature = mrProps.MR_SIGNATURE ?: 'none'
+                        def previousMrSignature = sh(
+                            script: "cat '${markerPath}' 2>/dev/null || true",
+                            returnStdout: true
+                        ).trim()
+
+                        if (timerTriggered && (mrCount == 0 || previousMrSignature == currentMrSignature)) {
+                            shouldRunTests = false
+                            currentBuild.result = 'NOT_BUILT'
+                            echo "kernel_driver merge requests have no new event. Skip NVMe RAID smoke tests."
+                        }
+
+                        if (!shouldRunTests) {
+                            return
+                        }
+
+                        kernelDriverRef = mrProps.MR_SOURCE_BRANCH ?: env.KERNEL_DRIVER_BRANCH
+                        kernelDriverMrIid = mrProps.MR_IID ?: ''
+                        kernelDriverMrTitle = mrProps.MR_TITLE ?: ''
+                        kernelDriverMrUpdatedAt = mrProps.MR_UPDATED_AT ?: ''
+                        kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
+
+                        if (kernelDriverMrIid) {
+                            echo "kernel_driver MR !${kernelDriverMrIid} updated at ${kernelDriverMrUpdatedAt}: ${kernelDriverMrTitle}"
+                        } else {
+                            echo "No open kernel_driver merge request found. Fall back to ${env.KERNEL_DRIVER_BRANCH}."
+                        }
+
                         checkout scm: [
                             $class: 'GitSCM',
-                            branches: [[name: "*/${env.KERNEL_DRIVER_BRANCH}"]],
+                            branches: [[name: "*/${kernelDriverRef}"]],
                             userRemoteConfigs: [[
                                 url: env.KERNEL_DRIVER_REPO,
                                 credentialsId: env.KERNEL_DRIVER_CRED
@@ -71,6 +160,11 @@ pipeline {
                             ]
                         ], poll: false, changelog: false
 
+                        def mrSha = mrProps.MR_SHA ?: ''
+                        if (mrSha ==~ /^[0-9a-f]{40}$/) {
+                            sh "git -C kernel_driver checkout --detach '${mrSha}'"
+                        }
+
                         kernelDriverFullCommit = sh(
                             script: "git -C kernel_driver rev-parse HEAD 2>/dev/null || echo unknown",
                             returnStdout: true
@@ -79,27 +173,12 @@ pipeline {
                             script: "git -C kernel_driver rev-parse --short HEAD 2>/dev/null || echo unknown",
                             returnStdout: true
                         ).trim()
-                        echo "kernel_driver(${env.KERNEL_DRIVER_BRANCH}) commit: ${kernelDriverCommit}"
+                        echo "kernel_driver(${kernelDriverRef}) commit: ${kernelDriverCommit}"
 
-                        def timerTriggered = currentBuild.getBuildCauses('hudson.triggers.TimerTrigger$TimerTriggerCause').size() > 0
-                        def markerName = "${env.JOB_NAME}_${env.KERNEL_DRIVER_BRANCH}".replaceAll('[^A-Za-z0-9_.-]', '_')
-                        def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
-                        def markerPath = "${jenkinsHome}/.raid_nvme/${markerName}.kernel_driver_commit"
-                        def previousKernelDriverCommit = sh(
-                            script: "cat '${markerPath}' 2>/dev/null || true",
-                            returnStdout: true
-                        ).trim()
-
-                        if (timerTriggered && previousKernelDriverCommit == kernelDriverFullCommit) {
-                            shouldRunTests = false
-                            currentBuild.result = 'NOT_BUILT'
-                            echo "kernel_driver has no new commit since last triggered run (${kernelDriverCommit}). Skip NVMe RAID smoke tests."
-                        }
-
-                        if (shouldRunTests && kernelDriverFullCommit != 'unknown') {
+                        if (currentMrSignature != 'none') {
                             sh """
                             mkdir -p '${jenkinsHome}/.raid_nvme'
-                            printf '%s\\n' '${kernelDriverFullCommit}' > '${markerPath}'
+                            printf '%s\\n' '${currentMrSignature}' > '${markerPath}'
                             """
                         }
                     }
@@ -107,7 +186,7 @@ pipeline {
 
                 script {
                     if (!shouldRunTests && !params.RESTORE) {
-                        echo 'Skip target node loading because this SCM build has no kernel_driver changes.'
+                        echo 'Skip target node loading because kernel_driver merge requests have no new event.'
                         return
                     }
 
@@ -132,7 +211,10 @@ pipeline {
             steps {
                 script {
                     echo "kernel_driver commit for this run: ${kernelDriverCommit ?: 'unknown'}"
-                    echo 'This stage is still a placeholder. kernel_driver is only polled and its commit is displayed.'
+                    if (kernelDriverMrIid) {
+                        echo "kernel_driver MR for this run: !${kernelDriverMrIid} ${kernelDriverMrUrl}"
+                    }
+                    echo 'This stage is still a placeholder. kernel_driver is only checked out and its commit is displayed.'
                 }
             }
         }
@@ -279,7 +361,7 @@ ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
                 }
 
                 if (!shouldRunTests) {
-                    echo 'No kernel_driver change detected. Nothing to report.'
+                    echo 'No kernel_driver merge request event detected. Nothing to report.'
                     return
                 }
 
@@ -336,51 +418,67 @@ EOF
                 def statusColor = (failed + errors == 0 && total > 0) ? 'blue' : 'red'
                 def fontColor = statusColor == 'blue' ? 'green' : 'red'
                 def ipListStr = targetIPs.join(', ')
-
-                def payload = """
-                {
-                  "msg_type": "interactive",
-                  "card": {
-                    "config": { "wide_screen_mode": true },
-                    "header": {
-                      "title": { "tag": "plain_text", "content": "NVMe_RAID(F6501) Test Report" },
-                      "template": "${statusColor}"
-                    },
-                    "elements": [
-                      {
-                        "tag": "div",
-                        "fields": [
-                          { "is_short": true, "text": { "tag": "lark_md", "content": "**用户名:** dapustor" } },
-                          { "is_short": true, "text": { "tag": "lark_md", "content": "**密码:** Admin@9000" } },
-                          { "is_short": false, "text": { "tag": "lark_md", "content": "**时间周期:**\\n${startStr} ~ ${endStr}" } },
-                          { "is_short": false, "text": { "tag": "lark_md", "content": "**并发节点:**\\n${ipListStr}" } },
-                          { "is_short": false, "text": { "tag": "lark_md", "content": "**被测驱动(kernel_driver):**\\n${kernelDriverCommit ?: 'unknown'}" } }
-                        ]
-                      },
-                      {
-                        "tag": "div",
-                        "text": {
-                          "tag": "lark_md",
-                          "content": "通过 **${passed}**  失败 **${failed}**  错误 **${errors}**  Total: **${total}**\\n执行率: ${execRate}   通过率: <font color=\\"${fontColor}\\">${passRate}</font>"
-                        }
-                      },
-                      {
-                        "tag": "action",
-                        "actions": [
-                          {
-                            "tag": "button",
-                            "text": { "tag": "plain_text", "content": "查看详情" },
-                            "url": "${env.BUILD_URL}allure/",
-                            "type": "primary"
-                          }
-                        ]
-                      }
-                    ]
-                  }
+                def driverLines = []
+                if (kernelDriverMrIid) {
+                    driverLines << "MR: !${kernelDriverMrIid} ${kernelDriverMrTitle ?: ''}".trim()
+                    driverLines << "Source: ${kernelDriverRef ?: 'unknown'}"
+                    driverLines << "Updated: ${kernelDriverMrUpdatedAt ?: 'unknown'}"
+                } else {
+                    driverLines << "Branch: ${kernelDriverRef ?: env.KERNEL_DRIVER_BRANCH}"
                 }
-                """
+                driverLines << "Commit: ${kernelDriverCommit ?: 'unknown'}"
 
-                writeFile file: 'feishu_payload.json', text: payload
+                def actions = [[
+                    tag: 'button',
+                    text: [tag: 'plain_text', content: '查看报告'],
+                    url: "${env.BUILD_URL}allure/",
+                    type: 'primary'
+                ]]
+                if (kernelDriverMrUrl) {
+                    actions << [
+                        tag: 'button',
+                        text: [tag: 'plain_text', content: '查看 MR'],
+                        url: kernelDriverMrUrl,
+                        type: 'default'
+                    ]
+                }
+
+                def payload = [
+                    msg_type: 'interactive',
+                    card: [
+                        config: [wide_screen_mode: true],
+                        header: [
+                            title: [tag: 'plain_text', content: 'NVMe_RAID(F6501) Test Report'],
+                            template: statusColor
+                        ],
+                        elements: [
+                            [
+                                tag: 'div',
+                                fields: [
+                                    [is_short: true, text: [tag: 'lark_md', content: "**用户名:** dapustor"]],
+                                    [is_short: true, text: [tag: 'lark_md', content: "**密码:** Admin@9000"]],
+                                    [is_short: false, text: [tag: 'lark_md', content: "**触发来源:**\nkernel_driver Merge Request"]],
+                                    [is_short: false, text: [tag: 'lark_md', content: "**被测驱动:**\n${driverLines.join('\n')}"]],
+                                    [is_short: false, text: [tag: 'lark_md', content: "**时间周期:**\n${startStr} ~ ${endStr}"]],
+                                    [is_short: false, text: [tag: 'lark_md', content: "**并发节点:**\n${ipListStr}"]]
+                                ]
+                            ],
+                            [
+                                tag: 'div',
+                                text: [
+                                    tag: 'lark_md',
+                                    content: "通过 **${passed}**  失败 **${failed}**  错误 **${errors}**  Total: **${total}**\n执行率: ${execRate}   通过率: <font color=\"${fontColor}\">${passRate}</font>"
+                                ]
+                            ],
+                            [
+                                tag: 'action',
+                                actions: actions
+                            ]
+                        ]
+                    ]
+                ]
+
+                writeFile file: 'feishu_payload.json', text: groovy.json.JsonOutput.toJson(payload)
                 sh "curl -s -X POST -H 'Content-Type: application/json' -d @feishu_payload.json ${env.FEISHU_WEBHOOK}"
             }
         }
