@@ -117,6 +117,8 @@ source branch，并固定到该 MR 当前 `sha`。
 RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试框架推代码**不会**
 误触发破坏性测试。没有打开中的 MR，或 MR 状态相对上次记录没有变化时，本次构建会跳过，
 即使 Jenkins 是由测试框架仓库变更触发也不会运行测试。
+当前策略仍依赖 Jenkins 定时构建来轮询 MR，因此 Jenkins 页面上会看到定时构建记录；
+这些构建只有在 MR signature 变化时才会进入测试和飞书报告流程。
 
 > 需要在 Jenkins 中预先完成一次性配置：
 > 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，
@@ -125,7 +127,8 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 > 2. **添加 GitLab API Token 凭据**：Manage Jenkins → Credentials → 新增 *Secret text*，
 >    凭据 ID 填 `kernel_driver_gitlab_token`（与 `Jenkinsfile` 的
 >    `KERNEL_DRIVER_GITLAB_TOKEN_CRED` 一致）。Token 只需要能读取
->    `raid_max/kernel_driver` 的 Merge Request API。
+>    `raid_max/kernel_driver` 的 Merge Request API。缺少该凭据时，MR 检查无法执行，
+>    构建会失败，但不会进入测试和飞书报告流程。
 > 3. **信任 Git 主机指纹**：Manage Jenkins → Security → Git Host Key Verification 配置为
 >    “Accept first connection” 或把 `192.168.21.185` 加入 known_hosts，否则首次克隆会因主机校验失败。
 > 4. 构建方式确定前，`构建与安装 kernel_driver` 为占位阶段（只打印 TODO，不做实际编译）。

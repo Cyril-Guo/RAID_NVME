@@ -6,7 +6,7 @@ def kernelDriverMrIid = ''
 def kernelDriverMrTitle = ''
 def kernelDriverMrUpdatedAt = ''
 def kernelDriverMrUrl = ''
-def shouldRunTests = true
+def shouldRunTests = false
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
     sh """
@@ -128,11 +128,10 @@ PY
                             shouldRunTests = false
                             currentBuild.result = 'NOT_BUILT'
                             echo "kernel_driver merge requests have no new event. Skip NVMe RAID smoke tests."
-                        }
-
-                        if (!shouldRunTests) {
                             return
                         }
+
+                        shouldRunTests = true
 
                         kernelDriverRef = mrProps.MR_SOURCE_BRANCH ?: env.KERNEL_DRIVER_BRANCH
                         kernelDriverMrIid = mrProps.MR_IID ?: ''
