@@ -115,7 +115,8 @@ MONITOR_RUNTIME =
 source branch，并固定到该 MR 当前 `sha`。
 
 RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试框架推代码**不会**
-误触发破坏性测试。没有打开中的 MR，或 MR 状态相对上次轮询没有变化时，定时构建会跳过。
+误触发破坏性测试。没有打开中的 MR，或 MR 状态相对上次记录没有变化时，本次构建会跳过，
+即使 Jenkins 是由测试框架仓库变更触发也不会运行测试。
 
 > 需要在 Jenkins 中预先完成一次性配置：
 > 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，

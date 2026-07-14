@@ -66,7 +66,6 @@ pipeline {
 
                 script {
                     if (!params.RESTORE) {
-                        def timerTriggered = currentBuild.getBuildCauses('hudson.triggers.TimerTrigger$TimerTriggerCause').size() > 0
                         def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
                         def markerName = "${env.JOB_NAME}_kernel_driver_open_mrs".replaceAll('[^A-Za-z0-9_.-]', '_')
                         def markerPath = "${jenkinsHome}/.raid_nvme/${markerName}.signature"
@@ -125,7 +124,7 @@ PY
                             returnStdout: true
                         ).trim()
 
-                        if (timerTriggered && (mrCount == 0 || previousMrSignature == currentMrSignature)) {
+                        if (mrCount == 0 || previousMrSignature == currentMrSignature) {
                             shouldRunTests = false
                             currentBuild.result = 'NOT_BUILT'
                             echo "kernel_driver merge requests have no new event. Skip NVMe RAID smoke tests."
