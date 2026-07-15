@@ -9,6 +9,22 @@ def kernelDriverMrUrl = ''
 def shouldRunTests = false
 def cleanupOnly = false
 
+def cleanupNotBuiltBuilds() {
+    int deletedBuilds = 0
+    def build = currentBuild.rawBuild.getParent().getFirstBuild()
+    while (build != null) {
+        def nextBuild = build.getNextBuild()
+        if (build.number != currentBuild.number && build.getResult()?.toString() == 'NOT_BUILT') {
+            echo "Delete NOT_BUILT build #${build.number}"
+            build.delete()
+            deletedBuilds++
+        }
+        build = nextBuild
+    }
+    currentBuild.description = "Deleted ${deletedBuilds} NOT_BUILT builds"
+    echo "NOT_BUILT cleanup finished. Deleted ${deletedBuilds} builds."
+}
+
 def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
     sh """
     tar \
@@ -46,6 +62,11 @@ H 0 * * *
             defaultValue: false,
             description: 'Only stop and clean up running test processes on target nodes. Do not run tests in this build.'
         )
+        booleanParam(
+            name: 'CLEAN_NOT_BUILT',
+            defaultValue: false,
+            description: 'Delete historical NOT_BUILT builds for this Jenkins job. Do not run tests in this build.'
+        )
     }
 
     environment {
@@ -81,20 +102,9 @@ H 0 * * *
                     ).trim()
                     cleanupOnly = timerTriggered && currentHour == 0 && lastCleanupDate != cleanupDate
 
-                    if (cleanupOnly) {
-                        int deletedBuilds = 0
-                        def build = currentBuild.rawBuild.getParent().getFirstBuild()
-                        while (build != null) {
-                            def nextBuild = build.getNextBuild()
-                            if (build.number != currentBuild.number && build.getResult()?.toString() == 'NOT_BUILT') {
-                                echo "Delete NOT_BUILT build #${build.number}"
-                                build.delete()
-                                deletedBuilds++
-                            }
-                            build = nextBuild
-                        }
-                        currentBuild.description = "Deleted ${deletedBuilds} NOT_BUILT builds"
-                        echo "Daily cleanup finished. Deleted ${deletedBuilds} NOT_BUILT builds."
+                    if (params.CLEAN_NOT_BUILT || cleanupOnly) {
+                        cleanupOnly = true
+                        cleanupNotBuiltBuilds()
                         sh """
                         mkdir -p '${jenkinsHome}/.raid_nvme'
                         printf '%s\\n' '${cleanupDate}' > '${cleanupMarkerPath}'
@@ -407,7 +417,7 @@ ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
         always {
             script {
                 if (cleanupOnly) {
-                    echo 'Daily NOT_BUILT cleanup finished. Nothing to report.'
+                    echo 'NOT_BUILT cleanup finished. Nothing to report.'
                     return
                 }
 
