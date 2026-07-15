@@ -50,10 +50,7 @@ pipeline {
     }
 
     triggers {
-        cron('''
-* * * * *
-H 0 * * *
-''')
+        cron('* * * * *')
     }
 
     parameters {
@@ -90,25 +87,11 @@ H 0 * * *
                 checkout scm: scm, poll: false, changelog: false
 
                 script {
-                    def timerTriggered = currentBuild.getBuildCauses('hudson.triggers.TimerTrigger$TimerTriggerCause').size() > 0
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
-                    def currentHour = new Date(currentBuild.startTimeInMillis).format('H').toInteger()
-                    def cleanupDate = new Date(currentBuild.startTimeInMillis).format('yyyy-MM-dd')
-                    def cleanupMarkerName = "${env.JOB_NAME}_not_built_cleanup".replaceAll('[^A-Za-z0-9_.-]', '_')
-                    def cleanupMarkerPath = "${jenkinsHome}/.raid_nvme/${cleanupMarkerName}.date"
-                    def lastCleanupDate = sh(
-                        script: "cat '${cleanupMarkerPath}' 2>/dev/null || true",
-                        returnStdout: true
-                    ).trim()
-                    cleanupOnly = timerTriggered && currentHour == 0 && lastCleanupDate != cleanupDate
 
-                    if (params.CLEAN_NOT_BUILT || cleanupOnly) {
+                    if (params.CLEAN_NOT_BUILT) {
                         cleanupOnly = true
                         cleanupNotBuiltBuilds()
-                        sh """
-                        mkdir -p '${jenkinsHome}/.raid_nvme'
-                        printf '%s\\n' '${cleanupDate}' > '${cleanupMarkerPath}'
-                        """
                         return
                     }
 
