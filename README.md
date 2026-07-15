@@ -109,8 +109,6 @@ MONITOR_RUNTIME =
 - 勾选 **`RESTORE`** 后构建：本次不执行测试，仅对 `target_ips.txt` 中所有节点
   **立即停止**正在运行的测试（含后台 FIO / 监控进程），并恢复系统环境
   （还原自动登录、开机自启等配置）。用于随时中止测试。
-- 勾选 **`CLEAN_NOT_BUILT`** 后构建：本次不执行测试，仅删除该 Jenkins 任务历史中的
-  `NOT_BUILT` 构建记录，用于手动清理 1 分钟轮询产生的跳过记录。
 
 **自动触发（kernel_driver 打开中 MR 变化 1 分钟轮询）**：`Jenkinsfile` 每 1 分钟通过
 GitLab API 检查 `kernel_driver` 的打开中 Merge Request。只要打开中的 MR 有新增、
@@ -121,11 +119,6 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 误触发破坏性测试。没有打开中的 MR 变化时，本次构建会标记为 `NOT_BUILT`，不会进入测试和飞书报告流程。
 如果一个 MR 在两次轮询之间完成创建并合并或关闭，Jenkins 查询打开中 MR 时可能看不到它；
 只要 MR 保持打开状态超过一次 1 分钟轮询窗口，就能被监控到并触发。
-
-**手动清理**：勾选 `CLEAN_NOT_BUILT` 后构建会删除该 Jenkins 任务历史中的
-`NOT_BUILT` 构建记录，不执行 MR 检查、测试或飞书报告。该清理逻辑使用 Jenkins
-Pipeline 脚本访问构建历史并删除构建，首次运行时可能需要管理员在 Jenkins Script
-Approval 中批准相关方法。
 
 > 需要在 Jenkins 中预先完成一次性配置：
 > 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，

@@ -7,23 +7,6 @@ def kernelDriverMrTitle = ''
 def kernelDriverMrUpdatedAt = ''
 def kernelDriverMrUrl = ''
 def shouldRunTests = false
-def cleanupOnly = false
-
-def cleanupNotBuiltBuilds() {
-    int deletedBuilds = 0
-    def build = currentBuild.rawBuild.getParent().getFirstBuild()
-    while (build != null) {
-        def nextBuild = build.getNextBuild()
-        if (build.number != currentBuild.number && build.getResult()?.toString() == 'NOT_BUILT') {
-            echo "Delete NOT_BUILT build #${build.number}"
-            build.delete()
-            deletedBuilds++
-        }
-        build = nextBuild
-    }
-    currentBuild.description = "Deleted ${deletedBuilds} NOT_BUILT builds"
-    echo "NOT_BUILT cleanup finished. Deleted ${deletedBuilds} builds."
-}
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
     sh """
@@ -59,11 +42,6 @@ pipeline {
             defaultValue: false,
             description: 'Only stop and clean up running test processes on target nodes. Do not run tests in this build.'
         )
-        booleanParam(
-            name: 'CLEAN_NOT_BUILT',
-            defaultValue: false,
-            description: 'Delete historical NOT_BUILT builds for this Jenkins job. Do not run tests in this build.'
-        )
     }
 
     environment {
@@ -88,12 +66,6 @@ pipeline {
 
                 script {
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
-
-                    if (params.CLEAN_NOT_BUILT) {
-                        cleanupOnly = true
-                        cleanupNotBuiltBuilds()
-                        return
-                    }
 
                     if (!params.RESTORE) {
                         def manuallyTriggered = currentBuild.getBuildCauses('hudson.model.Cause$UserIdCause').size() > 0
@@ -224,11 +196,6 @@ PY
                 }
 
                 script {
-                    if (cleanupOnly) {
-                        echo 'Skip target node loading after daily NOT_BUILT cleanup.'
-                        return
-                    }
-
                     if (!shouldRunTests && !params.RESTORE) {
                         echo 'Skip target node loading because kernel_driver merge requests have no new event.'
                         return
@@ -399,11 +366,6 @@ ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
     post {
         always {
             script {
-                if (cleanupOnly) {
-                    echo 'NOT_BUILT cleanup finished. Nothing to report.'
-                    return
-                }
-
                 if (params.RESTORE) {
                     echo 'Restore-only build finished.'
                     return
