@@ -109,29 +109,26 @@ MONITOR_RUNTIME =
   **立即停止**正在运行的测试（含后台 FIO / 监控进程），并恢复系统环境
   （还原自动登录、开机自启等配置）。用于随时中止测试。
 
-**自动触发（kernel_driver MR 事件实时触发）**：`Jenkinsfile` 通过 Jenkins
-Generic Webhook Trigger 接收 GitLab Webhook。`kernel_driver` 的 Merge Request
-发生 open / update / reopen / merge 等事件时，GitLab 会立即触发 Jenkins。
-打开中的 MR 会 checkout source branch，并固定到 MR 事件中的 last commit；已合并 MR
-会 checkout target branch，并优先固定到 merge commit。
+**自动触发（kernel_driver MR 变化 1 分钟轮询）**：`Jenkinsfile` 每 1 分钟通过
+GitLab API 检查 `kernel_driver` 的 Merge Request 列表（包含打开、已合并、已关闭）。
+只要任一 MR 的状态、更新时间、头部提交或 merge commit 发生变化，即自动运行冒烟测试。
+打开中的 MR 会 checkout source branch，并固定到 MR 当前 `sha`；已合并 MR 会 checkout
+target branch，并优先固定到 merge commit。已关闭 MR 会记录该变化但不运行破坏性测试。
 
 RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试框架推代码**不会**
-误触发破坏性测试。该策略不再依赖 Jenkins 定时轮询，因此没有 MR Webhook 事件时不会产生
-`Started by timer` 的构建记录。
+误触发破坏性测试。没有 MR 变化时，本次构建会标记为 `NOT_BUILT`，不会进入测试和飞书报告流程。
 
 > 需要在 Jenkins 中预先完成一次性配置：
 > 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，
 >    凭据 ID 填 `kernel_driver_ssh`（与 `Jenkinsfile` 的 `KERNEL_DRIVER_CRED` 一致），
 >    私钥需对 `192.168.21.185` 的 `raid_max/kernel_driver` 有读取权限。
-> 2. **安装 Jenkins 插件**：Manage Jenkins → Plugins → 安装
->    `Generic Webhook Trigger`。
-> 3. **配置 GitLab Webhook**：在 `kernel_driver` 项目中进入 Settings → Webhooks，
->    URL 填 Jenkins Generic Webhook 地址：
->    `http://<jenkins-host>/generic-webhook-trigger/invoke?token=kernel-driver-mr-webhook`。
->    勾选 **Merge request events**；如果希望 MR 评论也触发，再勾选 **Comments**。
-> 4. **信任 Git 主机指纹**：Manage Jenkins → Security → Git Host Key Verification 配置为
+> 2. **添加 GitLab API Token 凭据**：Manage Jenkins → Credentials → 新增 *Secret text*，
+>    凭据 ID 填 `kernel_driver_gitlab_token`（与 `Jenkinsfile` 的
+>    `KERNEL_DRIVER_GITLAB_TOKEN_CRED` 一致）。Token 只需要能读取
+>    `raid_max/kernel_driver` 的 Merge Request API。
+> 3. **信任 Git 主机指纹**：Manage Jenkins → Security → Git Host Key Verification 配置为
 >    “Accept first connection” 或把 `192.168.21.185` 加入 known_hosts，否则首次克隆会因主机校验失败。
-> 5. 构建方式确定前，`构建与安装 kernel_driver` 为占位阶段（只打印 TODO，不做实际编译）。
+> 4. 构建方式确定前，`构建与安装 kernel_driver` 为占位阶段（只打印 TODO，不做实际编译）。
 >    后续补充：把 `kernel_driver` 源码部署到各节点 → 编译 → 安装/加载驱动，再跑 FIO 冒烟。
 
 ### 4. 查看结果

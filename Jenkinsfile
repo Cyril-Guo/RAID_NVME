@@ -33,36 +33,7 @@ pipeline {
     }
 
     triggers {
-        GenericTrigger(
-            genericVariables: [
-                [key: 'GITLAB_OBJECT_KIND', value: '$.object_kind'],
-                [key: 'GITLAB_NOTEABLE_TYPE', value: '$.object_attributes.noteable_type'],
-                [key: 'GITLAB_MR_ACTION', value: '$.object_attributes.action'],
-                [key: 'GITLAB_MR_STATE', value: '$.object_attributes.state'],
-                [key: 'GITLAB_MR_IID', value: '$.object_attributes.iid'],
-                [key: 'GITLAB_MR_TITLE', value: '$.object_attributes.title'],
-                [key: 'GITLAB_SOURCE_BRANCH', value: '$.object_attributes.source_branch'],
-                [key: 'GITLAB_TARGET_BRANCH', value: '$.object_attributes.target_branch'],
-                [key: 'GITLAB_LAST_COMMIT', value: '$.object_attributes.last_commit.id'],
-                [key: 'GITLAB_MERGE_COMMIT', value: '$.object_attributes.merge_commit_sha'],
-                [key: 'GITLAB_MR_UPDATED_AT', value: '$.object_attributes.updated_at'],
-                [key: 'GITLAB_MR_URL', value: '$.object_attributes.url'],
-                [key: 'GITLAB_NOTE_MR_IID', value: '$.merge_request.iid'],
-                [key: 'GITLAB_NOTE_MR_TITLE', value: '$.merge_request.title'],
-                [key: 'GITLAB_NOTE_SOURCE_BRANCH', value: '$.merge_request.source_branch'],
-                [key: 'GITLAB_NOTE_TARGET_BRANCH', value: '$.merge_request.target_branch'],
-                [key: 'GITLAB_NOTE_LAST_COMMIT', value: '$.merge_request.last_commit.id'],
-                [key: 'GITLAB_NOTE_MR_STATE', value: '$.merge_request.state'],
-                [key: 'GITLAB_NOTE_MR_UPDATED_AT', value: '$.merge_request.updated_at'],
-                [key: 'GITLAB_NOTE_MR_URL', value: '$.merge_request.url']
-            ],
-            causeString: 'GitLab MR event: $GITLAB_OBJECT_KIND !$GITLAB_MR_IID$GITLAB_NOTE_MR_IID',
-            token: 'kernel-driver-mr-webhook',
-            printContributedVariables: true,
-            printPostContent: false,
-            regexpFilterText: '$GITLAB_OBJECT_KIND:$GITLAB_NOTEABLE_TYPE',
-            regexpFilterExpression: '^(merge_request:.*|note:MergeRequest)$'
-        )
+        cron('* * * * *')
     }
 
     parameters {
@@ -81,6 +52,9 @@ pipeline {
         KERNEL_DRIVER_REPO = 'git@192.168.21.185:raid_max/kernel_driver.git'
         KERNEL_DRIVER_BRANCH = 'main'
         KERNEL_DRIVER_CRED = 'kernel_driver_ssh'
+        KERNEL_DRIVER_GITLAB_API = 'http://192.168.21.185:8081/api/v4'
+        KERNEL_DRIVER_GITLAB_PROJECT = 'raid_max%2Fkernel_driver'
+        KERNEL_DRIVER_GITLAB_TOKEN_CRED = 'kernel_driver_gitlab_token'
     }
 
     stages {
@@ -92,38 +66,97 @@ pipeline {
 
                 script {
                     if (!params.RESTORE) {
-                        def objectKind = env.GITLAB_OBJECT_KIND ?: ''
-                        def noteableType = env.GITLAB_NOTEABLE_TYPE ?: ''
-                        def isMergeRequestEvent = objectKind == 'merge_request'
-                        def isMergeRequestNoteEvent = objectKind == 'note' && noteableType == 'MergeRequest'
+                        def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
+                        def markerName = "${env.JOB_NAME}_kernel_driver_mrs".replaceAll('[^A-Za-z0-9_.-]', '_')
+                        def markerPath = "${jenkinsHome}/.raid_nvme/${markerName}.signature"
+                        def mrProps = [:]
 
-                        if (!isMergeRequestEvent && !isMergeRequestNoteEvent) {
+                        withCredentials([string(credentialsId: env.KERNEL_DRIVER_GITLAB_TOKEN_CRED, variable: 'GITLAB_TOKEN')]) {
+                            sh '''
+                            set -eu
+                            curl -fsS \
+                              --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+                              "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests?state=all&order_by=updated_at&sort=desc&per_page=100" \
+                              -o kernel_driver_mrs.json
+
+                            python3 - <<'PY' > kernel_driver_mr.properties
+import json
+
+with open('kernel_driver_mrs.json', encoding='utf-8') as fh:
+    merge_requests = json.load(fh)
+
+def prop_value(value):
+    return str(value or '').replace('\\n', ' ').replace('\\r', ' ')
+
+if not merge_requests:
+    print('MR_COUNT=0')
+    print('MR_SIGNATURE=none')
+else:
+    signature_parts = [
+        f"{mr.get('iid')}:{mr.get('state')}:{mr.get('updated_at')}:{mr.get('sha')}:{mr.get('merge_commit_sha')}"
+        for mr in sorted(merge_requests, key=lambda item: item.get('iid') or 0)
+    ]
+    latest = merge_requests[0]
+    print(f"MR_COUNT={len(merge_requests)}")
+    print(f"MR_SIGNATURE={prop_value('|'.join(signature_parts))}")
+    print(f"MR_IID={prop_value(latest.get('iid'))}")
+    print(f"MR_TITLE={prop_value(latest.get('title'))}")
+    print(f"MR_STATE={prop_value(latest.get('state'))}")
+    print(f"MR_SOURCE_BRANCH={prop_value(latest.get('source_branch'))}")
+    print(f"MR_TARGET_BRANCH={prop_value(latest.get('target_branch'))}")
+    print(f"MR_SHA={prop_value(latest.get('sha'))}")
+    print(f"MR_MERGE_COMMIT={prop_value(latest.get('merge_commit_sha'))}")
+    print(f"MR_UPDATED_AT={prop_value(latest.get('updated_at'))}")
+    print(f"MR_WEB_URL={prop_value(latest.get('web_url'))}")
+PY
+                            '''
+                        }
+
+                        readFile('kernel_driver_mr.properties').split('\\r?\\n').each { line ->
+                            if (line.contains('=')) {
+                                def parts = line.split('=', 2)
+                                mrProps[parts[0]] = parts[1]
+                            }
+                        }
+
+                        def mrCount = (mrProps.MR_COUNT ?: '0').toInteger()
+                        def currentMrSignature = mrProps.MR_SIGNATURE ?: 'none'
+                        def previousMrSignature = sh(
+                            script: "cat '${markerPath}' 2>/dev/null || true",
+                            returnStdout: true
+                        ).trim()
+
+                        if (mrCount == 0 || previousMrSignature == currentMrSignature) {
                             currentBuild.result = 'NOT_BUILT'
-                            echo "Skip non-MR GitLab webhook event: ${objectKind ?: 'unknown'}"
+                            echo "kernel_driver merge requests have no new event. Skip NVMe RAID smoke tests."
                             return
                         }
 
-                        def mrAction = env.GITLAB_MR_ACTION ?: objectKind
-                        def mrState = env.GITLAB_MR_STATE ?: env.GITLAB_NOTE_MR_STATE ?: ''
-                        def sourceBranch = env.GITLAB_SOURCE_BRANCH ?: env.GITLAB_NOTE_SOURCE_BRANCH ?: ''
-                        def targetBranch = env.GITLAB_TARGET_BRANCH ?: env.GITLAB_NOTE_TARGET_BRANCH ?: env.KERNEL_DRIVER_BRANCH
-                        def lastCommit = env.GITLAB_LAST_COMMIT ?: env.GITLAB_NOTE_LAST_COMMIT ?: ''
-                        def mergeCommit = env.GITLAB_MERGE_COMMIT ?: ''
-                        def checkoutMergedTarget = mrAction == 'merge' || mrState == 'merged'
+                        def mrState = mrProps.MR_STATE ?: ''
+                        def checkoutMergedTarget = mrState == 'merged'
+
+                        kernelDriverRef = checkoutMergedTarget ? (mrProps.MR_TARGET_BRANCH ?: env.KERNEL_DRIVER_BRANCH) : (mrProps.MR_SOURCE_BRANCH ?: env.KERNEL_DRIVER_BRANCH)
+                        kernelDriverMrIid = mrProps.MR_IID ?: ''
+                        kernelDriverMrTitle = mrProps.MR_TITLE ?: ''
+                        kernelDriverMrUpdatedAt = mrProps.MR_UPDATED_AT ?: ''
+                        kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
+
+                        if (mrState == 'closed') {
+                            currentBuild.result = 'NOT_BUILT'
+                            echo "kernel_driver MR !${kernelDriverMrIid} is closed. Record event and skip smoke tests."
+                            sh """
+                            mkdir -p '${jenkinsHome}/.raid_nvme'
+                            printf '%s\\n' '${currentMrSignature}' > '${markerPath}'
+                            """
+                            return
+                        }
 
                         shouldRunTests = true
 
-                        kernelDriverRef = checkoutMergedTarget ? targetBranch : sourceBranch
-                        kernelDriverRef = kernelDriverRef ?: env.KERNEL_DRIVER_BRANCH
-                        kernelDriverMrIid = env.GITLAB_MR_IID ?: env.GITLAB_NOTE_MR_IID ?: ''
-                        kernelDriverMrTitle = env.GITLAB_MR_TITLE ?: env.GITLAB_NOTE_MR_TITLE ?: ''
-                        kernelDriverMrUpdatedAt = env.GITLAB_MR_UPDATED_AT ?: env.GITLAB_NOTE_MR_UPDATED_AT ?: ''
-                        kernelDriverMrUrl = env.GITLAB_MR_URL ?: env.GITLAB_NOTE_MR_URL ?: ''
-
                         if (kernelDriverMrIid) {
-                            echo "kernel_driver MR !${kernelDriverMrIid} ${mrAction} at ${kernelDriverMrUpdatedAt}: ${kernelDriverMrTitle}"
+                            echo "kernel_driver MR !${kernelDriverMrIid} ${mrState} at ${kernelDriverMrUpdatedAt}: ${kernelDriverMrTitle}"
                         } else {
-                            echo "GitLab MR webhook has no MR IID. Fall back to ${kernelDriverRef}."
+                            echo "GitLab MR polling has no MR IID. Fall back to ${kernelDriverRef}."
                         }
 
                         checkout scm: [
@@ -135,11 +168,11 @@ pipeline {
                             ]],
                             extensions: [
                                 [$class: 'RelativeTargetDirectory', relativeTargetDir: 'kernel_driver'],
-                                [$class: 'CloneOption', shallow: true, depth: 1, noTags: true, timeout: 30]
+                                [$class: 'CloneOption', shallow: true, depth: 50, noTags: true, timeout: 30]
                             ]
                         ], poll: false, changelog: false
 
-                        def mrSha = checkoutMergedTarget ? mergeCommit : lastCommit
+                        def mrSha = checkoutMergedTarget ? (mrProps.MR_MERGE_COMMIT ?: mrProps.MR_SHA ?: '') : (mrProps.MR_SHA ?: '')
                         if (mrSha ==~ /^[0-9a-f]{40}$/) {
                             sh "git -C kernel_driver checkout --detach '${mrSha}'"
                         }
