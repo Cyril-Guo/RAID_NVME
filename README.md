@@ -104,7 +104,8 @@ MONITOR_RUNTIME =
 两种触发方式：
 
 **手动触发**：在 Jenkins 界面点击 **"Build with Parameters"**：
-- 直接构建（`RESTORE` 不勾选）即按 `test_items.txt` 执行测试。
+- 直接构建（`RESTORE` 不勾选）即按 `test_items.txt` 执行测试，不受 MR 轮询去重限制；
+  被测驱动默认 checkout `kernel_driver/main`。
 - 勾选 **`RESTORE`** 后构建：本次不执行测试，仅对 `target_ips.txt` 中所有节点
   **立即停止**正在运行的测试（含后台 FIO / 监控进程），并恢复系统环境
   （还原自动登录、开机自启等配置）。用于随时中止测试。

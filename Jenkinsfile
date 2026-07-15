@@ -66,20 +66,27 @@ pipeline {
 
                 script {
                     if (!params.RESTORE) {
+                        def manuallyTriggered = currentBuild.getBuildCauses('hudson.model.Cause$UserIdCause').size() > 0
                         def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
                         def markerName = "${env.JOB_NAME}_kernel_driver_open_mrs".replaceAll('[^A-Za-z0-9_.-]', '_')
                         def markerPath = "${jenkinsHome}/.raid_nvme/${markerName}.signature"
                         def mrProps = [:]
+                        def currentMrSignature = 'none'
 
-                        withCredentials([string(credentialsId: env.KERNEL_DRIVER_GITLAB_TOKEN_CRED, variable: 'GITLAB_TOKEN')]) {
-                            sh '''
-                            set -eu
-                            curl -fsS \
-                              --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
-                              "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page=100" \
-                              -o kernel_driver_mrs.json
+                        if (manuallyTriggered) {
+                            shouldRunTests = true
+                            kernelDriverRef = env.KERNEL_DRIVER_BRANCH
+                            echo "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}."
+                        } else {
+                            withCredentials([string(credentialsId: env.KERNEL_DRIVER_GITLAB_TOKEN_CRED, variable: 'GITLAB_TOKEN')]) {
+                                sh '''
+                                set -eu
+                                curl -fsS \
+                                  --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
+                                  "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page=100" \
+                                  -o kernel_driver_mrs.json
 
-                            python3 - <<'PY' > kernel_driver_mr.properties
+                                python3 - <<'PY' > kernel_driver_mr.properties
 import json
 
 with open('kernel_driver_mrs.json', encoding='utf-8') as fh:
@@ -107,46 +114,47 @@ else:
     print(f"MR_UPDATED_AT={prop_value(latest.get('updated_at'))}")
     print(f"MR_WEB_URL={prop_value(latest.get('web_url'))}")
 PY
-                            '''
-                        }
-
-                        readFile('kernel_driver_mr.properties').split('\\r?\\n').each { line ->
-                            if (line.contains('=')) {
-                                def parts = line.split('=', 2)
-                                mrProps[parts[0]] = parts[1]
+                                '''
                             }
-                        }
 
-                        def mrCount = (mrProps.MR_COUNT ?: '0').toInteger()
-                        def currentMrSignature = mrProps.MR_SIGNATURE ?: 'none'
-                        def previousMrSignature = sh(
-                            script: "cat '${markerPath}' 2>/dev/null || true",
-                            returnStdout: true
-                        ).trim()
+                            readFile('kernel_driver_mr.properties').split('\\r?\\n').each { line ->
+                                if (line.contains('=')) {
+                                    def parts = line.split('=', 2)
+                                    mrProps[parts[0]] = parts[1]
+                                }
+                            }
 
-                        def currentSignatures = currentMrSignature == 'none' ? [] : currentMrSignature.split('\\|') as List
-                        def previousSignatures = previousMrSignature ? previousMrSignature.split('\\|') as List : []
-                        def previousSignatureSet = previousSignatures as Set
-                        def hasNewOpenMrEvent = currentSignatures.any { !previousSignatureSet.contains(it) }
+                            def mrCount = (mrProps.MR_COUNT ?: '0').toInteger()
+                            currentMrSignature = mrProps.MR_SIGNATURE ?: 'none'
+                            def previousMrSignature = sh(
+                                script: "cat '${markerPath}' 2>/dev/null || true",
+                                returnStdout: true
+                            ).trim()
 
-                        if (mrCount == 0 || !hasNewOpenMrEvent) {
-                            currentBuild.result = 'NOT_BUILT'
-                            echo "kernel_driver open merge requests have no new event. Skip NVMe RAID smoke tests."
-                            return
-                        }
+                            def currentSignatures = currentMrSignature == 'none' ? [] : currentMrSignature.split('\\|') as List
+                            def previousSignatures = previousMrSignature ? previousMrSignature.split('\\|') as List : []
+                            def previousSignatureSet = previousSignatures as Set
+                            def hasNewOpenMrEvent = currentSignatures.any { !previousSignatureSet.contains(it) }
 
-                        kernelDriverRef = mrProps.MR_SOURCE_BRANCH ?: env.KERNEL_DRIVER_BRANCH
-                        kernelDriverMrIid = mrProps.MR_IID ?: ''
-                        kernelDriverMrTitle = mrProps.MR_TITLE ?: ''
-                        kernelDriverMrUpdatedAt = mrProps.MR_UPDATED_AT ?: ''
-                        kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
+                            if (mrCount == 0 || !hasNewOpenMrEvent) {
+                                currentBuild.result = 'NOT_BUILT'
+                                echo "kernel_driver open merge requests have no new event. Skip NVMe RAID smoke tests."
+                                return
+                            }
 
-                        shouldRunTests = true
+                            kernelDriverRef = mrProps.MR_SOURCE_BRANCH ?: env.KERNEL_DRIVER_BRANCH
+                            kernelDriverMrIid = mrProps.MR_IID ?: ''
+                            kernelDriverMrTitle = mrProps.MR_TITLE ?: ''
+                            kernelDriverMrUpdatedAt = mrProps.MR_UPDATED_AT ?: ''
+                            kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
 
-                        if (kernelDriverMrIid) {
-                            echo "kernel_driver open MR !${kernelDriverMrIid} updated at ${kernelDriverMrUpdatedAt}: ${kernelDriverMrTitle}"
-                        } else {
-                            echo "GitLab MR polling has no MR IID. Fall back to ${kernelDriverRef}."
+                            shouldRunTests = true
+
+                            if (kernelDriverMrIid) {
+                                echo "kernel_driver open MR !${kernelDriverMrIid} updated at ${kernelDriverMrUpdatedAt}: ${kernelDriverMrTitle}"
+                            } else {
+                                echo "GitLab MR polling has no MR IID. Fall back to ${kernelDriverRef}."
+                            }
                         }
 
                         checkout scm: [
