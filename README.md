@@ -120,6 +120,11 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 如果一个 MR 在两次轮询之间完成创建并合并或关闭，Jenkins 查询打开中 MR 时可能看不到它；
 只要 MR 保持打开状态超过一次 1 分钟轮询窗口，就能被监控到并触发。
 
+**自动清理**：每天 0 点的定时触发只执行清理逻辑，删除该 Jenkins 任务历史中的
+`NOT_BUILT` 构建记录，不执行 MR 检查、测试或飞书报告。该清理逻辑使用 Jenkins
+Pipeline 脚本访问构建历史并删除构建，首次运行时可能需要管理员在 Jenkins Script
+Approval 中批准相关方法。
+
 > 需要在 Jenkins 中预先完成一次性配置：
 > 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，
 >    凭据 ID 填 `kernel_driver_ssh`（与 `Jenkinsfile` 的 `KERNEL_DRIVER_CRED` 一致），

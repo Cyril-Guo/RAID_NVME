@@ -7,6 +7,7 @@ def kernelDriverMrTitle = ''
 def kernelDriverMrUpdatedAt = ''
 def kernelDriverMrUrl = ''
 def shouldRunTests = false
+def cleanupOnly = false
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
     sh """
@@ -33,7 +34,10 @@ pipeline {
     }
 
     triggers {
-        cron('* * * * *')
+        cron('''
+* * * * *
+H 0 * * *
+''')
     }
 
     parameters {
@@ -65,9 +69,41 @@ pipeline {
                 checkout scm: scm, poll: false, changelog: false
 
                 script {
+                    def timerTriggered = currentBuild.getBuildCauses('hudson.triggers.TimerTrigger$TimerTriggerCause').size() > 0
+                    def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
+                    def currentHour = new Date(currentBuild.startTimeInMillis).format('H').toInteger()
+                    def cleanupDate = new Date(currentBuild.startTimeInMillis).format('yyyy-MM-dd')
+                    def cleanupMarkerName = "${env.JOB_NAME}_not_built_cleanup".replaceAll('[^A-Za-z0-9_.-]', '_')
+                    def cleanupMarkerPath = "${jenkinsHome}/.raid_nvme/${cleanupMarkerName}.date"
+                    def lastCleanupDate = sh(
+                        script: "cat '${cleanupMarkerPath}' 2>/dev/null || true",
+                        returnStdout: true
+                    ).trim()
+                    cleanupOnly = timerTriggered && currentHour == 0 && lastCleanupDate != cleanupDate
+
+                    if (cleanupOnly) {
+                        int deletedBuilds = 0
+                        def build = currentBuild.rawBuild.getParent().getFirstBuild()
+                        while (build != null) {
+                            def nextBuild = build.getNextBuild()
+                            if (build.number != currentBuild.number && build.getResult()?.toString() == 'NOT_BUILT') {
+                                echo "Delete NOT_BUILT build #${build.number}"
+                                build.delete()
+                                deletedBuilds++
+                            }
+                            build = nextBuild
+                        }
+                        currentBuild.description = "Deleted ${deletedBuilds} NOT_BUILT builds"
+                        echo "Daily cleanup finished. Deleted ${deletedBuilds} NOT_BUILT builds."
+                        sh """
+                        mkdir -p '${jenkinsHome}/.raid_nvme'
+                        printf '%s\\n' '${cleanupDate}' > '${cleanupMarkerPath}'
+                        """
+                        return
+                    }
+
                     if (!params.RESTORE) {
                         def manuallyTriggered = currentBuild.getBuildCauses('hudson.model.Cause$UserIdCause').size() > 0
-                        def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
                         def markerName = "${env.JOB_NAME}_kernel_driver_open_mrs".replaceAll('[^A-Za-z0-9_.-]', '_')
                         def markerPath = "${jenkinsHome}/.raid_nvme/${markerName}.signature"
                         def mrProps = [:]
@@ -195,6 +231,11 @@ PY
                 }
 
                 script {
+                    if (cleanupOnly) {
+                        echo 'Skip target node loading after daily NOT_BUILT cleanup.'
+                        return
+                    }
+
                     if (!shouldRunTests && !params.RESTORE) {
                         echo 'Skip target node loading because kernel_driver merge requests have no new event.'
                         return
@@ -365,6 +406,11 @@ ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
     post {
         always {
             script {
+                if (cleanupOnly) {
+                    echo 'Daily NOT_BUILT cleanup finished. Nothing to report.'
+                    return
+                }
+
                 if (params.RESTORE) {
                     echo 'Restore-only build finished.'
                     return
