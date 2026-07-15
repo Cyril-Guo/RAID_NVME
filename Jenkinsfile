@@ -67,7 +67,7 @@ pipeline {
                 script {
                     if (!params.RESTORE) {
                         def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
-                        def markerName = "${env.JOB_NAME}_kernel_driver_mrs".replaceAll('[^A-Za-z0-9_.-]', '_')
+                        def markerName = "${env.JOB_NAME}_kernel_driver_open_mrs".replaceAll('[^A-Za-z0-9_.-]', '_')
                         def markerPath = "${jenkinsHome}/.raid_nvme/${markerName}.signature"
                         def mrProps = [:]
 
@@ -76,7 +76,7 @@ pipeline {
                             set -eu
                             curl -fsS \
                               --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
-                              "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests?state=all&order_by=updated_at&sort=desc&per_page=100" \
+                              "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page=100" \
                               -o kernel_driver_mrs.json
 
                             python3 - <<'PY' > kernel_driver_mr.properties
@@ -93,7 +93,7 @@ if not merge_requests:
     print('MR_SIGNATURE=none')
 else:
     signature_parts = [
-        f"{mr.get('iid')}:{mr.get('state')}:{mr.get('updated_at')}:{mr.get('sha')}:{mr.get('merge_commit_sha')}"
+        f"{mr.get('iid')}:{mr.get('updated_at')}:{mr.get('sha')}"
         for mr in sorted(merge_requests, key=lambda item: item.get('iid') or 0)
     ]
     latest = merge_requests[0]
@@ -101,11 +101,9 @@ else:
     print(f"MR_SIGNATURE={prop_value('|'.join(signature_parts))}")
     print(f"MR_IID={prop_value(latest.get('iid'))}")
     print(f"MR_TITLE={prop_value(latest.get('title'))}")
-    print(f"MR_STATE={prop_value(latest.get('state'))}")
     print(f"MR_SOURCE_BRANCH={prop_value(latest.get('source_branch'))}")
     print(f"MR_TARGET_BRANCH={prop_value(latest.get('target_branch'))}")
     print(f"MR_SHA={prop_value(latest.get('sha'))}")
-    print(f"MR_MERGE_COMMIT={prop_value(latest.get('merge_commit_sha'))}")
     print(f"MR_UPDATED_AT={prop_value(latest.get('updated_at'))}")
     print(f"MR_WEB_URL={prop_value(latest.get('web_url'))}")
 PY
@@ -126,35 +124,27 @@ PY
                             returnStdout: true
                         ).trim()
 
-                        if (mrCount == 0 || previousMrSignature == currentMrSignature) {
+                        def currentSignatures = currentMrSignature == 'none' ? [] : currentMrSignature.split('\\|') as List
+                        def previousSignatures = previousMrSignature ? previousMrSignature.split('\\|') as List : []
+                        def previousSignatureSet = previousSignatures as Set
+                        def hasNewOpenMrEvent = currentSignatures.any { !previousSignatureSet.contains(it) }
+
+                        if (mrCount == 0 || !hasNewOpenMrEvent) {
                             currentBuild.result = 'NOT_BUILT'
-                            echo "kernel_driver merge requests have no new event. Skip NVMe RAID smoke tests."
+                            echo "kernel_driver open merge requests have no new event. Skip NVMe RAID smoke tests."
                             return
                         }
 
-                        def mrState = mrProps.MR_STATE ?: ''
-                        def checkoutMergedTarget = mrState == 'merged'
-
-                        kernelDriverRef = checkoutMergedTarget ? (mrProps.MR_TARGET_BRANCH ?: env.KERNEL_DRIVER_BRANCH) : (mrProps.MR_SOURCE_BRANCH ?: env.KERNEL_DRIVER_BRANCH)
+                        kernelDriverRef = mrProps.MR_SOURCE_BRANCH ?: env.KERNEL_DRIVER_BRANCH
                         kernelDriverMrIid = mrProps.MR_IID ?: ''
                         kernelDriverMrTitle = mrProps.MR_TITLE ?: ''
                         kernelDriverMrUpdatedAt = mrProps.MR_UPDATED_AT ?: ''
                         kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
 
-                        if (mrState == 'closed') {
-                            currentBuild.result = 'NOT_BUILT'
-                            echo "kernel_driver MR !${kernelDriverMrIid} is closed. Record event and skip smoke tests."
-                            sh """
-                            mkdir -p '${jenkinsHome}/.raid_nvme'
-                            printf '%s\\n' '${currentMrSignature}' > '${markerPath}'
-                            """
-                            return
-                        }
-
                         shouldRunTests = true
 
                         if (kernelDriverMrIid) {
-                            echo "kernel_driver MR !${kernelDriverMrIid} ${mrState} at ${kernelDriverMrUpdatedAt}: ${kernelDriverMrTitle}"
+                            echo "kernel_driver open MR !${kernelDriverMrIid} updated at ${kernelDriverMrUpdatedAt}: ${kernelDriverMrTitle}"
                         } else {
                             echo "GitLab MR polling has no MR IID. Fall back to ${kernelDriverRef}."
                         }
@@ -172,7 +162,7 @@ PY
                             ]
                         ], poll: false, changelog: false
 
-                        def mrSha = checkoutMergedTarget ? (mrProps.MR_MERGE_COMMIT ?: mrProps.MR_SHA ?: '') : (mrProps.MR_SHA ?: '')
+                        def mrSha = mrProps.MR_SHA ?: ''
                         if (mrSha ==~ /^[0-9a-f]{40}$/) {
                             sh "git -C kernel_driver checkout --detach '${mrSha}'"
                         }

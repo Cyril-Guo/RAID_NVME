@@ -109,14 +109,15 @@ MONITOR_RUNTIME =
   **立即停止**正在运行的测试（含后台 FIO / 监控进程），并恢复系统环境
   （还原自动登录、开机自启等配置）。用于随时中止测试。
 
-**自动触发（kernel_driver MR 变化 1 分钟轮询）**：`Jenkinsfile` 每 1 分钟通过
-GitLab API 检查 `kernel_driver` 的 Merge Request 列表（包含打开、已合并、已关闭）。
-只要任一 MR 的状态、更新时间、头部提交或 merge commit 发生变化，即自动运行冒烟测试。
-打开中的 MR 会 checkout source branch，并固定到 MR 当前 `sha`；已合并 MR 会 checkout
-target branch，并优先固定到 merge commit。已关闭 MR 会记录该变化但不运行破坏性测试。
+**自动触发（kernel_driver 打开中 MR 变化 1 分钟轮询）**：`Jenkinsfile` 每 1 分钟通过
+GitLab API 检查 `kernel_driver` 的打开中 Merge Request。只要打开中的 MR 有新增、
+更新时间变化或头部提交变化，即自动运行冒烟测试。测试会 checkout source branch，
+并固定到 MR 当前 `sha`。
 
 RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试框架推代码**不会**
-误触发破坏性测试。没有 MR 变化时，本次构建会标记为 `NOT_BUILT`，不会进入测试和飞书报告流程。
+误触发破坏性测试。没有打开中的 MR 变化时，本次构建会标记为 `NOT_BUILT`，不会进入测试和飞书报告流程。
+如果一个 MR 在两次轮询之间完成创建并合并或关闭，Jenkins 查询打开中 MR 时可能看不到它；
+只要 MR 保持打开状态超过一次 1 分钟轮询窗口，就能被监控到并触发。
 
 > 需要在 Jenkins 中预先完成一次性配置：
 > 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，
