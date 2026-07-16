@@ -87,11 +87,76 @@ pipeline {
                         def currentMrSignature = 'none'
                         def hasNewOpenMrEvent = false
                         def hasRaidCliUpdate = false
+                        def syncRaidCli = { String reason ->
+                            echo "Check raid_cli(${env.RAID_CLI_BRANCH}) updates: ${reason}."
+                            checkout scm: [
+                                $class: 'GitSCM',
+                                branches: [[name: "*/${env.RAID_CLI_BRANCH}"]],
+                                userRemoteConfigs: [[
+                                    url: env.RAID_CLI_REPO,
+                                    credentialsId: env.RAID_CLI_CRED
+                                ]],
+                                extensions: [
+                                    [$class: 'RelativeTargetDirectory', relativeTargetDir: 'raid_cli'],
+                                    [$class: 'CloneOption', shallow: true, depth: 50, noTags: true, timeout: 30]
+                                ]
+                            ], poll: false, changelog: false
+
+                            raidCliFullCommit = sh(
+                                script: "git -C raid_cli rev-parse HEAD 2>/dev/null || echo unknown",
+                                returnStdout: true
+                            ).trim()
+                            raidCliCommit = sh(
+                                script: "git -C raid_cli rev-parse --short HEAD 2>/dev/null || echo unknown",
+                                returnStdout: true
+                            ).trim()
+
+                            def previousRaidCliCommit = sh(
+                                script: "cat '${raidCliMarkerPath}' 2>/dev/null || true",
+                                returnStdout: true
+                            ).trim()
+                            def persistentRaidCliMissing = sh(
+                                script: "test -d '${raidCliWorkDir}/.git' && test -x '${raidCliDpraidPath}'; echo \$?",
+                                returnStdout: true
+                            ).trim() != '0'
+                            def needsRaidCliUpdate = raidCliFullCommit != 'unknown' && (previousRaidCliCommit != raidCliFullCommit || persistentRaidCliMissing)
+
+                            if (needsRaidCliUpdate) {
+                                sh """
+                                set -eu
+                                mkdir -p '${jenkinsHome}/.raid_nvme'
+                                rm -rf '${raidCliWorkDir}.next'
+                                cp -a raid_cli '${raidCliWorkDir}.next'
+                                rm -rf '${raidCliWorkDir}'
+                                mv '${raidCliWorkDir}.next' '${raidCliWorkDir}'
+                                cd '${raidCliWorkDir}'
+                                chmod +x ./build.sh
+                                ./build.sh
+                                test -x ./dpraid
+                                printf '%s\\n' '${raidCliFullCommit}' > '${raidCliMarkerPath}'
+                                """
+                                currentBuild.description = "raid_cli ${raidCliCommit}"
+                                echo "raid_cli(${env.RAID_CLI_BRANCH}) updated and built on Jenkins server: ${previousRaidCliCommit ?: 'none'} -> ${raidCliFullCommit}"
+                                echo "raid_cli checkout path: ${raidCliWorkDir}"
+                                echo "dpraid artifact path: ${raidCliDpraidPath}"
+                            } else {
+                                echo "raid_cli(${env.RAID_CLI_BRANCH}) has no new commit: ${raidCliCommit}"
+                            }
+
+                            return needsRaidCliUpdate
+                        }
 
                         if (manuallyTriggered) {
                             shouldRunTests = true
                             kernelDriverRef = env.KERNEL_DRIVER_BRANCH
                             echo "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}."
+                            def raidCliBootstrapMissing = sh(
+                                script: "test -d '${raidCliWorkDir}/.git' && test -x '${raidCliDpraidPath}'; echo \$?",
+                                returnStdout: true
+                            ).trim() != '0'
+                            if (raidCliBootstrapMissing) {
+                                hasRaidCliUpdate = syncRaidCli('initial bootstrap is missing')
+                            }
                         } else {
                             def nowEpoch = sh(script: 'date +%s', returnStdout: true).trim().toLong()
                             def lastRaidCliCheck = sh(
@@ -100,62 +165,14 @@ pipeline {
                             ).trim()
                             def lastRaidCliEpoch = (lastRaidCliCheck ==~ /^[0-9]+$/) ? lastRaidCliCheck.toLong() : 0L
 
-                            if (nowEpoch - lastRaidCliEpoch >= 1800L) {
-                                echo "Check raid_cli(${env.RAID_CLI_BRANCH}) updates on 30-minute interval."
-                                checkout scm: [
-                                    $class: 'GitSCM',
-                                    branches: [[name: "*/${env.RAID_CLI_BRANCH}"]],
-                                    userRemoteConfigs: [[
-                                        url: env.RAID_CLI_REPO,
-                                        credentialsId: env.RAID_CLI_CRED
-                                    ]],
-                                    extensions: [
-                                        [$class: 'RelativeTargetDirectory', relativeTargetDir: 'raid_cli'],
-                                        [$class: 'CloneOption', shallow: true, depth: 50, noTags: true, timeout: 30]
-                                    ]
-                                ], poll: false, changelog: false
+                            def raidCliBootstrapMissing = sh(
+                                script: "test -d '${raidCliWorkDir}/.git' && test -x '${raidCliDpraidPath}'; echo \$?",
+                                returnStdout: true
+                            ).trim() != '0'
 
-                                raidCliFullCommit = sh(
-                                    script: "git -C raid_cli rev-parse HEAD 2>/dev/null || echo unknown",
-                                    returnStdout: true
-                                ).trim()
-                                raidCliCommit = sh(
-                                    script: "git -C raid_cli rev-parse --short HEAD 2>/dev/null || echo unknown",
-                                    returnStdout: true
-                                ).trim()
-
-                                def previousRaidCliCommit = sh(
-                                    script: "cat '${raidCliMarkerPath}' 2>/dev/null || true",
-                                    returnStdout: true
-                                ).trim()
-                                def persistentRaidCliMissing = sh(
-                                    script: "test -d '${raidCliWorkDir}/.git'; echo \$?",
-                                    returnStdout: true
-                                ).trim() != '0'
-                                hasRaidCliUpdate = raidCliFullCommit != 'unknown' && (previousRaidCliCommit != raidCliFullCommit || persistentRaidCliMissing)
-
-                                if (hasRaidCliUpdate) {
-                                    sh """
-                                    set -eu
-                                    mkdir -p '${jenkinsHome}/.raid_nvme'
-                                    rm -rf '${raidCliWorkDir}.next'
-                                    cp -a raid_cli '${raidCliWorkDir}.next'
-                                    rm -rf '${raidCliWorkDir}'
-                                    mv '${raidCliWorkDir}.next' '${raidCliWorkDir}'
-                                    cd '${raidCliWorkDir}'
-                                    chmod +x ./build.sh
-                                    ./build.sh
-                                    test -x ./dpraid
-                                    printf '%s\\n' '${raidCliFullCommit}' > '${raidCliMarkerPath}'
-                                    """
-                                    currentBuild.description = "raid_cli ${raidCliCommit}"
-                                    echo "raid_cli(${env.RAID_CLI_BRANCH}) updated and built on Jenkins server: ${previousRaidCliCommit ?: 'none'} -> ${raidCliFullCommit}"
-                                    echo "raid_cli checkout path: ${raidCliWorkDir}"
-                                    echo "dpraid artifact path: ${raidCliDpraidPath}"
-                                } else {
-                                    echo "raid_cli(${env.RAID_CLI_BRANCH}) has no new commit: ${raidCliCommit}"
-                                }
-
+                            if (raidCliBootstrapMissing || nowEpoch - lastRaidCliEpoch >= 1800L) {
+                                def reason = raidCliBootstrapMissing ? 'initial bootstrap is missing' : '30-minute interval'
+                                hasRaidCliUpdate = syncRaidCli(reason)
                                 sh """
                                 mkdir -p '${jenkinsHome}/.raid_nvme'
                                 printf '%s\\n' '${nowEpoch}' > '${raidCliCheckPath}'
