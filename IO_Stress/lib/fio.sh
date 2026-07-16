@@ -708,12 +708,12 @@ get_system_disk()
     system_disk_sources=$(echo "$devices" | xargs)
 
     system_disk=$(for device in $devices; do
-        normalize_system_disk "$device"
+        normalize_system_disk "$device" || true
     done | awk 'NF && !seen[$0]++' | xargs)
 
     if [[ -z "$system_disk" ]]; then
         direct_disks=$(for device in $devices; do
-            extract_parent_disk "$device"
+            extract_parent_disk "$device" || true
         done | awk 'NF && !seen[$0]++' | xargs)
         [[ -n "$direct_disks" ]] && system_disk="$direct_disks"
     fi
@@ -776,6 +776,7 @@ extract_parent_disk()
         echo "${BASH_REMATCH[1]}"
         return
     fi
+    return 0
 }
 
 normalize_system_disk()
@@ -800,7 +801,7 @@ normalize_system_disk()
     current="$device"
     while [[ -n "$current" ]]; do
         parent=$(lsblk -nr -o NAME,PKNAME 2>/dev/null | awk -v name="$current" '$1==name {print $2; exit}')
-        [[ -z "$parent" ]] && return
+        [[ -z "$parent" ]] && return 0
         if [[ "$parent" =~ ^(sd[a-z]+)[0-9]*$ ]]; then
             echo "${BASH_REMATCH[1]}"
             return
@@ -811,6 +812,7 @@ normalize_system_disk()
         fi
         current="$parent"
     done
+    return 0
 }
 
 collect_system_block_devices()

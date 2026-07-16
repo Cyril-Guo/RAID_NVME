@@ -88,6 +88,7 @@ def test_fio_system_disk_detection_resolves_lvm_to_nvme_parent(tmp_path):
         [
             "bash",
             "-lc",
+            "set -e; "
             "source IO_Stress/lib/fio.sh; "
             "get_system_disk; "
             "echo system_disk=$system_disk; "

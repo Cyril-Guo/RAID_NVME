@@ -117,7 +117,7 @@ function info_check(){
  	    show_produce_message "start first machinecheck"
       cd $MachineCheck_Dir >/dev/null
       rm -rf $MachineCheck_Dir/Disk_info/* >/dev/null
-      sh MachineCheck.sh
+      bash MachineCheck.sh
 
       process_machinecheck_results "$MachineCheckLog/info_before.log" "$SmartErrorLog/CheckNoStop/check_nostop_before.log" "$MessageRecordLog/messages_record_before.log"
       

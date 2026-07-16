@@ -70,7 +70,7 @@ function diff_messages()
         if [[ -d $MachineCheck_Dir/Disk_Info ]]; then
             mv $MachineCheck_Dir/Disk_Info $MachineCheckLog/${loop}_Disk_Info
         fi
-        sh MachineCheck.sh
+        bash MachineCheck.sh
 
         # compare_log
         if [[ -f $MachineCheck_Dir/Result/machinecheck.log ]]; then
