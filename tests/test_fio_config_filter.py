@@ -17,7 +17,8 @@ def test_fio_system_disk_detection_handles_lvm_parent_disk():
     assert "normalize_system_disk" in source
     assert "lsblk -nr -o NAME,PKNAME,MOUNTPOINT" in source
     assert "findmnt -nvo SOURCE" in source
-    assert "grep -oE '^nvme[0-9]+n[0-9]+'" in source
+    assert "extract_parent_disk" in source
+    assert "BASH_REMATCH[1]" in source
 
 
 def test_fio_auto_disk_selection_prefers_draid_virtual_disks():
@@ -122,3 +123,69 @@ def test_fio_system_disk_detection_resolves_lvm_to_nvme_parent(tmp_path):
     assert "partition_is_system=yes" in result.stdout
     assert "sata_partition_is_system=yes" in result.stdout
     assert "mounted_disk_rejected=yes" in result.stdout
+
+
+def test_fio_system_disk_detection_falls_back_to_boot_nvme_partition(tmp_path):
+    findmnt = tmp_path / "findmnt"
+    findmnt.write_text(
+        textwrap.dedent(
+            """\
+            #!/bin/sh
+            if [ "$1" = "-nvo" ] && [ "$2" = "SOURCE" ]; then
+              case "$3" in
+                /) echo /dev/mapper/ubuntu--vg-ubuntu--lv ;;
+                /boot) echo /dev/nvme3n1p2 ;;
+                /boot/efi) echo /dev/nvme3n1p1 ;;
+              esac
+            fi
+            """
+        ),
+        encoding="utf-8",
+    )
+    lsblk = tmp_path / "lsblk"
+    lsblk.write_text(
+        textwrap.dedent(
+            """\
+            #!/bin/sh
+            if [ "$1" = "-nr" ] && [ "$2" = "-o" ] && [ "$3" = "NAME,PKNAME,MOUNTPOINT" ]; then
+              echo "ubuntu--vg-ubuntu--lv  /"
+              echo "nvme3n1p2  /boot"
+              echo "nvme3n1p1  /boot/efi"
+            elif [ "$1" = "-nr" ] && [ "$2" = "-o" ] && [ "$3" = "NAME,PKNAME" ]; then
+              echo "ubuntu--vg-ubuntu--lv "
+              echo "nvme3n1p2 "
+              echo "nvme3n1p1 "
+            elif [ "$1" = "-dn" ]; then
+              echo "dp0-vd1 disk"
+            fi
+            """
+        ),
+        encoding="utf-8",
+    )
+    findmnt.chmod(0o755)
+    lsblk.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{tmp_path}{os.pathsep}{env['PATH']}"
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            "source IO_Stress/lib/fio.sh; "
+            "get_system_disk; "
+            "echo system_disk=$system_disk; "
+            "echo system_sources=$system_disk_sources; "
+            "disk=$(select_auto_test_disks); "
+            "echo auto_disks=$(echo $disk | tr ' ' ',')",
+        ],
+        cwd=Path.cwd(),
+        env=env,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert "system_disk=nvme3n1" in result.stdout
+    assert "/dev/nvme3n1p2" in result.stdout
+    assert "/dev/nvme3n1p1" in result.stdout
+    assert "auto_disks=dp0-vd1" in result.stdout

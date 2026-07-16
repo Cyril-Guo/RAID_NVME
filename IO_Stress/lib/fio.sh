@@ -697,6 +697,7 @@ get_system_disk()
     local devices=""
     local mount_point
     local source
+    local direct_disks
 
     for mount_point in / /boot /boot/efi; do
         source=$(findmnt -nvo SOURCE "$mount_point" 2>/dev/null | sed 's/\[.*\]//' | head -n 1)
@@ -704,10 +705,18 @@ get_system_disk()
     done
 
     devices="$devices $(lsblk -nr -o NAME,PKNAME,MOUNTPOINT 2>/dev/null | awk '$3=="/" || $3=="/boot" || $3=="/boot/efi" {print $1" "$2}')"
+    system_disk_sources=$(echo "$devices" | xargs)
 
     system_disk=$(for device in $devices; do
         normalize_system_disk "$device"
     done | awk 'NF && !seen[$0]++' | xargs)
+
+    if [[ -z "$system_disk" ]]; then
+        direct_disks=$(for device in $devices; do
+            extract_parent_disk "$device"
+        done | awk 'NF && !seen[$0]++' | xargs)
+        [[ -n "$direct_disks" ]] && system_disk="$direct_disks"
+    fi
     system_block_devices=$(collect_system_block_devices "$devices")
 }
 
@@ -752,6 +761,23 @@ normalize_block_name()
     echo "$device" | sed 's#^/dev/##' | sed 's#^mapper/##'
 }
 
+extract_parent_disk()
+{
+    local device="$1"
+    device=$(normalize_block_name "$device")
+    [[ -z "$device" ]] && return
+
+    if [[ "$device" =~ ^(sd[a-z]+)[0-9]*$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return
+    fi
+
+    if [[ "$device" =~ ^(nvme[0-9]+n[0-9]+)(p[0-9]+)?$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return
+    fi
+}
+
 normalize_system_disk()
 {
     local device="$1"
@@ -761,13 +787,13 @@ normalize_system_disk()
     device=$(normalize_block_name "$device")
     [[ -z "$device" ]] && return
 
-    if [[ "$device" =~ ^sd[a-z]+[0-9]*$ ]]; then
-        echo "$device" | grep -oE '^sd[a-z]+'
+    if [[ "$device" =~ ^(sd[a-z]+)[0-9]*$ ]]; then
+        echo "${BASH_REMATCH[1]}"
         return
     fi
 
-    if [[ "$device" =~ ^nvme[0-9]+n[0-9]+p?[0-9]*$ ]]; then
-        echo "$device" | grep -oE '^nvme[0-9]+n[0-9]+'
+    if [[ "$device" =~ ^(nvme[0-9]+n[0-9]+)(p[0-9]+)?$ ]]; then
+        echo "${BASH_REMATCH[1]}"
         return
     fi
 
@@ -775,12 +801,12 @@ normalize_system_disk()
     while [[ -n "$current" ]]; do
         parent=$(lsblk -nr -o NAME,PKNAME 2>/dev/null | awk -v name="$current" '$1==name {print $2; exit}')
         [[ -z "$parent" ]] && return
-        if [[ "$parent" =~ ^sd[a-z]+[0-9]*$ ]]; then
-            echo "$parent" | grep -oE '^sd[a-z]+'
+        if [[ "$parent" =~ ^(sd[a-z]+)[0-9]*$ ]]; then
+            echo "${BASH_REMATCH[1]}"
             return
         fi
-        if [[ "$parent" =~ ^nvme[0-9]+n[0-9]+p?[0-9]*$ ]]; then
-            echo "$parent" | grep -oE '^nvme[0-9]+n[0-9]+'
+        if [[ "$parent" =~ ^(nvme[0-9]+n[0-9]+)(p[0-9]+)?$ ]]; then
+            echo "${BASH_REMATCH[1]}"
             return
         fi
         current="$parent"
@@ -1665,7 +1691,7 @@ function do_fio() {
         # 安全护栏：无法识别系统盘时直接中止，避免误把系统盘当作数据盘
         if [[ -z "$system_disk" ]];then
             echo -ne " Fail to detect system disk. Refuse to run to avoid any IO on OS disk. Exit.\n"
-            echo "$(date '+%F %T') [FIO] failed: system disk not detected" | tee -a "$power_log"
+            echo "$(date '+%F %T') [FIO] failed: system disk not detected, sources=${system_disk_sources:-EMPTY}" | tee -a "$power_log"
             exit 1
         fi
         if [[ "$specified_disk" =~ "null" ]];then
