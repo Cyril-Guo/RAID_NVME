@@ -707,15 +707,13 @@ get_system_disk()
     devices="$devices $(lsblk -nr -o NAME,PKNAME,MOUNTPOINT 2>/dev/null | awk '$3=="/" || $3=="/boot" || $3=="/boot/efi" {print $1" "$2}')"
     system_disk_sources=$(echo "$devices" | xargs)
 
-    system_disk=$(for device in $devices; do
-        normalize_system_disk "$device" || true
-    done | awk 'NF && !seen[$0]++' | xargs)
+    direct_disks=$(extract_parent_disks_from_words $devices | awk 'NF && !seen[$0]++' | xargs)
+    [[ -n "$direct_disks" ]] && system_disk="$direct_disks"
 
     if [[ -z "$system_disk" ]]; then
-        direct_disks=$(for device in $devices; do
-            extract_parent_disk "$device" || true
+        system_disk=$(for device in $devices; do
+            normalize_system_disk "$device" || true
         done | awk 'NF && !seen[$0]++' | xargs)
-        [[ -n "$direct_disks" ]] && system_disk="$direct_disks"
     fi
     system_block_devices=$(collect_system_block_devices "$devices")
 }
@@ -761,22 +759,27 @@ normalize_block_name()
     echo "$device" | sed 's#^/dev/##' | sed 's#^mapper/##'
 }
 
+extract_parent_disks_from_words()
+{
+    printf '%s\n' "$@" | awk '
+        {
+            device=$1
+            sub("^/dev/", "", device)
+            sub("^mapper/", "", device)
+            if (device ~ /^sd[a-z]+[0-9]*$/) {
+                sub(/[0-9]+$/, "", device)
+                print device
+            } else if (device ~ /^nvme[0-9]+n[0-9]+p?[0-9]*$/) {
+                sub(/p[0-9]+$/, "", device)
+                print device
+            }
+        }
+    '
+}
+
 extract_parent_disk()
 {
-    local device="$1"
-    device=$(normalize_block_name "$device")
-    [[ -z "$device" ]] && return
-
-    if [[ "$device" =~ ^(sd[a-z]+)[0-9]*$ ]]; then
-        echo "${BASH_REMATCH[1]}"
-        return
-    fi
-
-    if [[ "$device" =~ ^(nvme[0-9]+n[0-9]+)(p[0-9]+)?$ ]]; then
-        echo "${BASH_REMATCH[1]}"
-        return
-    fi
-    return 0
+    extract_parent_disks_from_words "$1" | head -n 1
 }
 
 normalize_system_disk()

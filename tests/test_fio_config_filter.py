@@ -190,3 +190,22 @@ def test_fio_system_disk_detection_falls_back_to_boot_nvme_partition(tmp_path):
     assert "/dev/nvme3n1p2" in result.stdout
     assert "/dev/nvme3n1p1" in result.stdout
     assert "auto_disks=dp0-vd1" in result.stdout
+
+
+def test_fio_system_disk_detection_parses_jenkins_source_line_under_set_e():
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            "set -e; "
+            "source IO_Stress/lib/fio.sh; "
+            "devices='/dev/mapper/ubuntu--vg-ubuntu--lv /dev/nvme3n1p2 /dev/nvme3n1p1 nvme3n1p1 nvme3n1 nvme3n1p2 nvme3n1 ubuntu--vg-ubuntu--lv nvme3n1p3'; "
+            "extract_parent_disks_from_words $devices | awk 'NF && !seen[$0]++'",
+        ],
+        cwd=Path.cwd(),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.stdout.splitlines() == ["nvme3n1"]
