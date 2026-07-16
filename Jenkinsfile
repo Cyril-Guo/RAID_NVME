@@ -9,6 +9,7 @@ def kernelDriverMrUrl = ''
 def raidCliCommit = ''
 def raidCliFullCommit = ''
 def raidCliDpraidPath = ''
+def triggerSource = ''
 def shouldRunTests = false
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
@@ -149,6 +150,7 @@ pipeline {
                         if (manuallyTriggered) {
                             shouldRunTests = true
                             kernelDriverRef = env.KERNEL_DRIVER_BRANCH
+                            triggerSource = 'Manual Build'
                             echo "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}."
                             def raidCliBootstrapMissing = sh(
                                 script: "test -d '${raidCliWorkDir}/.git' && test -x '${raidCliDpraidPath}'; echo \$?",
@@ -261,6 +263,7 @@ PY
                             kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
 
                             shouldRunTests = true
+                            triggerSource = 'kernel_driver Merge Request'
 
                             if (kernelDriverMrIid) {
                                 echo "kernel_driver open MR !${kernelDriverMrIid} updated at ${kernelDriverMrUpdatedAt}: ${kernelDriverMrTitle}"
@@ -620,7 +623,7 @@ EOF
                                 fields: [
                                     [is_short: true, text: [tag: 'lark_md', content: "**用户名:** dapustor"]],
                                     [is_short: true, text: [tag: 'lark_md', content: "**密码:** Admin@9000"]],
-                                    [is_short: false, text: [tag: 'lark_md', content: "**触发来源:**\nkernel_driver Merge Request"]],
+                                    [is_short: false, text: [tag: 'lark_md', content: "**触发来源:**\n${triggerSource ?: 'unknown'}"]],
                                     [is_short: false, text: [tag: 'lark_md', content: "**被测驱动:**\n${driverLines.join('\n')}"]],
                                     [is_short: false, text: [tag: 'lark_md', content: "**时间周期:**\n${startStr} ~ ${endStr}"]],
                                     [is_short: false, text: [tag: 'lark_md', content: "**并发节点:**\n${ipListStr}"]]
