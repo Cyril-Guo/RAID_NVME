@@ -16,7 +16,7 @@ def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
     sh """
     tar \
       --exclude='./.git' \
-      --exclude='./kernel_driver' \
+      --exclude='./kernel_driver/.git' \
       --exclude='./raid_cli' \
       --exclude='./.pytest_cache' \
       --exclude='./__pycache__' \
@@ -431,6 +431,24 @@ PY
                                     install -m 0755 /tmp/dpraid_${env.BUILD_NUMBER} /usr/bin/dpraid
                                     rm -f /tmp/dpraid_${env.BUILD_NUMBER}
                                     /usr/bin/dpraid --help >/dev/null 2>&1 || true
+                                '
+                                """
+
+                                echo "[${ip}] build and reload draid kernel driver"
+                                sh """
+                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
+                                    set -eu
+                                    cd ${remoteDir}/kernel_driver/drivers/draid
+                                    make
+                                    test -f ./draid.ko
+                                    if grep -qw "^draid " /proc/modules; then
+                                        rmmod draid
+                                    fi
+                                    if grep -qw "^draid " /proc/modules; then
+                                        echo "draid module is still loaded after rmmod" >&2
+                                        exit 1
+                                    fi
+                                    insmod ./draid.ko
                                 '
                                 """
 

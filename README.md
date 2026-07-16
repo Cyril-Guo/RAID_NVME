@@ -131,6 +131,12 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 `dpraid` 覆盖到 `/usr/bin/dpraid`，保证测试使用最新已编译的工具。测试完成后的飞书报告会
 同时展示本次使用的 `raid_cli` commit。
 
+**kernel_driver 驱动准备**：触发测试后，Jenkins 会把当前被测的 `kernel_driver` 源码同步到每台
+测试机。手动构建使用 `main` 分支；MR 自动触发使用 MR source branch，并固定到 MR 当前 `sha`。
+每台测试机执行用例前，会进入 `kernel_driver/drivers/draid` 执行 `make`，生成 `draid.ko` 后先
+卸载已有 `draid` 模块，再执行 `insmod ./draid.ko`。如果模块卸载失败或 `draid.ko` 未生成，构建会
+直接失败，不继续使用旧驱动测试。
+
 > 需要在 Jenkins 中预先完成一次性配置：
 > 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，
 >    凭据 ID 填 `kernel_driver_ssh`（与 `Jenkinsfile` 的 `KERNEL_DRIVER_CRED` / `RAID_CLI_CRED`
@@ -142,8 +148,7 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 >    `raid_max/kernel_driver` 的 Merge Request API。
 > 3. **信任 Git 主机指纹**：Manage Jenkins → Security → Git Host Key Verification 配置为
 >    “Accept first connection” 或把 `192.168.21.185` 加入 known_hosts，否则首次克隆会因主机校验失败。
-> 4. 构建方式确定前，`构建与安装 kernel_driver` 为占位阶段（只打印 TODO，不做实际编译）。
->    后续补充：把 `kernel_driver` 源码部署到各节点 → 编译 → 安装/加载驱动，再跑 FIO 冒烟。
+> 4. 测试机需要具备编译 `kernel_driver/drivers/draid` 所需的内核头文件、`make`、编译器等环境。
 
 ### 4. 查看结果
 - **Allure 报告**: 详尽展示每个测试项的执行结果、耗时及日志。
