@@ -17,10 +17,10 @@
 [selection]
 reboot      = no
 dc          = no
-lawdisk     = yes
+lawdisk     = no
 filesystem  = no
 mix         = no
-basic_io    = no
+basic_io    = yes
 basic_rebuild_io = no
 
 
