@@ -11,6 +11,16 @@ def test_repository_test_items_file_is_valid():
 
     assert selected
     assert "mix" in params
+    assert "basic_io" in params
+    assert "basic_rebuild_io" in params
+
+
+def test_basic_io_items_are_registered_after_existing_smoke_items():
+    keys = list(nvme_raid_test.TEST_ITEMS)
+
+    assert keys[-2:] == ["basic_io", "basic_rebuild_io"]
+    assert nvme_raid_test.TEST_ITEMS["basic_io"] == "test_items/test_smoke_06_basic_io.py"
+    assert nvme_raid_test.TEST_ITEMS["basic_rebuild_io"] == "test_items/test_smoke_07_basic_rebuild_io.py"
 
 
 def test_parse_selection_block_controls_enabled_items(tmp_path):
@@ -75,3 +85,19 @@ def test_run_single_item_omits_allure_args_without_plugin(monkeypatch):
     assert "--clean-alluredir" not in args
     assert not any(arg.startswith("--alluredir=") for arg in args)
     assert "--junitxml=report_lawdisk.xml" in args
+
+
+def test_run_single_item_supports_basic_io(monkeypatch):
+    captured = {}
+
+    def fake_pytest_main(args):
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(nvme_raid_test.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(nvme_raid_test.pytest, "main", fake_pytest_main)
+
+    assert nvme_raid_test.run_single_item("basic_io", {"IGNORE_ERROR": "no"}, clean_allure=False) == 0
+
+    assert "--junitxml=report_basic_io.xml" in captured["args"]
+    assert "test_items/test_smoke_06_basic_io.py" in captured["args"]

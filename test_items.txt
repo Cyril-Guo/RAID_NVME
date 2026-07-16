@@ -6,7 +6,7 @@
 #   no  = skip this item
 #
 # Run order is fixed by nvme_raid_test.py:
-#   reboot -> dc -> lawdisk -> filesystem -> mix
+#   reboot -> dc -> lawdisk -> filesystem -> mix -> basic_io -> basic_rebuild_io
 #
 # To add a new item later:
 #   1. Add "new_case = yes/no" in [selection]
@@ -20,6 +20,8 @@ dc          = no
 lawdisk     = yes
 filesystem  = no
 mix         = no
+basic_io    = no
+basic_rebuild_io = no
 
 
 # ============================================================
@@ -68,3 +70,17 @@ IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME =
+
+
+[basic_io]
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = yes
+MONITOR_RUNTIME = 1000
+
+
+[basic_rebuild_io]
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = yes
+MONITOR_RUNTIME = 1000

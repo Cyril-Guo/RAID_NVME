@@ -1,0 +1,300 @@
+import os
+import random
+import re
+import subprocess
+from dataclasses import dataclass
+from datetime import datetime
+from decimal import Decimal, ROUND_FLOOR
+from pathlib import Path
+
+import allure
+
+
+@dataclass
+class NvmeDisk:
+    namespace: str
+    controller: str
+    size_gb: Decimal
+    bdf: str = ""
+    did: int | None = None
+
+
+def ts():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+class CommandLog:
+    def __init__(self):
+        self.lines = []
+
+    def write(self, line):
+        text = f"[{ts()}] {line}"
+        print(text)
+        self.lines.append(text)
+
+    def attach(self, name):
+        allure.attach("\n".join(self.lines), name=name, attachment_type=allure.attachment_type.TEXT)
+
+
+def run_cmd(cmd, log, check=True, shell=False):
+    display = cmd if isinstance(cmd, str) else " ".join(cmd)
+    log.write(f"$ {display}")
+    result = subprocess.run(
+        cmd,
+        shell=shell,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    if result.stdout:
+        for line in result.stdout.rstrip("\n").splitlines():
+            log.write(line)
+    log.write(f"[exit] {result.returncode}")
+    if check and result.returncode != 0:
+        raise AssertionError(f"Command failed rc={result.returncode}: {display}")
+    return result
+
+
+def normalize_block_name(device):
+    name = str(device).strip()
+    name = re.sub(r"^/dev/", "", name)
+    name = re.sub(r"^mapper/", "", name)
+    return name
+
+
+def parse_lsblk_pairs(text):
+    rows = []
+    for line in text.splitlines():
+        values = dict(re.findall(r'(\w+)="([^"]*)"', line))
+        if values.get("NAME"):
+            rows.append(
+                (
+                    values.get("NAME", ""),
+                    values.get("PKNAME", ""),
+                    values.get("MOUNTPOINT", ""),
+                )
+            )
+    return rows
+
+
+def lsblk_rows(log):
+    result = run_cmd(["lsblk", "-nrP", "-o", "NAME,PKNAME,MOUNTPOINT"], log, check=True)
+    return parse_lsblk_pairs(result.stdout)
+
+
+def protected_system_devices(log):
+    protected = set()
+    sources = []
+    for mount_point in ("/", "/boot", "/boot/efi"):
+        result = run_cmd(["findmnt", "-nvo", "SOURCE", mount_point], log, check=False)
+        source = (result.stdout or "").strip().splitlines()
+        if source:
+            sources.append(normalize_block_name(source[0].split("[", 1)[0]))
+
+    parent = {}
+    rows = lsblk_rows(log)
+    for name, pkname, mount_point in rows:
+        parent[name] = pkname
+        if mount_point in ("/", "/boot", "/boot/efi"):
+            sources.extend([name, pkname])
+
+    for source in sources:
+        current = normalize_block_name(source)
+        while current:
+            protected.add(current)
+            current = parent.get(current, "")
+
+    changed = True
+    while changed:
+        changed = False
+        for name, pkname, _ in rows:
+            if pkname in protected and name not in protected:
+                protected.add(name)
+                changed = True
+
+    log.write(f"Protected system block devices: {sorted(protected)}")
+    return protected
+
+
+def mounted_devices(log):
+    mounted = set()
+    for name, pkname, mount_point in lsblk_rows(log):
+        if mount_point:
+            mounted.add(name)
+            if pkname:
+                mounted.add(pkname)
+    log.write(f"Mounted block devices: {sorted(mounted)}")
+    return mounted
+
+
+def parse_nvme_list(text):
+    disks = []
+    for line in text.splitlines():
+        match = re.search(r"(/dev/(nvme\d+)n\d+)\s+.*?(\d+(?:\.\d+)?)\s+([KMGT]B)\b", line)
+        if not match:
+            continue
+        size = Decimal(match.group(3))
+        unit = match.group(4)
+        if unit == "TB":
+            size *= Decimal("1000")
+        elif unit == "MB":
+            size /= Decimal("1000")
+        elif unit == "KB":
+            size /= Decimal("1000000")
+        disks.append(NvmeDisk(namespace=Path(match.group(1)).name, controller=match.group(2), size_gb=size))
+    return disks
+
+
+def discover_nvme_data_disks(log):
+    protected = protected_system_devices(log)
+    mounted = mounted_devices(log)
+    result = run_cmd(["nvme", "list"], log, check=True)
+    disks = []
+    for disk in parse_nvme_list(result.stdout):
+        if disk.namespace in protected or disk.controller in protected:
+            log.write(f"Skip system NVMe: {disk.namespace}")
+            continue
+        if disk.namespace in mounted or disk.controller in mounted:
+            log.write(f"Skip mounted NVMe: {disk.namespace}")
+            continue
+        if disk.size_gb <= 0:
+            log.write(f"Skip NVMe with invalid size: {disk.namespace} {disk.size_gb}GB")
+            continue
+        disks.append(disk)
+
+    if len(disks) < 2:
+        raise AssertionError(f"Need at least 2 non-system NVMe disks, got {len(disks)}")
+    log.write("Selected NVMe disks: " + ", ".join(f"{d.namespace}({d.size_gb}GB)" for d in disks))
+    return disks
+
+
+def query_bdf(disk, log):
+    sysfs = f"/sys/block/{disk.namespace}/device/"
+    result = run_cmd(f"ls {sysfs} -al", log, check=True, shell=True)
+    match = re.search(r"([0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F])", result.stdout)
+    if not match:
+        result = run_cmd(["readlink", "-f", sysfs], log, check=True)
+        match = re.search(r"([0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F])", result.stdout)
+    if not match:
+        raise AssertionError(f"Cannot resolve BDF for {disk.namespace}")
+    disk.bdf = match.group(1)
+    log.write(f"{disk.namespace} BDF: {disk.bdf}")
+
+
+def split_groups(disks):
+    split_at = (len(disks) + 1) // 2
+    return [disks[:split_at], disks[split_at:]]
+
+
+def delete_existing_vds(log):
+    for index in range(10):
+        run_cmd(["dpraid", f"/c0/v{index}", "delete"], log, check=False)
+
+
+def add_physical_disks(disks, log):
+    for disk in disks:
+        run_cmd(["dpraid", "/c0", "add", "disk", f"/dev/{disk.controller}"], log, check=True)
+
+
+def assign_dids_by_add_order(disks, log):
+    for index, disk in enumerate(disks):
+        disk.did = index
+    log.write("Assigned DID by add order: " + ", ".join(f"{d.namespace}->DID{d.did}" for d in disks))
+
+
+def show_physical_devices(log):
+    return run_cmd(["dpraid", "/c0/eall/sall", "show"], log, check=True).stdout
+
+
+def show_virtual_devices(log):
+    return run_cmd(["dpraid", "/c0/vall", "show"], log, check=True).stdout
+
+
+def drives_expr(group):
+    dids = [disk.did for disk in group]
+    if any(did is None for did in dids):
+        raise AssertionError("Missing DID for RAID5 drive group")
+    dids = sorted(dids)
+    if dids == list(range(dids[0], dids[-1] + 1)):
+        return f"{dids[0]}-{dids[-1]}"
+    return ",".join(str(did) for did in dids)
+
+
+def vd_size(group):
+    min_size = min(disk.size_gb for disk in group)
+    size = (min_size * Decimal(len(group)) / Decimal(4)).to_integral_value(rounding=ROUND_FLOOR)
+    if size <= 0:
+        raise AssertionError(f"Invalid RAID5 VD size calculated from group: {group}")
+    return f"{size}GB"
+
+
+def create_raid5_vds(groups, log):
+    for group in groups:
+        expr = drives_expr(group)
+        size = vd_size(group)
+        for _ in range(4):
+            run_cmd(["dpraid", "/c0", "add", "vd", "r=5", f"Size={size}", "Strip=4", f"drives={expr}"], log, check=True)
+
+
+def dp_vd_devices(log):
+    result = run_cmd(["lsblk", "-dn", "-o", "NAME,TYPE"], log, check=True)
+    devices = []
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "disk" and re.fullmatch(r"dp\d+-vd\d+", parts[0]):
+            devices.append(parts[0])
+    log.write(f"Detected VD block devices: {devices}")
+    return devices
+
+
+def verify_vd_count(log, expected=8):
+    devices = dp_vd_devices(log)
+    if len(devices) != expected:
+        raise AssertionError(f"Expected {expected} VD block devices, got {len(devices)}: {devices}")
+    return devices
+
+
+def prepare_basic_raid5_vds(log):
+    delete_existing_vds(log)
+    disks = discover_nvme_data_disks(log)
+    for disk in disks:
+        query_bdf(disk, log)
+    groups = split_groups(disks)
+    log.write("Disk groups: " + " | ".join(",".join(d.namespace for d in group) for group in groups))
+    add_physical_disks(disks, log)
+    show_physical_devices(log)
+    assign_dids_by_add_order(disks, log)
+    create_raid5_vds(groups, log)
+    verify_vd_count(log, expected=8)
+    vd_output = show_virtual_devices(log)
+    return disks, groups, vd_output
+
+
+def slot_from_bdf(bdf, log):
+    pci_addr = bdf.rsplit(".", 1)[0]
+    result = run_cmd(f"lspci -s {pci_addr} -vvvv | grep -i slot", log, check=True, shell=True)
+    match = re.search(r"(?:Physical Slot|Slot)[^0-9]*([0-9]+)", result.stdout, re.IGNORECASE)
+    if not match:
+        raise AssertionError(f"Cannot parse PCI slot from BDF {bdf}: {result.stdout}")
+    return match.group(1)
+
+
+def power_cycle_one_disk_per_group(groups, log):
+    selected = []
+    rng = random.SystemRandom()
+    for group in groups:
+        selected.append(rng.choice(group))
+    for disk in selected:
+        slot = slot_from_bdf(disk.bdf, log)
+        power_file = f"/sys/bus/pci/slots/{slot}/power"
+        run_cmd(f"echo 0 > {power_file}", log, check=True, shell=True)
+        run_cmd(["sleep", "5"], log, check=True)
+        run_cmd(f"echo 1 > {power_file}", log, check=True, shell=True)
+        log.write(f"Power cycled {disk.namespace} BDF {disk.bdf} slot {slot}")
+
+
+def verify_all_vds_degraded(log, expected=8):
+    output = show_virtual_devices(log)
+    degraded = len(re.findall(r"\bDegr\b", output, re.IGNORECASE))
+    if degraded < expected:
+        raise AssertionError(f"Expected at least {expected} degraded VDs, got {degraded}")
