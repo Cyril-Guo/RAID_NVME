@@ -376,10 +376,20 @@ PY
                 script {
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
                     def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
-                    def raidCliDpraidPathForRun = raidCliDpraidPath ?: "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo/dpraid"
+                    def raidCliRepoPathForRun = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo"
+                    def raidCliDpraidPathForRun = raidCliDpraidPath ?: "${raidCliRepoPathForRun}/dpraid"
 
                     sh "test -x '${raidCliDpraidPathForRun}'"
+                    raidCliFullCommit = sh(
+                        script: "git -C '${raidCliRepoPathForRun}' rev-parse HEAD 2>/dev/null || echo unknown",
+                        returnStdout: true
+                    ).trim()
+                    raidCliCommit = sh(
+                        script: "git -C '${raidCliRepoPathForRun}' rev-parse --short HEAD 2>/dev/null || echo unknown",
+                        returnStdout: true
+                    ).trim()
                     echo "Use dpraid artifact: ${raidCliDpraidPathForRun}"
+                    echo "Use raid_cli(${env.RAID_CLI_BRANCH}) commit: ${raidCliCommit}"
 
                     def parallelTasks = [:]
 
@@ -540,6 +550,19 @@ EOF
                 def statusColor = (failed + errors == 0 && total > 0) ? 'blue' : 'red'
                 def fontColor = statusColor == 'blue' ? 'green' : 'red'
                 def ipListStr = targetIPs.join(', ')
+                if (!raidCliCommit || raidCliCommit == 'unknown') {
+                    def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
+                    def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
+                    def raidCliRepoPath = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo"
+                    raidCliFullCommit = sh(
+                        script: "git -C '${raidCliRepoPath}' rev-parse HEAD 2>/dev/null || echo unknown",
+                        returnStdout: true
+                    ).trim()
+                    raidCliCommit = sh(
+                        script: "git -C '${raidCliRepoPath}' rev-parse --short HEAD 2>/dev/null || echo unknown",
+                        returnStdout: true
+                    ).trim()
+                }
                 def driverLines = []
                 if (kernelDriverMrIid) {
                     driverLines << "MR: !${kernelDriverMrIid} ${kernelDriverMrTitle ?: ''}".trim()
@@ -549,6 +572,7 @@ EOF
                     driverLines << "Branch: ${kernelDriverRef ?: env.KERNEL_DRIVER_BRANCH}"
                 }
                 driverLines << "Commit: ${kernelDriverCommit ?: 'unknown'}"
+                driverLines << "raid_cli(${env.RAID_CLI_BRANCH}): ${raidCliCommit ?: 'unknown'}"
 
                 def actions = [[
                     tag: 'button',
