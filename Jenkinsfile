@@ -8,6 +8,7 @@ def kernelDriverMrUpdatedAt = ''
 def kernelDriverMrUrl = ''
 def raidCliCommit = ''
 def raidCliFullCommit = ''
+def raidCliDpraidPath = ''
 def shouldRunTests = false
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
@@ -81,6 +82,7 @@ pipeline {
                         def raidCliMarkerPath = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.commit"
                         def raidCliCheckPath = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.last_check"
                         def raidCliWorkDir = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo"
+                        raidCliDpraidPath = "${raidCliWorkDir}/dpraid"
                         def mrProps = [:]
                         def currentMrSignature = 'none'
                         def hasNewOpenMrEvent = false
@@ -140,11 +142,16 @@ pipeline {
                                     cp -a raid_cli '${raidCliWorkDir}.next'
                                     rm -rf '${raidCliWorkDir}'
                                     mv '${raidCliWorkDir}.next' '${raidCliWorkDir}'
+                                    cd '${raidCliWorkDir}'
+                                    chmod +x ./build.sh
+                                    ./build.sh
+                                    test -x ./dpraid
                                     printf '%s\\n' '${raidCliFullCommit}' > '${raidCliMarkerPath}'
                                     """
                                     currentBuild.description = "raid_cli ${raidCliCommit}"
-                                    echo "raid_cli(${env.RAID_CLI_BRANCH}) updated on Jenkins server: ${previousRaidCliCommit ?: 'none'} -> ${raidCliFullCommit}"
+                                    echo "raid_cli(${env.RAID_CLI_BRANCH}) updated and built on Jenkins server: ${previousRaidCliCommit ?: 'none'} -> ${raidCliFullCommit}"
                                     echo "raid_cli checkout path: ${raidCliWorkDir}"
+                                    echo "dpraid artifact path: ${raidCliDpraidPath}"
                                 } else {
                                     echo "raid_cli(${env.RAID_CLI_BRANCH}) has no new commit: ${raidCliCommit}"
                                 }
@@ -367,6 +374,13 @@ PY
             when { expression { return !params.RESTORE && shouldRunTests } }
             steps {
                 script {
+                    def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
+                    def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
+                    def raidCliDpraidPathForRun = raidCliDpraidPath ?: "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo/dpraid"
+
+                    sh "test -x '${raidCliDpraidPathForRun}'"
+                    echo "Use dpraid artifact: ${raidCliDpraidPathForRun}"
+
                     def parallelTasks = [:]
 
                     for (int i = 0; i < targetIPs.size(); i++) {
@@ -379,6 +393,16 @@ PY
                                 echo "[${ip}] deploy workspace"
                                 sh "ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
                                 copyWorkspaceToRemote(ip, remoteDir, env.TARGET_USER)
+
+                                echo "[${ip}] install latest dpraid"
+                                sh """
+                                scp -o StrictHostKeyChecking=no '${raidCliDpraidPathForRun}' ${env.TARGET_USER}@${ip}:/tmp/dpraid_${env.BUILD_NUMBER}
+                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
+                                    install -m 0755 /tmp/dpraid_${env.BUILD_NUMBER} /usr/bin/dpraid
+                                    rm -f /tmp/dpraid_${env.BUILD_NUMBER}
+                                    /usr/bin/dpraid --help >/dev/null 2>&1 || true
+                                '
+                                """
 
                                 echo "[${ip}] install python dependencies"
                                 sh """

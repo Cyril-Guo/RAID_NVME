@@ -122,9 +122,11 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 
 **环境代码拉取（raid_cli 30 分钟轮询）**：同一个 Jenkins 任务会每 30 分钟检查一次
 `general_tools/raid_cli` 的 `hostraid_cli` 分支。发现新提交时，只把代码拉取并保存到 Jenkins
-服务器的 `$JENKINS_HOME/.raid_nvme/...repo` 持久目录，作为后续编译/替换测试环境的输入。
+服务器的 `$JENKINS_HOME/.raid_nvme/...repo` 持久目录，然后在该目录执行 `./build.sh`。
+编译成功后会校验生成的 `dpraid` 可执行文件；只有校验通过才会记录本次 `raid_cli` 提交。
 `raid_cli` 的变化不会触发冒烟测试，也不会进入飞书测试报告流程；只有 `kernel_driver` 的未过滤
-打开中 MR 变化才会自动跑测试。
+打开中 MR 变化才会自动跑测试。真正执行测试时，Jenkins 会在每台测试机开始测试前把这个
+`dpraid` 覆盖到 `/usr/bin/dpraid`，保证测试使用最新已编译的工具。
 
 > 需要在 Jenkins 中预先完成一次性配置：
 > 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，
