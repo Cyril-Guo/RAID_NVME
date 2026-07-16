@@ -1,0 +1,48 @@
+import json
+
+from ci import report_metrics
+
+
+def test_report_metrics_counts_testcase_nodes_when_testsuites_root_is_zero(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        """<?xml version="1.0" encoding="utf-8"?>
+<testsuites tests="0" failures="0" errors="0" skipped="0">
+  <testsuite name="pytest">
+    <testcase classname="test_items.test_smoke_03_lawdisk" name="test_lawdiskstress" />
+    <testcase classname="test_items.test_smoke_04_mix" name="test_mix_stress">
+      <failure message="fio failed">trace</failure>
+    </testcase>
+    <testcase classname="test_items.test_smoke_05_reboot" name="test_reboot_powercycle">
+      <error message="setup failed">trace</error>
+    </testcase>
+  </testsuite>
+</testsuites>
+""",
+        encoding="utf-8",
+    )
+
+    assert report_metrics.report_metrics() == {
+        "tests": 3,
+        "failures": 1,
+        "errors": 1,
+        "skipped": 0,
+    }
+
+
+def test_report_metrics_falls_back_to_allure_results(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    for index, status in enumerate(("passed", "failed", "broken", "skipped")):
+        (allure_dir / f"{index}-result.json").write_text(
+            json.dumps({"name": f"case_{index}", "status": status}),
+            encoding="utf-8",
+        )
+
+    assert report_metrics.report_metrics() == {
+        "tests": 4,
+        "failures": 1,
+        "errors": 1,
+        "skipped": 1,
+    }

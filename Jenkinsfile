@@ -661,23 +661,7 @@ ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
 
                 archiveArtifacts artifacts: 'test_execution_*.log, environment_prepare_*.log, allure-results/monitor_log_*.tar.gz', allowEmptyArchive: true
 
-                def metricsOutput = sh(script: """
-                    python3 - << 'EOF'
-import glob
-import xml.etree.ElementTree as ET
-
-stats = {'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0}
-for path in glob.glob('report_*.xml'):
-    try:
-        root = ET.parse(path).getroot()
-        for attr in stats:
-            value = int(root.attrib.get(attr) or sum(int(suite.get(attr, 0)) for suite in root.findall('.//testsuite')))
-            stats[attr] += value
-    except Exception:
-        pass
-print(f"{stats['tests']} {stats['failures']} {stats['errors']} {stats['skipped']}")
-EOF
-                """, returnStdout: true).trim()
+                def metricsOutput = sh(script: "python3 ci/report_metrics.py", returnStdout: true).trim()
 
                 def metrics = metricsOutput.split(' ')
                 def total = metrics[0].toInteger()
