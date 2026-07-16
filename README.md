@@ -142,6 +142,8 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 再执行 `insmod ./draid.ko`。如果模块卸载失败、加载失败或 `draid.ko` 未生成，构建会
 直接失败并打印相关模块状态，不继续使用旧驱动测试。编译前会自动安装内核模块编译依赖：Ubuntu/Debian 使用
 `build-essential linux-headers-$(uname -r) kmod`，RHEL 系使用 `make gcc kernel-devel kmod`。
+`dpraid` 安装、`draid.ko` 编译/卸载/加载、Python 依赖安装的输出会写入
+`environment_prepare_<ip>.log`，并在 Allure 报告中作为 `Environment_Prepare_<ip>` 独立结果展示。
 
 > 需要在 Jenkins 中预先完成一次性配置：
 > 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，

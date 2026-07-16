@@ -419,23 +419,67 @@ PY
                         parallelTasks["Node_${ip}"] = {
                             stage("Test on ${ip}") {
                                 def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_${env.BUILD_NUMBER}"
+                                def envPrepareLog = "environment_prepare_${ip}.log"
+
+                                writeFile file: envPrepareLog, text: "[${ip}] Environment_Prepare started\n"
 
                                 echo "[${ip}] deploy workspace"
-                                sh "ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
-                                copyWorkspaceToRemote(ip, remoteDir, env.TARGET_USER)
+                                def deployStatus = sh(
+                                    returnStatus: true,
+                                    script: """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] deploy workspace"
+ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
+tar \\
+  --exclude='./.git' \\
+  --exclude='./kernel_driver/.git' \\
+  --exclude='./raid_cli' \\
+  --exclude='./.pytest_cache' \\
+  --exclude='./__pycache__' \\
+  --exclude='./allure-results' \\
+  --exclude='./report.xml' \\
+  --exclude='./report_*.xml' \\
+  --exclude='./test_execution_*.log' \\
+  --exclude='./environment_prepare_*.log' \\
+  --exclude='./feishu_payload.json' \\
+  -czf - . | ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'tar -xzf - -C ${remoteDir}'
+} 2>&1 | tee -a ${envPrepareLog}
+"""
+                                )
+                                if (deployStatus != 0) {
+                                    sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                    error "[${ip}] deploy workspace failed with exit code ${deployStatus}"
+                                }
 
                                 echo "[${ip}] install latest dpraid"
-                                sh """
+                                def dpraidStatus = sh(
+                                    returnStatus: true,
+                                    script: """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] install latest dpraid"
                                 scp -o StrictHostKeyChecking=no '${raidCliDpraidPathForRun}' ${env.TARGET_USER}@${ip}:/tmp/dpraid_${env.BUILD_NUMBER}
                                 ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
                                     install -m 0755 /tmp/dpraid_${env.BUILD_NUMBER} /usr/bin/dpraid
                                     rm -f /tmp/dpraid_${env.BUILD_NUMBER}
                                     /usr/bin/dpraid --help >/dev/null 2>&1 || true
                                 '
-                                """
+} 2>&1 | tee -a ${envPrepareLog}
+"""
+                                )
+                                if (dpraidStatus != 0) {
+                                    sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                    error "[${ip}] install latest dpraid failed with exit code ${dpraidStatus}"
+                                }
 
                                 echo "[${ip}] build and reload draid kernel driver"
-                                sh """
+                                def driverStatus = sh(
+                                    returnStatus: true,
+                                    script: """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] build and reload draid kernel driver"
                                 ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
                                     set -eu
                                     if command -v apt-get >/dev/null 2>&1; then
@@ -472,10 +516,21 @@ PY
                                     fi
                                     grep -q "^\${module_name} " /proc/modules
                                 '
-                                """
+} 2>&1 | tee -a ${envPrepareLog}
+"""
+                                )
+                                if (driverStatus != 0) {
+                                    sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                    error "[${ip}] build and reload draid kernel driver failed with exit code ${driverStatus}"
+                                }
 
                                 echo "[${ip}] install python dependencies"
-                                sh """
+                                def pythonDepsStatus = sh(
+                                    returnStatus: true,
+                                    script: """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] install python dependencies"
                                 ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
                                     cd ${remoteDir}
                                     if command -v apt-get >/dev/null 2>&1; then
@@ -508,7 +563,14 @@ PY
                                     fi
                                     python3 -c "import pytest"
                                 '
-                                """
+} 2>&1 | tee -a ${envPrepareLog}
+"""
+                                )
+                                if (pythonDepsStatus != 0) {
+                                    sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                    error "[${ip}] install python dependencies failed with exit code ${pythonDepsStatus}"
+                                }
+                                sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=passed' >> ${envPrepareLog}"
 
                                 echo "[${ip}] collect environment metadata"
                                 sh """
@@ -597,7 +659,7 @@ ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
                     results: [[path: 'allure-results']]
                 )
 
-                archiveArtifacts artifacts: 'test_execution_*.log, allure-results/monitor_log_*.tar.gz', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'test_execution_*.log, environment_prepare_*.log, allure-results/monitor_log_*.tar.gz', allowEmptyArchive: true
 
                 def metricsOutput = sh(script: """
                     python3 - << 'EOF'

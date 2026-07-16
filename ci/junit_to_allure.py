@@ -134,6 +134,60 @@ def write_result(allure_dir, suite_name, case):
         json.dump(result, handle, ensure_ascii=False)
 
 
+def write_environment_prepare_results(allure_dir):
+    generated = 0
+    for path in glob.glob("environment_prepare_*.log"):
+        log_name = os.path.basename(path)
+        node = log_name.removeprefix("environment_prepare_").removesuffix(".log")
+        source = f"{uuid.uuid4()}-environment-prepare.log"
+        target = os.path.join(allure_dir, source)
+        with open(path, "rb") as src, open(target, "wb") as dst:
+            dst.write(src.read())
+
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                text = handle.read()
+        except OSError:
+            text = ""
+
+        status = "broken" if "ENVIRONMENT_PREPARE_STATUS=failed" in text else "passed"
+        test_uuid = str(uuid.uuid4())
+        result = {
+            "uuid": test_uuid,
+            "historyId": f"Environment_Prepare::{node}",
+            "testCaseId": f"Environment_Prepare::{node}",
+            "fullName": f"Environment_Prepare#{node}",
+            "name": f"Environment_Prepare_{node}",
+            "status": status,
+            "stage": "finished",
+            "labels": [
+                {"name": "suite", "value": "Environment_Prepare"},
+                {"name": "package", "value": "Environment_Prepare"},
+                {"name": "testClass", "value": "Environment_Prepare"},
+                {"name": "host", "value": node},
+                {"name": "framework", "value": "jenkins"},
+                {"name": "language", "value": "shell"},
+            ],
+            "attachments": [
+                {
+                    "name": f"Environment_Prepare_{node}",
+                    "source": source,
+                    "type": "text/plain",
+                }
+            ],
+        }
+        if status != "passed":
+            result["statusDetails"] = {
+                "message": "Environment prepare failed",
+                "trace": "\n".join(text.splitlines()[-120:]),
+            }
+
+        with open(os.path.join(allure_dir, f"{test_uuid}-result.json"), "w", encoding="utf-8") as handle:
+            json.dump(result, handle, ensure_ascii=False)
+        generated += 1
+    return generated
+
+
 def main():
     allure_dir = "allure-results"
     ensure_dir(allure_dir)
@@ -158,8 +212,12 @@ def main():
                 existing_ids.add(result_key(classname, name))
                 generated += 1
 
+    env_generated = write_environment_prepare_results(allure_dir)
     attached = attach_pending_monitor_logs(allure_dir)
-    print(f"generated allure result files from junit: {generated}, attached monitor logs: {attached}")
+    print(
+        f"generated allure result files from junit: {generated}, "
+        f"environment prepare results: {env_generated}, attached monitor logs: {attached}"
+    )
     return 0
 
 

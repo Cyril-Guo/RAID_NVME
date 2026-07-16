@@ -41,3 +41,24 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
 
     assert junit_to_allure.main() == 0
     assert len(list(allure_dir.glob("*-result.json"))) == 1
+
+
+def test_junit_to_allure_generates_environment_prepare_result(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "environment_prepare_192.168.22.134.log").write_text(
+        "build and reload draid kernel driver\n"
+        "insmod ./draid.ko failed\n"
+        "ENVIRONMENT_PREPARE_STATUS=failed\n",
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+
+    results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    env_result = next(result for result in results if result["name"] == "Environment_Prepare_192.168.22.134")
+    assert env_result["status"] == "broken"
+    assert env_result["labels"][0] == {"name": "suite", "value": "Environment_Prepare"}
+    attachment = allure_dir / env_result["attachments"][0]["source"]
+    assert "insmod ./draid.ko failed" in attachment.read_text(encoding="utf-8")
