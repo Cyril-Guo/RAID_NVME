@@ -438,6 +438,15 @@ PY
                                 sh """
                                 ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
                                     set -eu
+                                    if command -v apt-get >/dev/null 2>&1; then
+                                        export DEBIAN_FRONTEND=noninteractive
+                                        apt-get update
+                                        apt-get install -y build-essential "linux-headers-\$(uname -r)" kmod
+                                    elif command -v dnf >/dev/null 2>&1; then
+                                        dnf install -y make gcc kernel-devel kmod
+                                    elif command -v yum >/dev/null 2>&1; then
+                                        yum install -y make gcc kernel-devel kmod
+                                    fi
                                     cd ${remoteDir}/kernel_driver/drivers/draid
                                     make
                                     test -f ./draid.ko
