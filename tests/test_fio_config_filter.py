@@ -26,6 +26,8 @@ def test_fio_auto_disk_selection_prefers_draid_virtual_disks():
     assert "select_auto_test_disks" in source
     assert "grep -E '^dp[0-9]+-vd[0-9]+$'" in source
     assert "specified_disk_contains_system" in source
+    assert "validate_test_disks" in source
+    assert "assert_not_system_disk" in source
 
 
 def test_fio_system_disk_detection_resolves_lvm_to_nvme_parent(tmp_path):
@@ -84,7 +86,13 @@ def test_fio_system_disk_detection_resolves_lvm_to_nvme_parent(tmp_path):
             "get_system_disk; "
             "echo system_disk=$system_disk; "
             "disk=$(select_auto_test_disks); "
-            "echo auto_disks=$(echo $disk | tr ' ' ',')",
+            "echo auto_disks=$(echo $disk | tr ' ' ','); "
+            "specified_disk=nvme3n1p1; "
+            "specified_disk_contains_system && echo specified_partition_rejected=yes; "
+            "test_disk=dp0-vd1,nvme3n1p1; "
+            "validate_test_disks || echo validate_partition_rejected=yes; "
+            "system_disk=sda; "
+            "disk_is_system sda2 && echo sata_partition_is_system=yes",
         ],
         cwd=Path.cwd(),
         env=env,
@@ -95,3 +103,6 @@ def test_fio_system_disk_detection_resolves_lvm_to_nvme_parent(tmp_path):
 
     assert "system_disk=nvme3n1" in result.stdout
     assert "auto_disks=dp0-vd1,dp0-vd2" in result.stdout
+    assert "specified_partition_rejected=yes" in result.stdout
+    assert "validate_partition_rejected=yes" in result.stdout
+    assert "sata_partition_is_system=yes" in result.stdout

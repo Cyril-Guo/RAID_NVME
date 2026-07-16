@@ -254,6 +254,7 @@ function partition(){
     disk_partition=$1
     totoal_num=$2
     disk_size=$3
+    assert_not_system_disk "$disk_partition" "partition" || return $?
     for ((i=1; i<=$totoal_num; i++));do
         fdisk /dev/$disk_partition  <<eof
 n
@@ -268,6 +269,7 @@ eof
 
 function del_partition(){
     local disk_del=$1
+    assert_not_system_disk "$disk_del" "delete partition" || return $?
     umount -l /dev/$disk_del* 2>/dev/null
     wipefs -a /dev/$disk_del
     fdisk /dev/$disk_del  <<eof
@@ -278,6 +280,7 @@ eof
 
 function mount_disk(){
     disk_mount=$1
+    assert_not_system_disk "$disk_mount" "mount test disk" || return $?
     mkdir -p /tmp/fiotest/$disk_mount
     mount /dev/$disk_mount /tmp/fiotest/$disk_mount
     touch /tmp/fiotest/${disk_mount}/test_${disk_mount}
@@ -292,6 +295,7 @@ function prepare_filesystem(){
     add_disks=()
     add_disk_num=0
     for hd in ${disk[*]};do
+        assert_not_system_disk "$hd" "prepare filesystem" || return $?
 	    del_partition $hd
     done
     wait
@@ -299,6 +303,7 @@ function prepare_filesystem(){
     partprobe
     lsblk | awk '{print $1}' > before.disk
     for hd in ${disk[*]};do
+        assert_not_system_disk "$hd" "create filesystem partitions" || return $?
         disk_capacit_B=$(fdisk -l | grep "/dev/${hd}" | sed -n '1p' | awk '{print $5}')
         disk_capacit_G=`echo "$disk_capacit_B/1024/1024/1024" | bc`
         partition_num=8
@@ -309,6 +314,7 @@ function prepare_filesystem(){
     partprobe
     sleep 60
     for hd in ${disk[*]};do
+        assert_not_system_disk "$hd" "partprobe" || return $?
         partprobe /dev/$hd
     done
     sleep 10
@@ -322,6 +328,7 @@ function prepare_filesystem(){
     add_file=()
     mkdir -p /tmp/fiotest
     for ((i=0; i<${#add_disks[*]}; i++));do
+        assert_not_system_disk "${add_disks[$i]}" "mkfs" || return $?
         mkfs.xfs /dev/${add_disks[$i]} -f &
     done
     wait
@@ -344,6 +351,7 @@ function prepare_filesystem(){
 function close_mount(){
     sleep 10
     for ((i=0; i<${#add_disks[*]}; i++));do
+        assert_not_system_disk "${add_disks[$i]}" "close mount" || return $?
         umount /dev/${add_disks[$i]}
         if [ $? -ne 0 ];then
             lsof /dev/${add_disks[$i]} | awk '{print $2}' | xargs kill -9
@@ -619,10 +627,7 @@ function set_Disk()
             # 仅对非系统盘的裸设备下发 IO（系统盘已在 do_fio 中被排除，不再对系统盘做任何 IO）
             for str in ${disk[@]}
             do
-                if disk_is_system "$str"; then
-                    echo "Skip system disk [$str] while generating fio config."
-                    continue
-                fi
+                assert_not_system_disk "$str" "generate fio config" || return $?
                 Hard_Disk="/dev/"$str
                 echo "["$str"]" >>$Cur_Dir/configuration.tmp
                 echo "filename="$Hard_Disk >>$Cur_Dir/configuration.tmp
@@ -708,11 +713,25 @@ get_system_disk()
 disk_is_system()
 {
     local disk_name="$1"
+    local normalized
     local item
+    normalized=$(normalize_system_disk "$disk_name" | head -n 1)
     for item in $system_disk; do
         [[ "$disk_name" == "$item" ]] && return 0
+        [[ -n "$normalized" && "$normalized" == "$item" ]] && return 0
     done
     return 1
+}
+
+assert_not_system_disk()
+{
+    local disk_name="$1"
+    local action="$2"
+    if disk_is_system "$disk_name"; then
+        echo "ERROR: Refuse to ${action:-use disk} on system disk [$disk_name], detected system disk(s): [$system_disk]."
+        return 1
+    fi
+    return 0
 }
 
 normalize_system_disk()
@@ -763,6 +782,22 @@ specified_disk_contains_system()
     done
     IFS="$old_ifs"
     return 1
+}
+
+validate_test_disks()
+{
+    local disk_name
+    local old_ifs="$IFS"
+    IFS=", "
+    for disk_name in $test_disk; do
+        [[ -z "$disk_name" ]] && continue
+        assert_not_system_disk "$disk_name" "run fio" || {
+            IFS="$old_ifs"
+            return 1
+        }
+    done
+    IFS="$old_ifs"
+    return 0
 }
 
 select_auto_test_disks()
@@ -1079,12 +1114,11 @@ do
    IFS="$OLD_IFS"
    for str1 in ${test_disk[@]}
    do
+      assert_not_system_disk "$str1" "run fio single mode" || return $?
       ####modify by wuwei for multi-threads
       echo "[$str1]" >>$configuration
       echo "filename=/dev/"$str1 >>$configuration
-      if [[ $str1 =~ $system_disk ]];then
-          echo "size=100%" >> $configuration
-      fi
+      echo "size=100%" >> $configuration
       ###################
       ####for BTP,do not modify this,please!!!####
       ################
@@ -1380,11 +1414,15 @@ function change_config()
 function prepare()
 {
     # 仅选取 TYPE=disk 的真实块设备，排除 loop/rom 等虚拟设备，并剔除系统盘
-    disks=$(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}' | grep -vw "$system_disk")
+    local disks="${disk[*]}"
+    if [[ -z "$disks" ]]; then
+        disks=$(select_auto_test_disks)
+    fi
     i=1
     unset disk
     for str in $disks
     do
+        assert_not_system_disk "$str" "prepare filesystem mode" || return $?
         mkdir -p /test_disk$i
         parted -s /dev/$str mklabel gpt
         parted -s /dev/$str mkpart primary 1 200G
@@ -1393,6 +1431,7 @@ function prepare()
         else
             part="/dev/${str}1"
         fi
+        assert_not_system_disk "$(basename "$part")" "mkfs filesystem mode" || return $?
         mkfs -t "$fs_type" "$part"
         mount "$part" /test_disk$i
         touch /test_disk$i/test$i
@@ -1593,6 +1632,7 @@ function do_fio() {
             test_disk=$specified_disk
         fi
 
+        validate_test_disks || return $?
         echo -ne "System_Disk is $system_disk\n"
         echo -ne "The test disk is: $test_disk\n"
         echo "$(date '+%F %T') [FIO] system_disk=$system_disk test_disk=${test_disk:-EMPTY} specified_disk=$specified_disk disk_mode=$disk_mode" | tee -a "$power_log"
@@ -1616,6 +1656,9 @@ function do_fio() {
         get_config_filelist
         echo "$(date '+%F %T') [FIO] config_list=$(cat "$Cur_Dir/config_list1.log" 2>/dev/null | tr '\n' ' ')" | tee -a "$power_log"
         set_Disk
+        set_disk_rc=$?
+        echo "$(date '+%F %T') [FIO] set_Disk rc=$set_disk_rc" | tee -a "$power_log"
+        [[ $set_disk_rc -ne 0 ]] && return $set_disk_rc
         run_mode
         run_rc=$?
         echo "$(date '+%F %T') [FIO] run_mode rc=$run_rc" | tee -a "$power_log"
