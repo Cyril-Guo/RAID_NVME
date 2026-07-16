@@ -138,8 +138,9 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 **kernel_driver 驱动准备**：触发测试后，Jenkins 会把当前被测的 `kernel_driver` 源码同步到每台
 测试机。手动构建使用 `main` 分支；MR 自动触发使用 MR source branch，并固定到 MR 当前 `sha`。
 每台测试机执行用例前，会进入 `kernel_driver/drivers/draid` 执行 `make`，生成 `draid.ko` 后先
-卸载已有 `draid` 模块，再执行 `insmod ./draid.ko`。如果模块卸载失败或 `draid.ko` 未生成，构建会
-直接失败，不继续使用旧驱动测试。编译前会自动安装内核模块编译依赖：Ubuntu/Debian 使用
+通过 `modinfo -F name ./draid.ko` 识别真实模块名，并按真实模块名和 `draid` 候选卸载已有模块，
+再执行 `insmod ./draid.ko`。如果模块卸载失败、加载失败或 `draid.ko` 未生成，构建会
+直接失败并打印相关模块状态，不继续使用旧驱动测试。编译前会自动安装内核模块编译依赖：Ubuntu/Debian 使用
 `build-essential linux-headers-$(uname -r) kmod`，RHEL 系使用 `make gcc kernel-devel kmod`。
 
 > 需要在 Jenkins 中预先完成一次性配置：

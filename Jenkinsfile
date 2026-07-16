@@ -450,14 +450,27 @@ PY
                                     cd ${remoteDir}/kernel_driver/drivers/draid
                                     make
                                     test -f ./draid.ko
-                                    if grep -qw "^draid " /proc/modules; then
-                                        rmmod draid
-                                    fi
-                                    if grep -qw "^draid " /proc/modules; then
-                                        echo "draid module is still loaded after rmmod" >&2
+                                    module_name=\$(modinfo -F name ./draid.ko 2>/dev/null || true)
+                                    module_name=\${module_name:-draid}
+                                    echo "draid.ko module name: \${module_name}"
+                                    for candidate in "\${module_name}" draid; do
+                                        if [ -n "\${candidate}" ] && grep -q "^\${candidate} " /proc/modules; then
+                                            rmmod "\${candidate}" || modprobe -r "\${candidate}"
+                                        fi
+                                    done
+                                    for candidate in "\${module_name}" draid; do
+                                        if [ -n "\${candidate}" ] && grep -q "^\${candidate} " /proc/modules; then
+                                            echo "kernel module \${candidate} is still loaded after remove attempt" >&2
+                                            grep -i draid /proc/modules >&2 || true
+                                            exit 1
+                                        fi
+                                    done
+                                    if ! insmod ./draid.ko; then
+                                        echo "insmod ./draid.ko failed. Current related modules:" >&2
+                                        grep -i draid /proc/modules >&2 || true
                                         exit 1
                                     fi
-                                    insmod ./draid.ko
+                                    grep -q "^\${module_name} " /proc/modules
                                 '
                                 """
 
