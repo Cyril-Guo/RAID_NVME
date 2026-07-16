@@ -1,6 +1,14 @@
 from decimal import Decimal
 
-from test_items.basic_io_common import NvmeDisk, drives_expr, parse_lsblk_pairs, parse_nvme_list, split_groups, vd_size
+from test_items.basic_io_common import (
+    EXCLUDED_NVME_MODELS,
+    NvmeDisk,
+    drives_expr,
+    parse_lsblk_pairs,
+    parse_nvme_list,
+    split_groups,
+    vd_size,
+)
 
 
 def test_parse_nvme_list_keeps_normal_capacity_devices():
@@ -9,14 +17,17 @@ Node             SN                   Model                                    N
 ---------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------
 /dev/nvme0n1     SN0                  DapuStor                                 1         960.20  GB / 960.20  GB    512   B +  0 B   1.0
 /dev/nvme1n1     SN1                  DapuStor                                 1           1.92  TB /   1.92  TB    512   B +  0 B   1.0
+/dev/nvme4n1     SN-081FD192427DAB2C  DAPUSTOR DPRP5108T0TF06T4000             1           0.00   B /   9.01  PB      4 KiB + 16 B   FC003104
 """
 
     disks = parse_nvme_list(text)
 
-    assert [disk.namespace for disk in disks] == ["nvme0n1", "nvme1n1"]
-    assert [disk.controller for disk in disks] == ["nvme0", "nvme1"]
+    assert [disk.namespace for disk in disks] == ["nvme0n1", "nvme1n1", "nvme4n1"]
+    assert [disk.controller for disk in disks] == ["nvme0", "nvme1", "nvme4"]
     assert disks[0].size_gb == Decimal("960.20")
     assert disks[1].size_gb == Decimal("1920.00")
+    assert disks[2].model == "DAPUSTOR DPRP5108T0TF06T4000"
+    assert disks[2].model in EXCLUDED_NVME_MODELS
 
 
 def test_split_groups_puts_odd_extra_disk_in_first_group():

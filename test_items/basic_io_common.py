@@ -15,8 +15,12 @@ class NvmeDisk:
     namespace: str
     controller: str
     size_gb: Decimal
+    model: str = ""
     bdf: str = ""
     did: int | None = None
+
+
+EXCLUDED_NVME_MODELS = {"DAPUSTOR DPRP5108T0TF06T4000"}
 
 
 def ts():
@@ -130,18 +134,31 @@ def mounted_devices(log):
 def parse_nvme_list(text):
     disks = []
     for line in text.splitlines():
-        match = re.search(r"(/dev/(nvme\d+)n\d+)\s+.*?(\d+(?:\.\d+)?)\s+([KMGT]B)\b", line)
+        match = re.search(
+            r"(/dev/(nvme\d+)n\d+)\s+\S+\s+(.+?)\s+\d+\s+(\d+(?:\.\d+)?)\s+([KMGT]?B)\s*/",
+            line,
+        )
         if not match:
             continue
-        size = Decimal(match.group(3))
-        unit = match.group(4)
+        model = " ".join(match.group(3).split())
+        size = Decimal(match.group(4))
+        unit = match.group(5)
         if unit == "TB":
             size *= Decimal("1000")
         elif unit == "MB":
             size /= Decimal("1000")
         elif unit == "KB":
             size /= Decimal("1000000")
-        disks.append(NvmeDisk(namespace=Path(match.group(1)).name, controller=match.group(2), size_gb=size))
+        elif unit == "B":
+            size /= Decimal("1000000000")
+        disks.append(
+            NvmeDisk(
+                namespace=Path(match.group(1)).name,
+                controller=match.group(2),
+                size_gb=size,
+                model=model,
+            )
+        )
     return disks
 
 
@@ -151,6 +168,9 @@ def discover_nvme_data_disks(log):
     result = run_cmd(["nvme", "list"], log, check=True)
     disks = []
     for disk in parse_nvme_list(result.stdout):
+        if disk.model in EXCLUDED_NVME_MODELS:
+            log.write(f"Skip excluded NVMe model: {disk.namespace} {disk.model}")
+            continue
         if disk.namespace in protected or disk.controller in protected:
             log.write(f"Skip system NVMe: {disk.namespace}")
             continue
@@ -164,7 +184,7 @@ def discover_nvme_data_disks(log):
 
     if len(disks) < 2:
         raise AssertionError(f"Need at least 2 non-system NVMe disks, got {len(disks)}")
-    log.write("Selected NVMe disks: " + ", ".join(f"{d.namespace}({d.size_gb}GB)" for d in disks))
+    log.write("Selected NVMe disks: " + ", ".join(f"{d.namespace}({d.model},{d.size_gb}GB)" for d in disks))
     return disks
 
 
