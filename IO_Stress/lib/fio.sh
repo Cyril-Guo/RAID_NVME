@@ -351,7 +351,7 @@ function prepare_filesystem(){
 function close_mount(){
     sleep 10
     for ((i=0; i<${#add_disks[*]}; i++));do
-        assert_not_system_disk "${add_disks[$i]}" "close mount" || return $?
+        assert_not_system_disk "${add_disks[$i]}" "close mount" "allow-mounted" || return $?
         umount /dev/${add_disks[$i]}
         if [ $? -ne 0 ];then
             lsof /dev/${add_disks[$i]} | awk '{print $2}' | xargs kill -9
@@ -708,16 +708,23 @@ get_system_disk()
     system_disk=$(for device in $devices; do
         normalize_system_disk "$device"
     done | awk 'NF && !seen[$0]++' | xargs)
+    system_block_devices=$(collect_system_block_devices "$devices")
 }
 
 disk_is_system()
 {
     local disk_name="$1"
+    local block_name
     local normalized
     local item
+    block_name=$(normalize_block_name "$disk_name")
     normalized=$(normalize_system_disk "$disk_name" | head -n 1)
+    for item in $system_block_devices; do
+        [[ -n "$block_name" && "$block_name" == "$item" ]] && return 0
+    done
     for item in $system_disk; do
         [[ "$disk_name" == "$item" ]] && return 0
+        [[ -n "$block_name" && "$block_name" == "$item" ]] && return 0
         [[ -n "$normalized" && "$normalized" == "$item" ]] && return 0
     done
     return 1
@@ -727,11 +734,22 @@ assert_not_system_disk()
 {
     local disk_name="$1"
     local action="$2"
+    local mount_policy="$3"
     if disk_is_system "$disk_name"; then
-        echo "ERROR: Refuse to ${action:-use disk} on system disk [$disk_name], detected system disk(s): [$system_disk]."
+        echo "ERROR: Refuse to ${action:-use disk} on system disk or system-related partition [$disk_name], detected system disk(s): [$system_disk], protected block devices: [$system_block_devices]."
+        return 1
+    fi
+    if [[ "$mount_policy" != "allow-mounted" ]] && device_has_mountpoint "$disk_name"; then
+        echo "ERROR: Refuse to ${action:-use disk} on mounted block device or disk with mounted child [$disk_name]."
         return 1
     fi
     return 0
+}
+
+normalize_block_name()
+{
+    local device="$1"
+    echo "$device" | sed 's#^/dev/##' | sed 's#^mapper/##'
 }
 
 normalize_system_disk()
@@ -740,7 +758,7 @@ normalize_system_disk()
     local parent=""
     local current=""
 
-    device=$(echo "$device" | sed 's#^/dev/##' | sed 's#^mapper/##')
+    device=$(normalize_block_name "$device")
     [[ -z "$device" ]] && return
 
     if [[ "$device" =~ ^sd[a-z]+[0-9]*$ ]]; then
@@ -767,6 +785,46 @@ normalize_system_disk()
         fi
         current="$parent"
     done
+}
+
+collect_system_block_devices()
+{
+    local mounted_devices="$1"
+    {
+        for device in $mounted_devices $system_disk; do
+            normalize_block_name "$device"
+        done
+        lsblk -nr -o NAME,PKNAME 2>/dev/null | awk -v disks="$system_disk" '
+            BEGIN {
+                split(disks, disk_list, " ")
+                for (i in disk_list) {
+                    if (disk_list[i] != "") protected[disk_list[i]]=1
+                }
+            }
+            {
+                name=$1
+                parent=$2
+                if (protected[name] || protected[parent]) {
+                    protected[name]=1
+                    print name
+                }
+            }
+        '
+    } | awk 'NF && !seen[$0]++' | xargs
+}
+
+device_has_mountpoint()
+{
+    local disk_name="$1"
+    local block_name
+    block_name=$(normalize_block_name "$disk_name")
+    [[ -z "$block_name" ]] && return 1
+
+    lsblk -nr -o NAME,PKNAME,MOUNTPOINT 2>/dev/null | awk -v name="$block_name" '
+        $1 == name && $3 != "" {found=1}
+        $2 == name && $3 != "" {found=1}
+        END {exit found ? 0 : 1}
+    '
 }
 
 specified_disk_contains_system()

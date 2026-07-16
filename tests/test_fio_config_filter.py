@@ -28,6 +28,8 @@ def test_fio_auto_disk_selection_prefers_draid_virtual_disks():
     assert "specified_disk_contains_system" in source
     assert "validate_test_disks" in source
     assert "assert_not_system_disk" in source
+    assert "collect_system_block_devices" in source
+    assert "device_has_mountpoint" in source
 
 
 def test_fio_system_disk_detection_resolves_lvm_to_nvme_parent(tmp_path):
@@ -59,10 +61,13 @@ def test_fio_system_disk_detection_resolves_lvm_to_nvme_parent(tmp_path):
               echo "nvme3n1p3 nvme3n1 "
               echo "ubuntu--vg-ubuntu--lv nvme3n1p3 /"
               echo "ubuntu--vg-lv--0 nvme3n1p3 /boot"
+              echo "sdc  "
+              echo "sdc1 sdc /mnt/data"
             elif [ "$1" = "-nr" ] && [ "$2" = "-o" ] && [ "$3" = "NAME,PKNAME" ]; then
               echo "ubuntu--vg-ubuntu--lv nvme3n1p3"
               echo "ubuntu--vg-lv--0 nvme3n1p3"
               echo "nvme3n1p1 nvme3n1"
+              echo "nvme3n1p2 nvme3n1"
               echo "nvme3n1p3 nvme3n1"
             elif [ "$1" = "-dn" ]; then
               echo "dp0-vd1 disk"
@@ -85,14 +90,19 @@ def test_fio_system_disk_detection_resolves_lvm_to_nvme_parent(tmp_path):
             "source IO_Stress/lib/fio.sh; "
             "get_system_disk; "
             "echo system_disk=$system_disk; "
+            "echo system_block_devices=$system_block_devices; "
             "disk=$(select_auto_test_disks); "
             "echo auto_disks=$(echo $disk | tr ' ' ','); "
             "specified_disk=nvme3n1p1; "
             "specified_disk_contains_system && echo specified_partition_rejected=yes; "
             "test_disk=dp0-vd1,nvme3n1p1; "
             "validate_test_disks || echo validate_partition_rejected=yes; "
+            "disk_is_system ubuntu--vg-ubuntu--lv && echo lvm_is_system=yes; "
+            "disk_is_system nvme3n1p3 && echo partition_is_system=yes; "
             "system_disk=sda; "
-            "disk_is_system sda2 && echo sata_partition_is_system=yes",
+            "system_block_devices='sda sda1 sda2'; "
+            "disk_is_system sda2 && echo sata_partition_is_system=yes; "
+            "assert_not_system_disk sdc 'run fio' || echo mounted_disk_rejected=yes",
         ],
         cwd=Path.cwd(),
         env=env,
@@ -102,7 +112,13 @@ def test_fio_system_disk_detection_resolves_lvm_to_nvme_parent(tmp_path):
     )
 
     assert "system_disk=nvme3n1" in result.stdout
+    assert "nvme3n1p1" in result.stdout
+    assert "nvme3n1p3" in result.stdout
+    assert "ubuntu--vg-ubuntu--lv" in result.stdout
     assert "auto_disks=dp0-vd1,dp0-vd2" in result.stdout
     assert "specified_partition_rejected=yes" in result.stdout
     assert "validate_partition_rejected=yes" in result.stdout
+    assert "lvm_is_system=yes" in result.stdout
+    assert "partition_is_system=yes" in result.stdout
     assert "sata_partition_is_system=yes" in result.stdout
+    assert "mounted_disk_rejected=yes" in result.stdout
