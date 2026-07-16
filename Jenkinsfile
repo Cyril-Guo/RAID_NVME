@@ -465,13 +465,35 @@ PY
                                 sh """
                                 ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
                                     cd ${remoteDir}
-                                    python3 -m pip --version >/dev/null 2>&1 || python3 -m ensurepip --default-pip >/dev/null 2>&1 || true
-                                    python3 -m pip --version >/dev/null 2>&1 || dnf install -y python3-pip >/dev/null 2>&1 || yum install -y python3-pip >/dev/null 2>&1 || apt-get install -y python3-pip >/dev/null 2>&1 || zypper install -y python3-pip >/dev/null 2>&1 || true
-                                    if python3 -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages"; then
-                                        python3 -m pip install --break-system-packages -r requirements.txt
-                                    else
-                                        python3 -m pip install -r requirements.txt
+                                    if command -v apt-get >/dev/null 2>&1; then
+                                        export DEBIAN_FRONTEND=noninteractive
+                                        apt-get update
+                                        apt-get install -y python3-pip python3-pytest
+                                    elif command -v dnf >/dev/null 2>&1; then
+                                        dnf install -y python3-pip python3-pytest
+                                    elif command -v yum >/dev/null 2>&1; then
+                                        yum install -y python3-pip python3-pytest
+                                    elif command -v zypper >/dev/null 2>&1; then
+                                        zypper install -y python3-pip python3-pytest
                                     fi
+
+                                    if ! python3 -c "import pytest" >/dev/null 2>&1; then
+                                        python3 -m pip --version >/dev/null 2>&1 || python3 -m ensurepip --default-pip >/dev/null 2>&1 || true
+                                        if python3 -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages"; then
+                                            python3 -m pip install --break-system-packages pytest
+                                        else
+                                            python3 -m pip install pytest
+                                        fi
+                                    fi
+
+                                    if python3 -m pip --version >/dev/null 2>&1; then
+                                        if python3 -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages"; then
+                                            python3 -m pip install --break-system-packages allure-pytest || true
+                                        else
+                                            python3 -m pip install allure-pytest || true
+                                        fi
+                                    fi
+                                    python3 -c "import pytest"
                                 '
                                 """
 

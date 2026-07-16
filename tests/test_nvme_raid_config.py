@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import nvme_raid_test
 from nvme_raid_test import parse_items_file
 
 
@@ -56,3 +57,21 @@ enable = no
 
     assert selected == ["lawdisk"]
     assert params["lawdisk"]["IGNORE_ERROR"] == "yes"
+
+
+def test_run_single_item_omits_allure_args_without_plugin(monkeypatch):
+    captured = {}
+
+    def fake_pytest_main(args):
+        captured["args"] = args
+        return 0
+
+    monkeypatch.setattr(nvme_raid_test.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(nvme_raid_test.pytest, "main", fake_pytest_main)
+
+    assert nvme_raid_test.run_single_item("lawdisk", {}, clean_allure=True) == 0
+
+    args = captured["args"]
+    assert "--clean-alluredir" not in args
+    assert not any(arg.startswith("--alluredir=") for arg in args)
+    assert "--junitxml=report_lawdisk.xml" in args

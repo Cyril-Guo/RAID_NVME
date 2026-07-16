@@ -131,6 +131,10 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 `dpraid` 覆盖到 `/usr/bin/dpraid`，保证测试使用最新已编译的工具。测试完成后的飞书报告会
 同时展示本次使用的 `raid_cli` commit。
 
+**Python 测试依赖**：测试机优先使用系统软件源安装 `python3-pytest`，避免无 pip 源时卡在
+`pip install pytest`。`allure-pytest` 会尽量通过 pip 安装，但不是硬依赖；缺失时用例仍会运行并
+生成 JUnit，Jenkins 后置步骤会把 JUnit 转换为 Allure 报告。
+
 **kernel_driver 驱动准备**：触发测试后，Jenkins 会把当前被测的 `kernel_driver` 源码同步到每台
 测试机。手动构建使用 `main` 分支；MR 自动触发使用 MR source branch，并固定到 MR 当前 `sha`。
 每台测试机执行用例前，会进入 `kernel_driver/drivers/draid` 执行 `make`，生成 `draid.ko` 后先

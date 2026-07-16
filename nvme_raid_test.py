@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+import importlib.util
 
 import pytest
 
@@ -89,8 +90,13 @@ def run_single_item(item, params, clean_allure):
         os.environ[key] = value
         print(f"  [CONFIG] {key}={value}")
 
-    pytest_args = ["-v", "-s", "--tb=short", f"--alluredir={ALLURE_DIR}"]
-    if clean_allure:
+    pytest_args = ["-v", "-s", "--tb=short"]
+    if importlib.util.find_spec("allure_pytest") is not None:
+        pytest_args.append(f"--alluredir={ALLURE_DIR}")
+    elif clean_allure:
+        shutil.rmtree(ALLURE_DIR, ignore_errors=True)
+
+    if clean_allure and importlib.util.find_spec("allure_pytest") is not None:
         pytest_args.append("--clean-alluredir")
     pytest_args.extend([f"--junitxml=report_{item}.xml", test_file])
 
