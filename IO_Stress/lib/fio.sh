@@ -619,6 +619,10 @@ function set_Disk()
             # 仅对非系统盘的裸设备下发 IO（系统盘已在 do_fio 中被排除，不再对系统盘做任何 IO）
             for str in ${disk[@]}
             do
+                if disk_is_system "$str"; then
+                    echo "Skip system disk [$str] while generating fio config."
+                    continue
+                fi
                 Hard_Disk="/dev/"$str
                 echo "["$str"]" >>$Cur_Dir/configuration.tmp
                 echo "filename="$Hard_Disk >>$Cur_Dir/configuration.tmp
@@ -685,23 +689,104 @@ function if_sdx()
 
 get_system_disk()
 {
-    # Check for /boot first, then /
-    local boot_mount=$(lsblk -rn | grep -E ' (/boot|/)$' | head -n 1)
-    local boot_device=$(echo "$boot_mount" | awk '{print $1}')
+    local devices=""
+    local mount_point
+    local source
 
-    if [[ -z "$boot_device" ]]; then
-        # Fallback if lsblk -rn doesn't work as expected
-        boot_device=$(findmnt -nvo SOURCE / | sed 's/\[.*\]//')
+    for mount_point in / /boot /boot/efi; do
+        source=$(findmnt -nvo SOURCE "$mount_point" 2>/dev/null | sed 's/\[.*\]//' | head -n 1)
+        [[ -n "$source" ]] && devices="$devices $source"
+    done
+
+    devices="$devices $(lsblk -nr -o NAME,PKNAME,MOUNTPOINT 2>/dev/null | awk '$3=="/" || $3=="/boot" || $3=="/boot/efi" {print $1" "$2}')"
+
+    system_disk=$(for device in $devices; do
+        normalize_system_disk "$device"
+    done | awk 'NF && !seen[$0]++' | xargs)
+}
+
+disk_is_system()
+{
+    local disk_name="$1"
+    local item
+    for item in $system_disk; do
+        [[ "$disk_name" == "$item" ]] && return 0
+    done
+    return 1
+}
+
+normalize_system_disk()
+{
+    local device="$1"
+    local parent=""
+    local current=""
+
+    device=$(echo "$device" | sed 's#^/dev/##' | sed 's#^mapper/##')
+    [[ -z "$device" ]] && return
+
+    if [[ "$device" =~ ^sd[a-z]+[0-9]*$ ]]; then
+        echo "$device" | grep -oE '^sd[a-z]+'
+        return
     fi
 
-    if [[ "$boot_device" =~ sd ]]; then
-        system_disk=$(echo "$boot_device" | grep -oP "sd[a-z]+")
-    elif [[ "$boot_device" =~ nvme ]]; then
-        system_disk=$(echo "$boot_device" | grep -oP "nvme\d+n\d+")
-    else
-        # Generic fallback extraction
-        system_disk=$(echo "$boot_device" | sed -r 's/p?[0-9]+$//' | sed 's/.*\///')
+    if [[ "$device" =~ ^nvme[0-9]+n[0-9]+p?[0-9]*$ ]]; then
+        echo "$device" | grep -oE '^nvme[0-9]+n[0-9]+'
+        return
     fi
+
+    current="$device"
+    while [[ -n "$current" ]]; do
+        parent=$(lsblk -nr -o NAME,PKNAME 2>/dev/null | awk -v name="$current" '$1==name {print $2; exit}')
+        [[ -z "$parent" ]] && return
+        if [[ "$parent" =~ ^sd[a-z]+[0-9]*$ ]]; then
+            echo "$parent" | grep -oE '^sd[a-z]+'
+            return
+        fi
+        if [[ "$parent" =~ ^nvme[0-9]+n[0-9]+p?[0-9]*$ ]]; then
+            echo "$parent" | grep -oE '^nvme[0-9]+n[0-9]+'
+            return
+        fi
+        current="$parent"
+    done
+}
+
+specified_disk_contains_system()
+{
+    local disk_name
+    local old_ifs="$IFS"
+    IFS=", "
+    for disk_name in $specified_disk; do
+        if disk_is_system "$disk_name"; then
+            IFS="$old_ifs"
+            return 0
+        fi
+    done
+    IFS="$old_ifs"
+    return 1
+}
+
+select_auto_test_disks()
+{
+    local candidates=""
+    local fallback=""
+
+    # In this environment the data devices used by draid tests are dp*-vd*.
+    # Prefer them when FIO_DISKS is empty so physical NVMe disks are not hit directly.
+    candidates=$(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}' | grep -E '^dp[0-9]+-vd[0-9]+$' | sort)
+    if [[ -n "$candidates" ]]; then
+        echo "$candidates" | while read -r disk_name; do
+            [[ -z "$disk_name" ]] && continue
+            disk_is_system "$disk_name" || echo "$disk_name"
+        done
+        return
+    fi
+
+    # Fallback for non-draid machines: keep the original non-system disk behavior.
+    fallback=$(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}' | sort)
+    echo "$fallback" | while read -r disk_name; do
+        [[ -z "$disk_name" ]] && continue
+        disk_is_system "$disk_name" || echo "$disk_name"
+    done
 }
 
 
@@ -1489,13 +1574,13 @@ function do_fio() {
         if [[ "$specified_disk" =~ "null" ]];then
             # 仅选取 TYPE=disk 的真实块设备，排除 loop/rom 等虚拟设备；
             # 再用 -w 精确匹配整词剔除系统盘，确保绝不对系统盘或虚拟设备做 IO
-            disk=$(lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print $1}' | grep -vw "$system_disk" | sort)
+            disk=$(select_auto_test_disks)
             OLD_IFS="$IFS"
             IFS=" "
             disk=($disk)
             IFS="$OLD_IFS"
             test_disk=`echo ${disk[@]}|sed 's/ /,/g'`
-        elif [[ $specified_disk =~ $system_disk ]];then
+        elif specified_disk_contains_system; then
             # 指定磁盘中包含系统盘：为保证不对系统盘做 IO，直接中止
             echo "Specified disk contains system disk [$system_disk]. Refuse to run to avoid IO on OS disk. Exit."
             exit 1
