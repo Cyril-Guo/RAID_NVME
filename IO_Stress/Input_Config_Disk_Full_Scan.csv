@@ -1,6 +1,6 @@
 Block_Size,Random_Percentage,Read_Percentage,Queue_Depth,Run_Time(ss:mm:hh:dd),Number_of_Jobs,Offset
-4k,100,100,32,300,1,0
-4k,100,0,32,300,1,0
-1m,0,100,32,300,1,0
-1m,0,0,32,300,1,0
+4k,100,100,32,60,1,0
+4k,100,0,32,60,1,0
+1m,0,100,32,60,1,0
+1m,0,0,32,60,1,0
 End,,,,,,
