@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from test_items import basic_io_common
 from test_items.basic_io_common import (
     EXCLUDED_NVME_MODELS,
     NvmeDisk,
@@ -58,3 +59,20 @@ def test_parse_lsblk_pairs_preserves_empty_parent_columns():
         ("sdc", "", "/mnt/data"),
         ("sdc1", "sdc", ""),
     ]
+
+
+def test_lsblk_rows_uses_pairs_without_raw_flag(monkeypatch):
+    captured = {}
+
+    def fake_run_cmd(cmd, log, check=True, shell=False):
+        captured["cmd"] = cmd
+
+        class Result:
+            stdout = 'NAME="nvme3n1" PKNAME="" MOUNTPOINT=""\n'
+
+        return Result()
+
+    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+
+    assert basic_io_common.lsblk_rows(log=None) == [("nvme3n1", "", "")]
+    assert captured["cmd"] == ["lsblk", "-nP", "-o", "NAME,PKNAME,MOUNTPOINT"]

@@ -82,7 +82,7 @@ def parse_lsblk_pairs(text):
 
 
 def lsblk_rows(log):
-    result = run_cmd(["lsblk", "-nrP", "-o", "NAME,PKNAME,MOUNTPOINT"], log, check=True)
+    result = run_cmd(["lsblk", "-nP", "-o", "NAME,PKNAME,MOUNTPOINT"], log, check=True)
     return parse_lsblk_pairs(result.stdout)
 
 

@@ -15,6 +15,20 @@ def test_collect_failure_lines_matches_fio_errors():
     assert mix_failures(sample) == ["FIO command failed, config 2-randwrite-4k-32-300.log, rc=8"]
 
 
+def test_collect_failure_lines_matches_fio_guard_failures():
+    sample = """
+    Fail to detect system disk. Refuse to run to avoid any IO on OS disk. Exit.
+    FIO failed: system disk not detected
+    """
+
+    assert lawdisk_failures(sample) == [
+        "Fail to detect system disk. Refuse to run to avoid any IO on OS disk. Exit.",
+        "FIO failed: system disk not detected",
+    ]
+    assert filesystem_failures(sample) == lawdisk_failures(sample)
+    assert mix_failures(sample) == lawdisk_failures(sample)
+
+
 def test_collect_failure_lines_ignores_normal_output():
     sample = """
     Job 1/4 is Running..

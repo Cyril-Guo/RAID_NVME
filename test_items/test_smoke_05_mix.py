@@ -25,6 +25,10 @@ def _collect_failure_lines(text):
     markers = (
         "FIO command failed",
         "FIO stage failed",
+        "FIO failed",
+        "Fail to detect system disk",
+        "Refuse to run",
+        "No non-system test disk found",
         "MachineCheck inconsistencies found",
         "ERROR: MachineCheck",
         "test fail occur",
