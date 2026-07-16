@@ -120,10 +120,17 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 如果一个 MR 在两次轮询之间完成创建并合并或关闭，Jenkins 查询打开中 MR 时可能看不到它；
 只要 MR 保持打开状态超过一次 1 分钟轮询窗口，就能被监控到并触发。
 
+**环境代码拉取（raid_cli 30 分钟轮询）**：同一个 Jenkins 任务会每 30 分钟检查一次
+`general_tools/raid_cli` 的 `hostraid_cli` 分支。发现新提交时，只把代码拉取并保存到 Jenkins
+服务器的 `$JENKINS_HOME/.raid_nvme/...repo` 持久目录，作为后续编译/替换测试环境的输入。
+`raid_cli` 的变化不会触发冒烟测试，也不会进入飞书测试报告流程；只有 `kernel_driver` 的未过滤
+打开中 MR 变化才会自动跑测试。
+
 > 需要在 Jenkins 中预先完成一次性配置：
 > 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，
->    凭据 ID 填 `kernel_driver_ssh`（与 `Jenkinsfile` 的 `KERNEL_DRIVER_CRED` 一致），
->    私钥需对 `192.168.21.185` 的 `raid_max/kernel_driver` 有读取权限。
+>    凭据 ID 填 `kernel_driver_ssh`（与 `Jenkinsfile` 的 `KERNEL_DRIVER_CRED` / `RAID_CLI_CRED`
+>    一致），私钥需对 `192.168.21.185` 的 `raid_max/kernel_driver` 和
+>    `general_tools/raid_cli` 有读取权限。
 > 2. **添加 GitLab API Token 凭据**：Manage Jenkins → Credentials → 新增 *Secret text*，
 >    凭据 ID 填 `kernel_driver_gitlab_token`（与 `Jenkinsfile` 的
 >    `KERNEL_DRIVER_GITLAB_TOKEN_CRED` 一致）。Token 只需要能读取

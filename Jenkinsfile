@@ -6,6 +6,8 @@ def kernelDriverMrIid = ''
 def kernelDriverMrTitle = ''
 def kernelDriverMrUpdatedAt = ''
 def kernelDriverMrUrl = ''
+def raidCliCommit = ''
+def raidCliFullCommit = ''
 def shouldRunTests = false
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
@@ -13,6 +15,7 @@ def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
     tar \
       --exclude='./.git' \
       --exclude='./kernel_driver' \
+      --exclude='./raid_cli' \
       --exclude='./.pytest_cache' \
       --exclude='./__pycache__' \
       --exclude='./allure-results' \
@@ -55,6 +58,9 @@ pipeline {
         KERNEL_DRIVER_GITLAB_API = 'http://192.168.21.185:8081/api/v4'
         KERNEL_DRIVER_GITLAB_PROJECT = 'raid_max%2Fkernel_driver'
         KERNEL_DRIVER_GITLAB_TOKEN_CRED = 'kernel_driver_gitlab_token'
+        RAID_CLI_REPO = 'git@192.168.21.185:general_tools/raid_cli.git'
+        RAID_CLI_BRANCH = 'hostraid_cli'
+        RAID_CLI_CRED = 'kernel_driver_ssh'
     }
 
     stages {
@@ -71,14 +77,86 @@ pipeline {
                         def manuallyTriggered = currentBuild.getBuildCauses('hudson.model.Cause$UserIdCause').size() > 0
                         def markerName = "${env.JOB_NAME}_kernel_driver_open_mrs".replaceAll('[^A-Za-z0-9_.-]', '_')
                         def markerPath = "${jenkinsHome}/.raid_nvme/${markerName}.signature"
+                        def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
+                        def raidCliMarkerPath = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.commit"
+                        def raidCliCheckPath = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.last_check"
+                        def raidCliWorkDir = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo"
                         def mrProps = [:]
                         def currentMrSignature = 'none'
+                        def hasNewOpenMrEvent = false
+                        def hasRaidCliUpdate = false
 
                         if (manuallyTriggered) {
                             shouldRunTests = true
                             kernelDriverRef = env.KERNEL_DRIVER_BRANCH
                             echo "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}."
                         } else {
+                            def nowEpoch = sh(script: 'date +%s', returnStdout: true).trim().toLong()
+                            def lastRaidCliCheck = sh(
+                                script: "cat '${raidCliCheckPath}' 2>/dev/null || echo 0",
+                                returnStdout: true
+                            ).trim()
+                            def lastRaidCliEpoch = (lastRaidCliCheck ==~ /^[0-9]+$/) ? lastRaidCliCheck.toLong() : 0L
+
+                            if (nowEpoch - lastRaidCliEpoch >= 1800L) {
+                                echo "Check raid_cli(${env.RAID_CLI_BRANCH}) updates on 30-minute interval."
+                                checkout scm: [
+                                    $class: 'GitSCM',
+                                    branches: [[name: "*/${env.RAID_CLI_BRANCH}"]],
+                                    userRemoteConfigs: [[
+                                        url: env.RAID_CLI_REPO,
+                                        credentialsId: env.RAID_CLI_CRED
+                                    ]],
+                                    extensions: [
+                                        [$class: 'RelativeTargetDirectory', relativeTargetDir: 'raid_cli'],
+                                        [$class: 'CloneOption', shallow: true, depth: 50, noTags: true, timeout: 30]
+                                    ]
+                                ], poll: false, changelog: false
+
+                                raidCliFullCommit = sh(
+                                    script: "git -C raid_cli rev-parse HEAD 2>/dev/null || echo unknown",
+                                    returnStdout: true
+                                ).trim()
+                                raidCliCommit = sh(
+                                    script: "git -C raid_cli rev-parse --short HEAD 2>/dev/null || echo unknown",
+                                    returnStdout: true
+                                ).trim()
+
+                                def previousRaidCliCommit = sh(
+                                    script: "cat '${raidCliMarkerPath}' 2>/dev/null || true",
+                                    returnStdout: true
+                                ).trim()
+                                def persistentRaidCliMissing = sh(
+                                    script: "test -d '${raidCliWorkDir}/.git'; echo \$?",
+                                    returnStdout: true
+                                ).trim() != '0'
+                                hasRaidCliUpdate = raidCliFullCommit != 'unknown' && (previousRaidCliCommit != raidCliFullCommit || persistentRaidCliMissing)
+
+                                if (hasRaidCliUpdate) {
+                                    sh """
+                                    set -eu
+                                    mkdir -p '${jenkinsHome}/.raid_nvme'
+                                    rm -rf '${raidCliWorkDir}.next'
+                                    cp -a raid_cli '${raidCliWorkDir}.next'
+                                    rm -rf '${raidCliWorkDir}'
+                                    mv '${raidCliWorkDir}.next' '${raidCliWorkDir}'
+                                    printf '%s\\n' '${raidCliFullCommit}' > '${raidCliMarkerPath}'
+                                    """
+                                    currentBuild.description = "raid_cli ${raidCliCommit}"
+                                    echo "raid_cli(${env.RAID_CLI_BRANCH}) updated on Jenkins server: ${previousRaidCliCommit ?: 'none'} -> ${raidCliFullCommit}"
+                                    echo "raid_cli checkout path: ${raidCliWorkDir}"
+                                } else {
+                                    echo "raid_cli(${env.RAID_CLI_BRANCH}) has no new commit: ${raidCliCommit}"
+                                }
+
+                                sh """
+                                mkdir -p '${jenkinsHome}/.raid_nvme'
+                                printf '%s\\n' '${nowEpoch}' > '${raidCliCheckPath}'
+                                """
+                            } else {
+                                echo "Skip raid_cli polling. Last check was ${nowEpoch - lastRaidCliEpoch}s ago."
+                            }
+
                             withCredentials([string(credentialsId: env.KERNEL_DRIVER_GITLAB_TOKEN_CRED, variable: 'GITLAB_TOKEN')]) {
                                 sh '''
                                 set -eu
@@ -140,9 +218,13 @@ PY
                             def currentSignatures = currentMrSignature == 'none' ? [] : currentMrSignature.split('\\|') as List
                             def previousSignatures = previousMrSignature ? previousMrSignature.split('\\|') as List : []
                             def previousSignatureSet = previousSignatures as Set
-                            def hasNewOpenMrEvent = currentSignatures.any { !previousSignatureSet.contains(it) }
+                            hasNewOpenMrEvent = currentSignatures.any { !previousSignatureSet.contains(it) }
 
-                            if (mrCount == 0 || !hasNewOpenMrEvent) {
+                            if (!hasNewOpenMrEvent) {
+                                if (hasRaidCliUpdate) {
+                                    echo "raid_cli was updated for the test environment. No kernel_driver MR event, so skip smoke tests."
+                                    return
+                                }
                                 currentBuild.result = 'NOT_BUILT'
                                 echo "kernel_driver open merge requests have no new event. Skip NVMe RAID smoke tests."
                                 return
