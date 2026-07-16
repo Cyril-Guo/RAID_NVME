@@ -93,6 +93,11 @@ import json
 with open('kernel_driver_mrs.json', encoding='utf-8') as fh:
     merge_requests = json.load(fh)
 
+merge_requests = [
+    mr for mr in merge_requests
+    if not str(mr.get('title') or '').strip().lower().startswith('[wip]')
+]
+
 def prop_value(value):
     return str(value or '').replace('\\n', ' ').replace('\\r', ' ')
 

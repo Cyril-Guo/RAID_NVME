@@ -111,9 +111,9 @@ MONITOR_RUNTIME =
   （还原自动登录、开机自启等配置）。用于随时中止测试。
 
 **自动触发（kernel_driver 打开中 MR 变化 1 分钟轮询）**：`Jenkinsfile` 每 1 分钟通过
-GitLab API 检查 `kernel_driver` 的打开中 Merge Request。只要打开中的 MR 有新增、
-更新时间变化或头部提交变化，即自动运行冒烟测试。测试会 checkout source branch，
-并固定到 MR 当前 `sha`。
+GitLab API 检查 `kernel_driver` 的打开中 Merge Request。标题以 `[WIP]` 开头的 MR
+会被过滤，不自动触发测试。只要未过滤的打开中 MR 有新增、更新时间变化或头部提交变化，
+即自动运行冒烟测试。测试会 checkout source branch，并固定到 MR 当前 `sha`。
 
 RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试框架推代码**不会**
 误触发破坏性测试。没有打开中的 MR 变化时，本次构建会标记为 `NOT_BUILT`，不会进入测试和飞书报告流程。
