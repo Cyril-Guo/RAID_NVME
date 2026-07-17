@@ -489,8 +489,8 @@ echo "[${ip}] build and reload draid kernel driver"
                                     set -eu
                                     if command -v apt-get >/dev/null 2>&1; then
                                         export DEBIAN_FRONTEND=noninteractive
-                                        apt-get update
-                                        apt-get install -y build-essential "linux-headers-\$(uname -r)" kmod
+                                        apt-get -o DPkg::Lock::Timeout=600 update
+                                        apt-get -o DPkg::Lock::Timeout=600 install -y build-essential "linux-headers-\$(uname -r)" kmod
                                     elif command -v dnf >/dev/null 2>&1; then
                                         dnf install -y make gcc kernel-devel kmod
                                     elif command -v yum >/dev/null 2>&1; then
@@ -540,8 +540,8 @@ echo "[${ip}] install python dependencies"
                                     cd ${remoteDir}
                                     if command -v apt-get >/dev/null 2>&1; then
                                         export DEBIAN_FRONTEND=noninteractive
-                                        apt-get update
-                                        apt-get install -y python3-pip python3-pytest
+                                        apt-get -o DPkg::Lock::Timeout=600 update
+                                        apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest
                                     elif command -v dnf >/dev/null 2>&1; then
                                         dnf install -y python3-pip python3-pytest
                                     elif command -v yum >/dev/null 2>&1; then
