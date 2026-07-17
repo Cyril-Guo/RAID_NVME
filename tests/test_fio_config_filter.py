@@ -33,6 +33,15 @@ def test_fio_auto_disk_selection_prefers_draid_virtual_disks():
     assert "device_has_mountpoint" in source
 
 
+def test_io_stress_does_not_clear_system_logs():
+    source = Path("IO_Stress/lib/init.sh").read_text(encoding="utf-8")
+
+    assert "dmesg -c" not in source
+    assert "ipmitool sel clear" not in source
+    assert "echo \"\" > $messages_log" not in source
+    assert "echo \"\" > $dmesg_log" not in source
+
+
 def test_fio_system_disk_detection_resolves_lvm_to_nvme_parent(tmp_path):
     findmnt = tmp_path / "findmnt"
     findmnt.write_text(

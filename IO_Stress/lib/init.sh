@@ -28,17 +28,8 @@ function clear_log()
 
 
    
-	show_produce_message "clear log" 
-    echo "  - Truncating system logs..."
-    echo "" > $messages_log 2>/dev/null
-    echo "" > $dmesg_log 2>/dev/null
-    echo "  - Clearing dmesg..."
-    timeout 5 dmesg -c >/dev/null 2>/dev/null
-    if command -v ipmitool >/dev/null 2>&1; then
-        echo "  - Clearing IPMI SEL (timeout 10s)..."
-        timeout 10 ipmitool sel clear > /dev/null 2>&1
-    fi
-    echo "  - Log clearing complete."
+	show_produce_message "prepare test log directories"
+    echo "  - System logs, dmesg, and IPMI SEL are preserved."
 }
 
 function prepare_logfile()
