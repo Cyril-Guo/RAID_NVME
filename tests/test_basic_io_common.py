@@ -7,6 +7,7 @@ from test_items.basic_io_common import (
     NvmeDisk,
     create_raid5_vds,
     drives_expr,
+    parse_dpraid_physical_devices,
     parse_lsblk_pairs,
     parse_nvme_list,
     split_groups,
@@ -27,6 +28,7 @@ Node             SN                   Model                                    N
 
     assert [disk.namespace for disk in disks] == ["nvme0n1", "nvme1n1", "nvme4n1"]
     assert [disk.controller for disk in disks] == ["nvme0", "nvme1", "nvme4"]
+    assert [disk.sn for disk in disks] == ["SN0", "SN1", "SN-081FD192427DAB2C"]
     assert disks[0].size_gb == Decimal("960.20")
     assert disks[1].size_gb == Decimal("1920.00")
     assert disks[2].model == "DAPUSTOR DPRP5108T0TF06T4000"
@@ -81,6 +83,34 @@ def test_create_raid5_vds_splits_15_disks_into_7_and_8_disk_groups(monkeypatch):
     assert commands[4:] == [
         ["dpraid", "/c0", "add", "vd", "r=5", "Size=10432GB", "Strip=4", "drives=7-14"]
     ] * 4
+
+
+def test_dpraid_show_dids_are_used_for_raid5_creation(monkeypatch):
+    commands = []
+    dpraid_show = "\n".join(
+        [
+            f"60:{i:<2} {i:<2} UnGo     null     5961.593 GB    NVMe  SSD  512 B DAPUSTOR DPRD3108T0T506T4000      SN{i:02d}"
+            for i in range(15)
+        ]
+    )
+    disks = parse_dpraid_physical_devices(dpraid_show)
+    groups = split_groups(disks)
+
+    def fake_run_cmd(cmd, log, check=True, shell=False):
+        commands.append(cmd)
+
+        class Result:
+            stdout = ""
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+    create_raid5_vds(groups, CommandLog())
+
+    assert [disk.did for disk in disks] == list(range(15))
+    assert commands[0] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=8942GB", "Strip=4", "drives=0-6"]
+    assert commands[4] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=10432GB", "Strip=4", "drives=7-14"]
 
 
 def test_parse_lsblk_pairs_preserves_empty_parent_columns():

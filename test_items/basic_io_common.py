@@ -16,6 +16,7 @@ class NvmeDisk:
     controller: str
     size_gb: Decimal
     model: str = ""
+    sn: str = ""
     bdf: str = ""
     did: int | None = None
 
@@ -135,14 +136,15 @@ def parse_nvme_list(text):
     disks = []
     for line in text.splitlines():
         match = re.search(
-            r"(/dev/(nvme\d+)n\d+)\s+\S+\s+(.+?)\s+\d+\s+(\d+(?:\.\d+)?)\s+([KMGT]?B)\s*/",
+            r"(/dev/(nvme\d+)n\d+)\s+(\S+)\s+(.+?)\s+\d+\s+(\d+(?:\.\d+)?)\s+([KMGT]?B)\s*/",
             line,
         )
         if not match:
             continue
-        model = " ".join(match.group(3).split())
-        size = Decimal(match.group(4))
-        unit = match.group(5)
+        sn = match.group(3)
+        model = " ".join(match.group(4).split())
+        size = Decimal(match.group(5))
+        unit = match.group(6)
         if unit == "TB":
             size *= Decimal("1000")
         elif unit == "MB":
@@ -157,6 +159,7 @@ def parse_nvme_list(text):
                 controller=match.group(2),
                 size_gb=size,
                 model=model,
+                sn=sn,
             )
         )
     return disks
@@ -188,6 +191,13 @@ def discover_nvme_data_disks(log):
     return disks
 
 
+def nvme_inventory(log):
+    result = run_cmd(["nvme", "list"], log, check=True)
+    disks = parse_nvme_list(result.stdout)
+    log.write("NVMe inventory: " + ", ".join(f"{d.namespace}({d.sn},{d.size_gb}GB)" for d in disks))
+    return disks
+
+
 def query_bdf(disk, log):
     sysfs = f"/sys/block/{disk.namespace}/device/"
     result = run_cmd(f"ls {sysfs} -al", log, check=True, shell=True)
@@ -216,14 +226,46 @@ def add_physical_disks(disks, log):
         run_cmd(["dpraid", "/c0", "add", "disk", f"/dev/{disk.controller}"], log, check=True)
 
 
-def assign_dids_by_add_order(disks, log):
-    for index, disk in enumerate(disks):
-        disk.did = index
-    log.write("Assigned DID by add order: " + ", ".join(f"{d.namespace}->DID{d.did}" for d in disks))
-
-
 def show_physical_devices(log):
     return run_cmd(["dpraid", "/c0/eall/sall", "show"], log, check=True).stdout
+
+
+def parse_dpraid_physical_devices(text):
+    disks = []
+    for line in text.splitlines():
+        match = re.search(
+            r"\b\d+:\d+\s+(\d+)\s+UnGo\s+\S+\s+(\d+(?:\.\d+)?)\s+GB\s+\S+\s+\S+\s+\S+\s+\S+\s+(.+?)\s+(\S+)\s*$",
+            line,
+        )
+        if not match:
+            continue
+        did = int(match.group(1))
+        model = " ".join(match.group(3).split())
+        sn = match.group(4)
+        disks.append(
+            NvmeDisk(
+                namespace=f"did{did}",
+                controller="",
+                size_gb=Decimal(match.group(2)),
+                model=model,
+                sn=sn,
+                did=did,
+            )
+        )
+    return sorted(disks, key=lambda disk: disk.did if disk.did is not None else -1)
+
+
+def apply_bdf_from_nvme_inventory(dpraid_disks, nvme_disks, log):
+    by_sn = {disk.sn: disk for disk in nvme_disks if disk.sn}
+    for disk in dpraid_disks:
+        nvme_disk = by_sn.get(disk.sn)
+        if nvme_disk:
+            disk.namespace = nvme_disk.namespace
+            disk.controller = nvme_disk.controller
+            disk.bdf = nvme_disk.bdf
+    missing = [f"DID{disk.did}:{disk.sn}" for disk in dpraid_disks if not disk.bdf]
+    if missing:
+        log.write("No BDF mapping for dpraid disks: " + ", ".join(missing))
 
 
 def show_virtual_devices(log):
@@ -276,14 +318,20 @@ def verify_vd_count(log, expected=8):
 
 def prepare_basic_raid5_vds(log):
     delete_existing_vds(log)
-    disks = discover_nvme_data_disks(log)
-    for disk in disks:
-        query_bdf(disk, log)
+    nvme_inventory_disks = nvme_inventory(log)
+    for disk in nvme_inventory_disks:
+        if disk.size_gb > 0:
+            query_bdf(disk, log)
+    nvme_disks = discover_nvme_data_disks(log)
+    add_physical_disks(nvme_disks, log)
+    physical_output = show_physical_devices(log)
+    disks = parse_dpraid_physical_devices(physical_output)
+    if len(disks) < 2:
+        raise AssertionError(f"Need at least 2 dpraid physical disks, got {len(disks)}")
+    apply_bdf_from_nvme_inventory(disks, nvme_inventory_disks, log)
+    log.write("Assigned DID by dpraid show: " + ", ".join(f"{d.namespace}->DID{d.did}" for d in disks))
     groups = split_groups(disks)
-    log.write("Disk groups: " + " | ".join(",".join(d.namespace for d in group) for group in groups))
-    add_physical_disks(disks, log)
-    show_physical_devices(log)
-    assign_dids_by_add_order(disks, log)
+    log.write("Disk groups: " + " | ".join(",".join(f"DID{d.did}" for d in group) for group in groups))
     create_raid5_vds(groups, log)
     verify_vd_count(log, expected=8)
     vd_output = show_virtual_devices(log)
@@ -303,7 +351,13 @@ def power_cycle_one_disk_per_group(groups, log):
     selected = []
     rng = random.SystemRandom()
     for group in groups:
-        selected.append(rng.choice(group))
+        candidates = [disk for disk in group if disk.bdf]
+        if not candidates:
+            raise AssertionError(
+                "Cannot power-cycle group without BDF mapping: "
+                + ",".join(f"DID{disk.did}:{disk.sn}" for disk in group)
+            )
+        selected.append(rng.choice(candidates))
     for disk in selected:
         slot = slot_from_bdf(disk.bdf, log)
         power_file = f"/sys/bus/pci/slots/{slot}/power"
