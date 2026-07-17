@@ -216,23 +216,36 @@ def split_groups(disks):
     return [disks[:split_at], disks[split_at:]]
 
 
+def show_virtual_devices(log):
+    return run_cmd(["dpraid", "/c0/vall", "show"], log, check=True).stdout
+
+
+def show_physical_devices(log):
+    return run_cmd(["dpraid", "/c0/eall/sall", "show"], log, check=True).stdout
+
+
+def parse_dpraid_virtual_ids(text):
+    ids = []
+    for line in text.splitlines():
+        match = re.search(r"\b(\d+)/(\d+)\s+\S+\s+\S+\s+raid\d+\b", line, re.IGNORECASE)
+        if match:
+            ids.append(int(match.group(2)))
+    return sorted(set(ids))
+
+
 def delete_existing_vds(log):
-    for index in range(10):
+    for index in parse_dpraid_virtual_ids(show_virtual_devices(log)):
         run_cmd(["dpraid", f"/c0/v{index}", "delete"], log, check=False)
 
 
 def delete_existing_pds(log):
-    for slot in ("s1", "s2"):
+    for slot in parse_dpraid_slots(show_physical_devices(log)):
         run_cmd(["dpraid", f"/c0/eall/{slot}", "delete"], log, check=False)
 
 
 def add_physical_disks(disks, log):
     for disk in disks:
         run_cmd(["dpraid", "/c0", "add", "disk", f"/dev/{disk.controller}"], log, check=True)
-
-
-def show_physical_devices(log):
-    return run_cmd(["dpraid", "/c0/eall/sall", "show"], log, check=True).stdout
 
 
 def parse_dpraid_physical_devices(text):
@@ -260,6 +273,15 @@ def parse_dpraid_physical_devices(text):
     return sorted(disks, key=lambda disk: disk.did if disk.did is not None else -1)
 
 
+def parse_dpraid_slots(text):
+    slots = []
+    for line in text.splitlines():
+        match = re.search(r"\b\d+:(\d+)\s+\d+\s+\S+\s+", line)
+        if match:
+            slots.append(f"s{int(match.group(1))}")
+    return sorted(set(slots), key=lambda slot: int(slot[1:]))
+
+
 def apply_bdf_from_nvme_inventory(dpraid_disks, nvme_disks, log):
     by_sn = {disk.sn: disk for disk in nvme_disks if disk.sn}
     for disk in dpraid_disks:
@@ -271,10 +293,6 @@ def apply_bdf_from_nvme_inventory(dpraid_disks, nvme_disks, log):
     missing = [f"DID{disk.did}:{disk.sn}" for disk in dpraid_disks if not disk.bdf]
     if missing:
         log.write("No BDF mapping for dpraid disks: " + ", ".join(missing))
-
-
-def show_virtual_devices(log):
-    return run_cmd(["dpraid", "/c0/vall", "show"], log, check=True).stdout
 
 
 def drives_expr(group):

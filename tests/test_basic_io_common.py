@@ -8,6 +8,8 @@ from test_items.basic_io_common import (
     create_raid5_vds,
     drives_expr,
     parse_dpraid_physical_devices,
+    parse_dpraid_slots,
+    parse_dpraid_virtual_ids,
     parse_lsblk_pairs,
     parse_nvme_list,
     prepare_basic_raid5_vds,
@@ -114,8 +116,31 @@ def test_dpraid_show_dids_are_used_for_raid5_creation(monkeypatch):
     assert commands[4] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=10432GB", "Strip=4", "drives=7-14"]
 
 
-def test_prepare_deletes_existing_pds_after_vds_before_readding_disks(monkeypatch):
+def test_parse_dpraid_show_for_existing_vds_and_pds():
+    vd_output = """
+DG/VD  State  Consist TYPE
+0/1    Opti   No      raid5
+0/8    Opti   No      raid5
+"""
+    pd_output = "\n".join(
+        [
+            f"60:{i:<2} {i:<2} UnGo     null     5961.593 GB    NVMe  SSD  512 B DAPUSTOR DPRD3108T0T506T4000      SN{i:02d}"
+            for i in range(15)
+        ]
+    )
+
+    assert parse_dpraid_virtual_ids(vd_output) == [1, 8]
+    assert parse_dpraid_slots(pd_output) == [f"s{i}" for i in range(15)]
+
+
+def test_prepare_deletes_actual_existing_vds_and_pds_before_readding_disks(monkeypatch):
     calls = []
+    existing_vd_show = """
+DG/VD  State  Consist TYPE
+0/1    Opti   No      raid5
+0/3    Opti   No      raid5
+0/8    Opti   No      raid5
+"""
     dpraid_show = "\n".join(
         [
             f"60:{i:<2} {i:<2} UnGo     null     5961.593 GB    NVMe  SSD  512 B DAPUSTOR DPRD3108T0T506T4000      SN{i:02d}"
@@ -131,7 +156,8 @@ def test_prepare_deletes_existing_pds_after_vds_before_readding_disks(monkeypatc
     monkeypatch.setattr(basic_io_common, "query_bdf", lambda disk, log: None)
     monkeypatch.setattr(basic_io_common, "show_physical_devices", lambda log: dpraid_show)
     monkeypatch.setattr(basic_io_common, "verify_vd_count", lambda log, expected=8: [f"dp0-vd{i}" for i in range(1, 9)])
-    monkeypatch.setattr(basic_io_common, "show_virtual_devices", lambda log: "vd output")
+    show_virtual_outputs = iter([existing_vd_show, "vd output"])
+    monkeypatch.setattr(basic_io_common, "show_virtual_devices", lambda log: next(show_virtual_outputs))
     monkeypatch.setattr(basic_io_common, "discover_nvme_data_disks", lambda log: nvme_disks)
 
     def fake_run_cmd(cmd, log, check=True, shell=False):
@@ -147,12 +173,12 @@ def test_prepare_deletes_existing_pds_after_vds_before_readding_disks(monkeypatc
 
     disks, groups, vd_output = prepare_basic_raid5_vds(CommandLog())
 
-    assert calls[:12] == [
-        ["dpraid", f"/c0/v{index}", "delete"] for index in range(10)
-    ] + [
-        ["dpraid", "/c0/eall/s1", "delete"],
-        ["dpraid", "/c0/eall/s2", "delete"],
-    ]
+    expected_cleanup = [
+        ["dpraid", "/c0/v1", "delete"],
+        ["dpraid", "/c0/v3", "delete"],
+        ["dpraid", "/c0/v8", "delete"],
+    ] + [["dpraid", f"/c0/eall/s{i}", "delete"] for i in range(15)]
+    assert calls[: len(expected_cleanup)] == expected_cleanup
     assert ["dpraid", "/c0", "add", "disk", "/dev/nvme0"] in calls
     assert len(disks) == 15
     assert [len(group) for group in groups] == [7, 8]
