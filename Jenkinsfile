@@ -52,6 +52,12 @@ pipeline {
             defaultValue: false,
             description: 'Debug mode: run the same pipeline but skip Feishu notification.'
         )
+        string(
+            name: 'MANUAL_MR_IID',
+            defaultValue: '',
+            trim: true,
+            description: 'Manual rerun: set a kernel_driver merge request IID, for example 141. Empty means run main branch.'
+        )
     }
 
     environment {
@@ -153,16 +159,67 @@ pipeline {
                         }
 
                         if (manuallyTriggered) {
+                            def manualMrIid = (params.MANUAL_MR_IID ?: '').trim()
                             shouldRunTests = true
-                            kernelDriverRef = env.KERNEL_DRIVER_BRANCH
-                            triggerSource = 'Manual Build'
-                            echo "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}."
                             def raidCliBootstrapMissing = sh(
                                 script: "test -d '${raidCliWorkDir}/.git' && test -x '${raidCliDpraidPath}'; echo \$?",
                                 returnStdout: true
                             ).trim() != '0'
                             if (raidCliBootstrapMissing) {
                                 hasRaidCliUpdate = syncRaidCli('initial bootstrap is missing')
+                            }
+
+                            if (manualMrIid) {
+                                if (!(manualMrIid ==~ /^[0-9]+$/)) {
+                                    error "MANUAL_MR_IID must be a numeric GitLab merge request IID, got: ${manualMrIid}"
+                                }
+
+                                withCredentials([string(credentialsId: env.KERNEL_DRIVER_GITLAB_TOKEN_CRED, variable: 'GITLAB_TOKEN')]) {
+                                    sh """
+                                    set -eu
+                                    curl -fsS \\
+                                      --header "PRIVATE-TOKEN: \${GITLAB_TOKEN}" \\
+                                      "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests/${manualMrIid}" \\
+                                      -o kernel_driver_manual_mr.json
+
+                                    python3 - <<'PY' > kernel_driver_manual_mr.properties
+import json
+
+with open('kernel_driver_manual_mr.json', encoding='utf-8') as fh:
+    mr = json.load(fh)
+
+def prop_value(value):
+    return str(value or '').replace('\\n', ' ').replace('\\r', ' ')
+
+print(f"MR_IID={prop_value(mr.get('iid'))}")
+print(f"MR_TITLE={prop_value(mr.get('title'))}")
+print(f"MR_SOURCE_BRANCH={prop_value(mr.get('source_branch'))}")
+print(f"MR_TARGET_BRANCH={prop_value(mr.get('target_branch'))}")
+print(f"MR_SHA={prop_value(mr.get('sha'))}")
+print(f"MR_UPDATED_AT={prop_value(mr.get('updated_at'))}")
+print(f"MR_WEB_URL={prop_value(mr.get('web_url'))}")
+PY
+                                    """
+                                }
+
+                                readFile('kernel_driver_manual_mr.properties').split('\\r?\\n').each { line ->
+                                    if (line.contains('=')) {
+                                        def parts = line.split('=', 2)
+                                        mrProps[parts[0]] = parts[1]
+                                    }
+                                }
+
+                                kernelDriverRef = mrProps.MR_SOURCE_BRANCH ?: env.KERNEL_DRIVER_BRANCH
+                                kernelDriverMrIid = mrProps.MR_IID ?: manualMrIid
+                                kernelDriverMrTitle = mrProps.MR_TITLE ?: ''
+                                kernelDriverMrUpdatedAt = mrProps.MR_UPDATED_AT ?: ''
+                                kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
+                                triggerSource = 'Manual MR Build'
+                                echo "Manual MR build requested. Run smoke tests on kernel_driver !${kernelDriverMrIid} ${kernelDriverRef}."
+                            } else {
+                                kernelDriverRef = env.KERNEL_DRIVER_BRANCH
+                                triggerSource = 'Manual Build'
+                                echo "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}."
                             }
                         } else {
                             def nowEpoch = sh(script: 'date +%s', returnStdout: true).trim().toLong()

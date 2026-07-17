@@ -23,3 +23,14 @@ def test_feishu_webhook_uses_jenkins_credential():
 
     assert "FEISHU_WEBHOOK = credentials('feishu-webhook')" in source
     assert "https://open.feishu.cn/open-apis/bot/v2/hook/" not in source
+
+
+def test_manual_mr_iid_reruns_merge_request():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "name: 'MANUAL_MR_IID'" in source
+    assert "MANUAL_MR_IID must be a numeric GitLab merge request IID" in source
+    assert "merge_requests/${manualMrIid}" in source
+    assert "kernel_driver_manual_mr.properties" in source
+    assert "triggerSource = 'Manual MR Build'" in source
+    assert "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}." in source
