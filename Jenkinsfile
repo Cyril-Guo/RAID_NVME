@@ -47,6 +47,11 @@ pipeline {
             defaultValue: false,
             description: 'Only stop and clean up running test processes on target nodes. Do not run tests in this build.'
         )
+        booleanParam(
+            name: 'DEBUG_NO_FEISHU',
+            defaultValue: false,
+            description: 'Debug mode: run the same pipeline but skip Feishu notification.'
+        )
     }
 
     environment {
@@ -753,7 +758,11 @@ ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
                 ]
 
                 writeFile file: 'feishu_payload.json', text: groovy.json.JsonOutput.toJson(payload)
-                sh "curl -s -X POST -H 'Content-Type: application/json' -d @feishu_payload.json ${env.FEISHU_WEBHOOK}"
+                if (params.DEBUG_NO_FEISHU) {
+                    echo 'DEBUG_NO_FEISHU=true, skip Feishu notification.'
+                } else {
+                    sh "curl -s -X POST -H 'Content-Type: application/json' -d @feishu_payload.json ${env.FEISHU_WEBHOOK}"
+                }
             }
         }
     }
