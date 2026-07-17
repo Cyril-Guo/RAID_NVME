@@ -221,6 +221,11 @@ def delete_existing_vds(log):
         run_cmd(["dpraid", f"/c0/v{index}", "delete"], log, check=False)
 
 
+def delete_existing_pds(log):
+    for slot in ("s1", "s2"):
+        run_cmd(["dpraid", f"/c0/eall/{slot}", "delete"], log, check=False)
+
+
 def add_physical_disks(disks, log):
     for disk in disks:
         run_cmd(["dpraid", "/c0", "add", "disk", f"/dev/{disk.controller}"], log, check=True)
@@ -318,17 +323,15 @@ def verify_vd_count(log, expected=8):
 
 def prepare_basic_raid5_vds(log):
     delete_existing_vds(log)
+    delete_existing_pds(log)
     nvme_inventory_disks = nvme_inventory(log)
     for disk in nvme_inventory_disks:
         if disk.size_gb > 0:
             query_bdf(disk, log)
+    nvme_disks = discover_nvme_data_disks(log)
+    add_physical_disks(nvme_disks, log)
     physical_output = show_physical_devices(log)
     disks = parse_dpraid_physical_devices(physical_output)
-    if len(disks) < 2:
-        nvme_disks = discover_nvme_data_disks(log)
-        add_physical_disks(nvme_disks, log)
-        physical_output = show_physical_devices(log)
-        disks = parse_dpraid_physical_devices(physical_output)
     if len(disks) < 2:
         raise AssertionError(f"Need at least 2 dpraid physical disks, got {len(disks)}")
     apply_bdf_from_nvme_inventory(disks, nvme_inventory_disks, log)

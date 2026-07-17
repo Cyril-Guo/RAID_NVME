@@ -114,7 +114,7 @@ def test_dpraid_show_dids_are_used_for_raid5_creation(monkeypatch):
     assert commands[4] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=10432GB", "Strip=4", "drives=7-14"]
 
 
-def test_prepare_uses_existing_dpraid_disks_before_nvme_discovery(monkeypatch):
+def test_prepare_deletes_existing_pds_after_vds_before_readding_disks(monkeypatch):
     calls = []
     dpraid_show = "\n".join(
         [
@@ -122,15 +122,17 @@ def test_prepare_uses_existing_dpraid_disks_before_nvme_discovery(monkeypatch):
             for i in range(15)
         ]
     )
+    nvme_disks = [
+        NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("5961.593"), sn=f"SN{i:02d}")
+        for i in range(15)
+    ]
 
-    monkeypatch.setattr(basic_io_common, "nvme_inventory", lambda log: [])
+    monkeypatch.setattr(basic_io_common, "nvme_inventory", lambda log: nvme_disks)
     monkeypatch.setattr(basic_io_common, "query_bdf", lambda disk, log: None)
     monkeypatch.setattr(basic_io_common, "show_physical_devices", lambda log: dpraid_show)
     monkeypatch.setattr(basic_io_common, "verify_vd_count", lambda log, expected=8: [f"dp0-vd{i}" for i in range(1, 9)])
     monkeypatch.setattr(basic_io_common, "show_virtual_devices", lambda log: "vd output")
-
-    def fail_discover(log):
-        raise AssertionError("discover_nvme_data_disks should not run when dpraid disks already exist")
+    monkeypatch.setattr(basic_io_common, "discover_nvme_data_disks", lambda log: nvme_disks)
 
     def fake_run_cmd(cmd, log, check=True, shell=False):
         calls.append(cmd)
@@ -141,11 +143,17 @@ def test_prepare_uses_existing_dpraid_disks_before_nvme_discovery(monkeypatch):
 
         return Result()
 
-    monkeypatch.setattr(basic_io_common, "discover_nvme_data_disks", fail_discover)
     monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
 
     disks, groups, vd_output = prepare_basic_raid5_vds(CommandLog())
 
+    assert calls[:12] == [
+        ["dpraid", f"/c0/v{index}", "delete"] for index in range(10)
+    ] + [
+        ["dpraid", "/c0/eall/s1", "delete"],
+        ["dpraid", "/c0/eall/s2", "delete"],
+    ]
+    assert ["dpraid", "/c0", "add", "disk", "/dev/nvme0"] in calls
     assert len(disks) == 15
     assert [len(group) for group in groups] == [7, 8]
     assert vd_output == "vd output"
