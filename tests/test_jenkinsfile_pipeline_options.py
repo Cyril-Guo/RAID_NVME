@@ -34,3 +34,15 @@ def test_manual_mr_iid_reruns_merge_request():
     assert "kernel_driver_manual_mr.properties" in source
     assert "triggerSource = 'Manual MR Build'" in source
     assert "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}." in source
+
+
+def test_target_hang_times_out_and_keeps_pipeline_control():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "TARGET_NODE_TIMEOUT_MINUTES = '90'" in source
+    assert "ServerAliveInterval=30" in source
+    assert "ServerAliveCountMax=3" in source
+    assert "ConnectTimeout=15" in source
+    assert "timeout --kill-after=60s ${env.TARGET_NODE_TIMEOUT_MINUTES}m ssh" in source
+    assert "nvme_raid_test.py timed out after ${env.TARGET_NODE_TIMEOUT_MINUTES} minutes" in source
+    assert "exit \"\\$test_rc\"" in source

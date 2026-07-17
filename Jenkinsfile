@@ -12,7 +12,7 @@ def raidCliDpraidPath = ''
 def triggerSource = ''
 def shouldRunTests = false
 
-def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
+def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     sh """
     tar \
       --exclude='./.git' \
@@ -25,7 +25,7 @@ def copyWorkspaceToRemote(ip, remoteDir, targetUser) {
       --exclude='./report_*.xml' \
       --exclude='./test_execution_*.log' \
       --exclude='./feishu_payload.json' \
-      -czf - . | ssh -o StrictHostKeyChecking=no ${targetUser}@${ip} 'tar -xzf - -C ${remoteDir}'
+      -czf - . | ssh ${sshOpts} ${targetUser}@${ip} 'tar -xzf - -C ${remoteDir}'
     """
 }
 
@@ -64,6 +64,8 @@ pipeline {
         FEISHU_WEBHOOK = credentials('feishu-webhook')
         TARGET_USER = 'root'
         ALLOW_DESTRUCTIVE_FIO = '1'
+        TARGET_NODE_TIMEOUT_MINUTES = '90'
+        SSH_OPTS = '-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
 
         KERNEL_DRIVER_REPO = 'git@192.168.21.185:raid_max/kernel_driver.git'
         KERNEL_DRIVER_BRANCH = 'main'
@@ -421,7 +423,7 @@ PY
 
                                 echo "[${ip}] stop running test processes"
                                 sh """
-                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
+                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
                                     pkill -9 -f nvme_raid_test.py 2>/dev/null || true
                                     pkill -2 -f Stress_Monitor/main.py 2>/dev/null || true
                                     pkill -9 -f run_fio.sh 2>/dev/null || true
@@ -431,18 +433,18 @@ PY
                                 """
 
                                 echo "[${ip}] deploy restore scripts"
-                                sh "ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
-                                copyWorkspaceToRemote(ip, remoteDir, env.TARGET_USER)
+                                sh "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
+                                copyWorkspaceToRemote(ip, remoteDir, env.TARGET_USER, env.SSH_OPTS)
 
                                 echo "[${ip}] execute restore"
                                 sh """
-                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
+                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
                                     cd ${remoteDir}/IO_Stress && bash ./Fio_All.sh -i restore || true
                                 '
                                 """
 
                                 echo "[${ip}] clean temporary directory"
-                                sh "ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir}' || true"
+                                sh "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir}' || true"
                             }
                         }
                     }
@@ -492,7 +494,7 @@ PY
 set -o pipefail
 {
 echo "[${ip}] deploy workspace"
-ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
+ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
 tar \\
   --exclude='./.git' \\
   --exclude='./kernel_driver/.git' \\
@@ -505,7 +507,7 @@ tar \\
   --exclude='./test_execution_*.log' \\
   --exclude='./environment_prepare_*.log' \\
   --exclude='./feishu_payload.json' \\
-  -czf - . | ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} 'tar -xzf - -C ${remoteDir}'
+  -czf - . | ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} 'tar -xzf - -C ${remoteDir}'
 } 2>&1 | tee -a ${envPrepareLog}
 """
                                 )
@@ -521,8 +523,8 @@ tar \\
 set -o pipefail
 {
 echo "[${ip}] install latest dpraid"
-                                scp -o StrictHostKeyChecking=no '${raidCliDpraidPathForRun}' ${env.TARGET_USER}@${ip}:/tmp/dpraid_${env.BUILD_NUMBER}
-                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
+                                scp ${env.SSH_OPTS} '${raidCliDpraidPathForRun}' ${env.TARGET_USER}@${ip}:/tmp/dpraid_${env.BUILD_NUMBER}
+                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
                                     install -m 0755 /tmp/dpraid_${env.BUILD_NUMBER} /usr/bin/dpraid
                                     rm -f /tmp/dpraid_${env.BUILD_NUMBER}
                                     /usr/bin/dpraid --help >/dev/null 2>&1 || true
@@ -542,7 +544,7 @@ echo "[${ip}] install latest dpraid"
 set -o pipefail
 {
 echo "[${ip}] build and reload draid kernel driver"
-                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
+                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
                                     set -eu
                                     if command -v apt-get >/dev/null 2>&1; then
                                         export DEBIAN_FRONTEND=noninteractive
@@ -593,7 +595,7 @@ echo "[${ip}] build and reload draid kernel driver"
 set -o pipefail
 {
 echo "[${ip}] install python dependencies"
-                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
+                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
                                     cd ${remoteDir}
                                     if command -v apt-get >/dev/null 2>&1; then
                                         export DEBIAN_FRONTEND=noninteractive
@@ -636,7 +638,7 @@ echo "[${ip}] install python dependencies"
 
                                 echo "[${ip}] collect environment metadata"
                                 sh """
-                                ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} '
+                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
                                     cd ${remoteDir}
                                     mkdir -p allure-results
                                     {
@@ -652,11 +654,16 @@ echo "[${ip}] install python dependencies"
                                     returnStatus: true,
                                     script: """#!/bin/bash
 set -o pipefail
-ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
+timeout --kill-after=60s ${env.TARGET_NODE_TIMEOUT_MINUTES}m ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} \"
     cd ${remoteDir} && \
     ALLOW_DESTRUCTIVE_FIO=${env.ALLOW_DESTRUCTIVE_FIO} \
     sudo -E python3 nvme_raid_test.py
 \" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), \$0 }' | tee test_execution_${ip}.log
+test_rc=\${PIPESTATUS[0]}
+if [ "\$test_rc" = "124" ] || [ "\$test_rc" = "137" ]; then
+    echo "[${ip}] ERROR: nvme_raid_test.py timed out after ${env.TARGET_NODE_TIMEOUT_MINUTES} minutes, target may be hung." | tee -a test_execution_${ip}.log
+fi
+exit "\$test_rc"
 """
                                 )
 
@@ -664,12 +671,12 @@ ssh -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip} \"
                                 sh """
                                 mkdir -p allure-results
                                 rm -rf allure-results-${ip}
-                                scp -o StrictHostKeyChecking=no -r ${env.TARGET_USER}@${ip}:${remoteDir}/allure-results ./allure-results-${ip} || true
+                                scp ${env.SSH_OPTS} -r ${env.TARGET_USER}@${ip}:${remoteDir}/allure-results ./allure-results-${ip} || true
                                 if [ -d allure-results-${ip} ]; then
                                     cp -R allure-results-${ip}/. ./allure-results/ || true
                                     rm -rf allure-results-${ip}
                                 fi
-                                scp -o StrictHostKeyChecking=no ${env.TARGET_USER}@${ip}:${remoteDir}/report.xml ./report_${ip}.xml || true
+                                scp ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}:${remoteDir}/report.xml ./report_${ip}.xml || true
                                 """
 
                                 if (testStatus != 0) {
