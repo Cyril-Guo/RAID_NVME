@@ -33,6 +33,18 @@ def test_fio_auto_disk_selection_prefers_draid_virtual_disks():
     assert "device_has_mountpoint" in source
 
 
+def test_fio_runs_under_watchdog_timeout():
+    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+
+    assert "run_fio_with_watchdog" in source
+    assert "fio_timeout_for_config" in source
+    assert "FIO_WATCHDOG_EXTRA_SECONDS" in source
+    assert 'timeout --kill-after=60s "${timeout_seconds}s" fio' in source
+    assert "watchdog timeout after" in source
+    assert "FIO command failed in MIX mode" in source
+    assert source.count("run_fio_with_watchdog") >= 6
+
+
 def test_io_stress_does_not_clear_system_logs():
     source = Path("IO_Stress/lib/init.sh").read_text(encoding="utf-8")
 

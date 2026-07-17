@@ -1179,6 +1179,48 @@ function result_handle_for_mix_io(){
 
 
 
+fio_timeout_for_config()
+{
+    local configuration="$1"
+    local config_runtime
+    local extra
+
+    config_runtime=$(awk -F= '$1=="runtime" {print $2; exit}' "$configuration" 2>/dev/null)
+    extra=${FIO_WATCHDOG_EXTRA_SECONDS:-600}
+    if ! echo "$config_runtime" | grep -Eq '^[0-9]+$'; then
+        config_runtime=${runtime:-3600}
+    fi
+    if ! echo "$extra" | grep -Eq '^[0-9]+$'; then
+        extra=600
+    fi
+    echo $((config_runtime + extra))
+}
+
+run_fio_with_watchdog()
+{
+    local configuration="$1"
+    local output_file="$2"
+    local timeout_seconds
+    local fio_rc
+    shift 2
+
+    timeout_seconds=$(fio_timeout_for_config "$configuration")
+    echo "$(date '+%F %T') [FIO] start config=${configuration} watchdog=${timeout_seconds}s" >> "$output_file"
+    if command -v timeout >/dev/null 2>&1; then
+        timeout --kill-after=60s "${timeout_seconds}s" fio "$configuration" "$@" >> "$output_file" 2>&1
+        fio_rc=$?
+        if [[ $fio_rc -eq 124 || $fio_rc -eq 137 ]]; then
+            echo "$(date '+%F %T') [FIO] watchdog timeout after ${timeout_seconds}s, config=${configuration}" | tee -a "$output_file" "$Result_Dir/result.log"
+        fi
+    else
+        echo "$(date '+%F %T') [FIO] warning: timeout command not found, running without watchdog" >> "$output_file"
+        fio "$configuration" "$@" >> "$output_file" 2>&1
+        fio_rc=$?
+    fi
+    echo "$(date '+%F %T') [FIO] finish config=${configuration} rc=${fio_rc}" >> "$output_file"
+    return $fio_rc
+}
+
 
 
 
@@ -1212,7 +1254,7 @@ do
       ####for BTP,do not modify this,please!!!####
       ################
 
-      fio "$configuration" >> $Result_Dir/detresult/"${loop}_$jobnum.txt"
+      run_fio_with_watchdog "$configuration" "$Result_Dir/detresult/${loop}_$jobnum.txt"
       local fio_rc=$?
       if [[ $fio_rc -ne 0 ]]; then
           echo "FIO command failed on disk ${str1}, config ${configuration}, rc=${fio_rc}" | tee -a $Result_Dir/result.log
@@ -1262,7 +1304,7 @@ function run_all()
             ##################
 
 
-            fio "$configuration" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio >> $Result_Dir/detresult/"${loop}_$jobnum.txt"
+            run_fio_with_watchdog "$configuration" "$Result_Dir/detresult/${loop}_$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio
             local fio_rc=$?
             if [[ $fio_rc -ne 0 ]]; then
                 echo "FIO command failed, config ${configuration}, rc=${fio_rc}" | tee -a $Result_Dir/result.log
@@ -1289,10 +1331,21 @@ function run_all()
 
             echo "Job $jobnum/$totalnum is Running.."
               
-            fio $Config_Dir/MIX1/$jobnum-*.log --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio >>$Result_Dir/detresult/MIX1/$jobnum.txt &
-            fio $Config_Dir/MIX2/$jobnum-*.log --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio >>$Result_Dir/detresult/MIX2/$jobnum.txt &
-            fio $Config_Dir/MIX3/$jobnum-*.log --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio >>$Result_Dir/detresult/MIX3/$jobnum.txt &
-            fio $Config_Dir/MIX4/$jobnum-*.log --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio >>$Result_Dir/detresult/MIX4/$jobnum.txt 
+            run_fio_with_watchdog $Config_Dir/MIX1/$jobnum-*.log "$Result_Dir/detresult/MIX1/$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio &
+            local fio_pid1=$!
+            run_fio_with_watchdog $Config_Dir/MIX2/$jobnum-*.log "$Result_Dir/detresult/MIX2/$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio &
+            local fio_pid2=$!
+            run_fio_with_watchdog $Config_Dir/MIX3/$jobnum-*.log "$Result_Dir/detresult/MIX3/$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio &
+            local fio_pid3=$!
+            run_fio_with_watchdog $Config_Dir/MIX4/$jobnum-*.log "$Result_Dir/detresult/MIX4/$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio
+            local fio_rc4=$?
+            wait $fio_pid1; local fio_rc1=$?
+            wait $fio_pid2; local fio_rc2=$?
+            wait $fio_pid3; local fio_rc3=$?
+            if [[ $fio_rc1 -ne 0 || $fio_rc2 -ne 0 || $fio_rc3 -ne 0 || $fio_rc4 -ne 0 ]]; then
+                echo "FIO command failed in MIX mode job ${jobnum}, rc=${fio_rc1}/${fio_rc2}/${fio_rc3}/${fio_rc4}" | tee -a $Result_Dir/result.log
+                return 1
+            fi
        
             result_handle_for_mix_io 
         done
@@ -1319,7 +1372,7 @@ function run_suball()
         ##################
 
 
-        fio "$configuration" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio >> $Result_Dir/detresult/"${loop}_$jobnum.txt"
+        run_fio_with_watchdog "$configuration" "$Result_Dir/detresult/${loop}_$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio
         local fio_rc=$?
         if [[ $fio_rc -ne 0 ]]; then
             echo "FIO command failed, config ${configuration}, rc=${fio_rc}" | tee -a $Result_Dir/result.log
