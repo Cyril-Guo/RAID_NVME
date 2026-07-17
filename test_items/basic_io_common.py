@@ -202,7 +202,7 @@ def query_bdf(disk, log):
 
 
 def split_groups(disks):
-    split_at = (len(disks) + 1) // 2
+    split_at = len(disks) // 2
     return [disks[:split_at], disks[split_at:]]
 
 
@@ -242,7 +242,7 @@ def drives_expr(group):
 
 def vd_size(group):
     min_size = min(disk.size_gb for disk in group)
-    size = (min_size * Decimal(len(group)) / Decimal(4)).to_integral_value(rounding=ROUND_FLOOR)
+    size = (min_size * Decimal(len(group) - 1) / Decimal(4)).to_integral_value(rounding=ROUND_FLOOR)
     if size <= 0:
         raise AssertionError(f"Invalid RAID5 VD size calculated from group: {group}")
     return f"{size}GB"

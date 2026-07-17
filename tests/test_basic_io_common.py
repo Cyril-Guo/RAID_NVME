@@ -3,7 +3,9 @@ from decimal import Decimal
 from test_items import basic_io_common
 from test_items.basic_io_common import (
     EXCLUDED_NVME_MODELS,
+    CommandLog,
     NvmeDisk,
+    create_raid5_vds,
     drives_expr,
     parse_lsblk_pairs,
     parse_nvme_list,
@@ -31,16 +33,16 @@ Node             SN                   Model                                    N
     assert disks[2].model in EXCLUDED_NVME_MODELS
 
 
-def test_split_groups_puts_odd_extra_disk_in_first_group():
+def test_split_groups_puts_odd_extra_disk_in_second_group():
     disks = [NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("960.20")) for i in range(15)]
 
     groups = split_groups(disks)
 
-    assert len(groups[0]) == 8
-    assert len(groups[1]) == 7
+    assert len(groups[0]) == 7
+    assert len(groups[1]) == 8
 
 
-def test_raid5_vd_size_uses_min_capacity_times_count_divided_by_four():
+def test_raid5_vd_size_uses_raid5_usable_capacity_divided_by_four():
     group = [
         NvmeDisk(namespace="nvme0n1", controller="nvme0", size_gb=Decimal("960.20"), did=0),
         NvmeDisk(namespace="nvme1n1", controller="nvme1", size_gb=Decimal("900.00"), did=1),
@@ -48,8 +50,37 @@ def test_raid5_vd_size_uses_min_capacity_times_count_divided_by_four():
         NvmeDisk(namespace="nvme3n1", controller="nvme3", size_gb=Decimal("960.20"), did=3),
     ]
 
-    assert vd_size(group) == "900GB"
+    assert vd_size(group) == "675GB"
     assert drives_expr(group) == "0-3"
+
+
+def test_create_raid5_vds_splits_15_disks_into_7_and_8_disk_groups(monkeypatch):
+    commands = []
+    disks = [
+        NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("5961.593"), did=i)
+        for i in range(15)
+    ]
+    groups = split_groups(disks)
+
+    def fake_run_cmd(cmd, log, check=True, shell=False):
+        commands.append(cmd)
+
+        class Result:
+            stdout = ""
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+    create_raid5_vds(groups, CommandLog())
+
+    assert len(commands) == 8
+    assert commands[:4] == [
+        ["dpraid", "/c0", "add", "vd", "r=5", "Size=8942GB", "Strip=4", "drives=0-6"]
+    ] * 4
+    assert commands[4:] == [
+        ["dpraid", "/c0", "add", "vd", "r=5", "Size=10432GB", "Strip=4", "drives=7-14"]
+    ] * 4
 
 
 def test_parse_lsblk_pairs_preserves_empty_parent_columns():
