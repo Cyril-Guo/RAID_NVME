@@ -16,3 +16,10 @@ def test_debug_no_feishu_only_skips_notification():
     assert "name: 'DEBUG_NO_FEISHU'" in source
     assert "DEBUG_NO_FEISHU=true, skip Feishu notification." in source
     assert "writeFile file: 'feishu_payload.json'" in source
+
+
+def test_feishu_webhook_uses_jenkins_credential():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "FEISHU_WEBHOOK = credentials('feishu-webhook')" in source
+    assert "https://open.feishu.cn/open-apis/bot/v2/hook/" not in source
