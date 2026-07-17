@@ -20,7 +20,7 @@ dc          = no
 lawdisk     = no
 filesystem  = no
 mix         = no
-basic_io    = no
+basic_io    = yes
 basic_rebuild_io = yes
 
 
