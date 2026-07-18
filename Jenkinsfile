@@ -659,13 +659,39 @@ echo "[${ip}] install python dependencies"
                                     if command -v apt-get >/dev/null 2>&1; then
                                         export DEBIAN_FRONTEND=noninteractive
                                         apt-get -o DPkg::Lock::Timeout=600 update
-                                        apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest
+                                        if [ "${qemuEnv}" = "1" ]; then
+                                            apt-get -o DPkg::Lock::Timeout=600 install -y \
+                                                python3-pip python3-pytest python-is-python3 \
+                                                fio nvme-cli pciutils util-linux smartmontools sdparm \
+                                                sysstat gawk nmap bc psmisc numactl lsscsi unzip \
+                                                xfsprogs parted make gcc g++
+                                        else
+                                            apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest
+                                        fi
                                     elif command -v dnf >/dev/null 2>&1; then
-                                        dnf install -y python3-pip python3-pytest
+                                        if [ "${qemuEnv}" = "1" ]; then
+                                            dnf install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
+                                                smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
+                                                xfsprogs parted make gcc gcc-c++
+                                        else
+                                            dnf install -y python3-pip python3-pytest
+                                        fi
                                     elif command -v yum >/dev/null 2>&1; then
-                                        yum install -y python3-pip python3-pytest
+                                        if [ "${qemuEnv}" = "1" ]; then
+                                            yum install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
+                                                smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
+                                                xfsprogs parted make gcc gcc-c++
+                                        else
+                                            yum install -y python3-pip python3-pytest
+                                        fi
                                     elif command -v zypper >/dev/null 2>&1; then
-                                        zypper install -y python3-pip python3-pytest
+                                        if [ "${qemuEnv}" = "1" ]; then
+                                            zypper install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
+                                                smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
+                                                xfsprogs parted make gcc gcc-c++
+                                        else
+                                            zypper install -y python3-pip python3-pytest
+                                        fi
                                     fi
 
                                     if ! python3 -c "import pytest" >/dev/null 2>&1; then
@@ -685,6 +711,18 @@ echo "[${ip}] install python dependencies"
                                         fi
                                     fi
                                     python3 -c "import pytest"
+                                    if [ "${qemuEnv}" = "1" ]; then
+                                        missing_tools=""
+                                        for tool in fio nvme lspci findmnt lsblk; do
+                                            if ! command -v "$tool" >/dev/null 2>&1; then
+                                                missing_tools="${missing_tools} ${tool}"
+                                            fi
+                                        done
+                                        if [ -n "$missing_tools" ]; then
+                                            echo "Missing required QEMU VM test tools after auto install:${missing_tools}" >&2
+                                            exit 1
+                                        fi
+                                    fi
                                 '
 } 2>&1 | tee -a ${envPrepareLog}
 """

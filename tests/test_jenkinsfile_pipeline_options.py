@@ -71,3 +71,15 @@ def test_manual_debug_can_simulate_automatic_mr_trigger():
     assert "Manual Build (Simulate Auto MR)" in source
     assert "SIMULATE_AUTO_MR_TRIGGER=true, use QEMU VM target path for this manual build." in source
     assert "merge_requests/${manualMrIid}" in source
+
+
+def test_qemu_vm_auto_installs_required_test_tools():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert 'if [ "${qemuEnv}" = "1" ]; then' in source
+    assert "fio nvme-cli pciutils util-linux smartmontools sdparm" in source
+    assert "sysstat gawk nmap bc psmisc numactl lsscsi unzip" in source
+    assert "xfsprogs parted make gcc g++" in source
+    assert "apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest" in source
+    assert "for tool in fio nvme lspci findmnt lsblk; do" in source
+    assert "Missing required QEMU VM test tools after auto install" in source
