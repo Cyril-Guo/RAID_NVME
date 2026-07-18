@@ -32,7 +32,7 @@ def test_manual_mr_iid_reruns_merge_request():
     assert "MANUAL_MR_IID must be a numeric GitLab merge request IID" in source
     assert "merge_requests/${manualMrIid}" in source
     assert "kernel_driver_manual_mr.properties" in source
-    assert "triggerSource = 'Manual MR Build'" in source
+    assert "'Manual MR Build (Simulate Auto MR)' : 'Manual MR Build'" in source
     assert "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}." in source
 
 
@@ -51,9 +51,9 @@ def test_target_hang_times_out_and_keeps_pipeline_control():
 def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
-    assert "useQemuVmTarget = false" in source
+    assert "useQemuVmTarget = params.SIMULATE_AUTO_MR_TRIGGER" in source
     assert "useQemuVmTarget = true" in source
-    assert "triggerSource = 'Manual MR Build'" in source
+    assert "'Manual MR Build (Simulate Auto MR)' : 'Manual MR Build'" in source
     assert "triggerSource = 'kernel_driver Merge Request'" in source
     assert "QEMU_VM_SSH_PORT = '2233'" in source
     assert "QEMU_VM_SCP_PORT = '2222'" in source
@@ -61,3 +61,13 @@ def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
     assert "${env.QEMU_VM_START_SCRIPT}" in source
     assert "QEMU_VM_TARGET=${qemuEnv}" in source
     assert "sshpass is required on Jenkins server for QEMU VM login" in source
+
+
+def test_manual_debug_can_simulate_automatic_mr_trigger():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "name: 'SIMULATE_AUTO_MR_TRIGGER'" in source
+    assert "Manual MR Build (Simulate Auto MR)" in source
+    assert "Manual Build (Simulate Auto MR)" in source
+    assert "SIMULATE_AUTO_MR_TRIGGER=true, use QEMU VM target path for this manual build." in source
+    assert "merge_requests/${manualMrIid}" in source

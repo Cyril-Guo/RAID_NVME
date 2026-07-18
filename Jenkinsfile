@@ -53,6 +53,11 @@ pipeline {
             defaultValue: false,
             description: 'Debug mode: run the same pipeline but skip Feishu notification.'
         )
+        booleanParam(
+            name: 'SIMULATE_AUTO_MR_TRIGGER',
+            defaultValue: false,
+            description: 'Debug mode: manual build uses the same QEMU VM target path as automatic MR trigger.'
+        )
         string(
             name: 'MANUAL_MR_IID',
             defaultValue: '',
@@ -169,7 +174,7 @@ pipeline {
                         if (manuallyTriggered) {
                             def manualMrIid = (params.MANUAL_MR_IID ?: '').trim()
                             shouldRunTests = true
-                            useQemuVmTarget = false
+                            useQemuVmTarget = params.SIMULATE_AUTO_MR_TRIGGER
                             def raidCliBootstrapMissing = sh(
                                 script: "test -d '${raidCliWorkDir}/.git' && test -x '${raidCliDpraidPath}'; echo \$?",
                                 returnStdout: true
@@ -223,12 +228,15 @@ PY
                                 kernelDriverMrTitle = mrProps.MR_TITLE ?: ''
                                 kernelDriverMrUpdatedAt = mrProps.MR_UPDATED_AT ?: ''
                                 kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
-                                triggerSource = 'Manual MR Build'
+                                triggerSource = params.SIMULATE_AUTO_MR_TRIGGER ? 'Manual MR Build (Simulate Auto MR)' : 'Manual MR Build'
                                 echo "Manual MR build requested. Run smoke tests on kernel_driver !${kernelDriverMrIid} ${kernelDriverRef}."
                             } else {
                                 kernelDriverRef = env.KERNEL_DRIVER_BRANCH
-                                triggerSource = 'Manual Build'
+                                triggerSource = params.SIMULATE_AUTO_MR_TRIGGER ? 'Manual Build (Simulate Auto MR)' : 'Manual Build'
                                 echo "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}."
+                            }
+                            if (params.SIMULATE_AUTO_MR_TRIGGER) {
+                                echo 'SIMULATE_AUTO_MR_TRIGGER=true, use QEMU VM target path for this manual build.'
                             }
                         } else {
                             def nowEpoch = sh(script: 'date +%s', returnStdout: true).trim().toLong()
