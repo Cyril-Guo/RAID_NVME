@@ -115,3 +115,12 @@ def test_qemu_vm_builds_draid_against_qemu_host_kernel_tree():
     assert "tar -czf - -C kernel_driver/drivers/draid ." in source
     assert "make -C '${env.QEMU_KERNEL_BUILD_DIR}' M='\\${host_build_dir}' modules" in source
     assert '${targetScp} "\\${local_module}"' in source
+
+
+def test_qemu_vm_shell_variables_are_escaped_for_groovy():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert 'command -v "\\$tool"' in source
+    assert 'missing_tools="\\${missing_tools} \\${tool}"' in source
+    assert 'after auto install:\\${missing_tools}' in source
+    assert 'missing_tools="${missing_tools} ${tool}"' not in source

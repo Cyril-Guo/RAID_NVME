@@ -823,12 +823,12 @@ echo "[${ip}] install python dependencies"
                                     if [ "${qemuEnv}" = "1" ]; then
                                         missing_tools=""
                                         for tool in fio nvme lspci findmnt lsblk; do
-                                            if ! command -v "$tool" >/dev/null 2>&1; then
-                                                missing_tools="${missing_tools} ${tool}"
+                                            if ! command -v "\$tool" >/dev/null 2>&1; then
+                                                missing_tools="\${missing_tools} \${tool}"
                                             fi
                                         done
-                                        if [ -n "$missing_tools" ]; then
-                                            echo "Missing required QEMU VM test tools after auto install:${missing_tools}" >&2
+                                        if [ -n "\$missing_tools" ]; then
+                                            echo "Missing required QEMU VM test tools after auto install:\${missing_tools}" >&2
                                             exit 1
                                         fi
                                     fi
