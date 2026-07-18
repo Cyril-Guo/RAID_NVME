@@ -62,6 +62,25 @@ Node             SN                   Model                                    N
     assert "QEMU NVMe Ctrl" in EXCLUDED_NVME_MODELS
 
 
+def test_nvme_inventory_excludes_qemu_nvme_ctrl(monkeypatch):
+    text = """
+Node             SN                   Model                                    Namespace Usage                      Format           FW Rev
+---------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------
+/dev/nvme0n1     nvme0                QEMU NVMe Ctrl                           1           3.22  GB /   3.22  GB    512   B +  0 B   1.0
+/dev/nvme2n1     SN2                  DAPUSTOR DPRD3108T0T506T4000             1           6.40  TB /   6.40  TB    512   B +  0 B   1.0
+"""
+
+    class Result:
+        stdout = text
+        returncode = 0
+
+    monkeypatch.setattr(basic_io_common, "run_cmd", lambda cmd, log, check=True, shell=False: Result())
+
+    disks = basic_io_common.nvme_inventory(CommandLog())
+
+    assert [disk.namespace for disk in disks] == ["nvme2n1"]
+
+
 def test_split_groups_puts_odd_extra_disk_in_second_group():
     disks = [NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("960.20")) for i in range(15)]
 
@@ -283,3 +302,22 @@ def test_physical_power_cycle_still_uses_slot_power(monkeypatch):
     assert ("echo 0 > /sys/bus/pci/slots/81/power", True) in calls
     assert ("echo 1 > /sys/bus/pci/slots/81/power", True) in calls
     assert not any("/sys/bus/pci/rescan" in str(cmd) for cmd, _ in calls)
+
+
+def test_power_cycle_skips_excluded_nvme_models(monkeypatch):
+    disk = NvmeDisk(
+        namespace="nvme0n1",
+        controller="nvme0",
+        size_gb=Decimal("1"),
+        model="QEMU NVMe Ctrl",
+        bdf="0000:01:00.0",
+        did=0,
+    )
+    monkeypatch.setenv("QEMU_VM_TARGET", "1")
+
+    try:
+        basic_io_common.power_cycle_one_disk_per_group([[disk]], CommandLog())
+    except AssertionError as exc:
+        assert "Cannot power-cycle group without BDF mapping" in str(exc)
+    else:
+        raise AssertionError("Expected excluded QEMU NVMe Ctrl disk to be skipped for power-cycle")

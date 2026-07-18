@@ -27,6 +27,10 @@ EXCLUDED_NVME_MODELS = {
 }
 
 
+def is_excluded_nvme_model(model):
+    return " ".join((model or "").split()) in EXCLUDED_NVME_MODELS
+
+
 def ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -174,7 +178,7 @@ def discover_nvme_data_disks(log):
     result = run_cmd(["nvme", "list"], log, check=True)
     disks = []
     for disk in parse_nvme_list(result.stdout):
-        if disk.model in EXCLUDED_NVME_MODELS:
+        if is_excluded_nvme_model(disk.model):
             log.write(f"Skip excluded NVMe model: {disk.namespace} {disk.model}")
             continue
         if disk.namespace in protected or disk.controller in protected:
@@ -196,7 +200,12 @@ def discover_nvme_data_disks(log):
 
 def nvme_inventory(log):
     result = run_cmd(["nvme", "list"], log, check=True)
-    disks = parse_nvme_list(result.stdout)
+    disks = []
+    for disk in parse_nvme_list(result.stdout):
+        if is_excluded_nvme_model(disk.model):
+            log.write(f"Skip excluded NVMe inventory model: {disk.namespace} {disk.model}")
+            continue
+        disks.append(disk)
     log.write("NVMe inventory: " + ", ".join(f"{d.namespace}({d.sn},{d.size_gb}GB)" for d in disks))
     return disks
 
@@ -352,7 +361,12 @@ def prepare_basic_raid5_vds(log):
     nvme_disks = discover_nvme_data_disks(log)
     add_physical_disks(nvme_disks, log)
     physical_output = show_physical_devices(log)
-    disks = parse_dpraid_physical_devices(physical_output)
+    disks = []
+    for disk in parse_dpraid_physical_devices(physical_output):
+        if is_excluded_nvme_model(disk.model):
+            log.write(f"Skip excluded dpraid physical model: DID{disk.did} {disk.model}")
+            continue
+        disks.append(disk)
     if len(disks) < 2:
         raise AssertionError(f"Need at least 2 dpraid physical disks, got {len(disks)}")
     apply_bdf_from_nvme_inventory(disks, nvme_inventory_disks, log)
@@ -379,7 +393,7 @@ def power_cycle_one_disk_per_group(groups, log):
     rng = random.SystemRandom()
     qemu_vm_target = os.environ.get("QEMU_VM_TARGET", "0") == "1"
     for group in groups:
-        candidates = [disk for disk in group if disk.bdf]
+        candidates = [disk for disk in group if disk.bdf and not is_excluded_nvme_model(disk.model)]
         if not candidates:
             raise AssertionError(
                 "Cannot power-cycle group without BDF mapping: "
