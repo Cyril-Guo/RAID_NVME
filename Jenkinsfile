@@ -519,7 +519,20 @@ PY
 set -o pipefail
 {
 echo "[${ip}] start QEMU VM for automatic MR test"
-command -v sshpass >/dev/null 2>&1 || { echo "sshpass is required on Jenkins server for QEMU VM login"; exit 1; }
+if ! command -v sshpass >/dev/null 2>&1; then
+    echo "[${ip}] sshpass is missing on Jenkins server, try to install it automatically."
+    if command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get -o DPkg::Lock::Timeout=600 update
+        sudo apt-get -o DPkg::Lock::Timeout=600 install -y sshpass
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y sshpass
+    elif command -v yum >/dev/null 2>&1; then
+        sudo yum install -y sshpass
+    elif command -v zypper >/dev/null 2>&1; then
+        sudo zypper install -y sshpass
+    fi
+fi
+command -v sshpass >/dev/null 2>&1 || { echo "sshpass is required on Jenkins server for QEMU VM login, and automatic install failed"; exit 1; }
 timeout --kill-after=60s 10m ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
     set -eu
     cd ${env.QEMU_VM_WORKDIR}

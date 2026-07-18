@@ -60,7 +60,17 @@ def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
     assert "cd ${env.QEMU_VM_WORKDIR}" in source
     assert "${env.QEMU_VM_START_SCRIPT}" in source
     assert "QEMU_VM_TARGET=${qemuEnv}" in source
-    assert "sshpass is required on Jenkins server for QEMU VM login" in source
+    assert "sshpass is required on Jenkins server for QEMU VM login, and automatic install failed" in source
+
+
+def test_qemu_vm_installs_sshpass_on_jenkins_server():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "sshpass is missing on Jenkins server, try to install it automatically." in source
+    assert "sudo apt-get -o DPkg::Lock::Timeout=600 install -y sshpass" in source
+    assert "sudo dnf install -y sshpass" in source
+    assert "sudo yum install -y sshpass" in source
+    assert "sudo zypper install -y sshpass" in source
 
 
 def test_manual_debug_can_simulate_automatic_mr_trigger():
