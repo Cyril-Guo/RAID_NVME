@@ -77,6 +77,7 @@ pipeline {
         QEMU_VM_PASSWORD = '1'
         QEMU_VM_WORKDIR = '/root/gr/qemu'
         QEMU_VM_START_SCRIPT = './start_vm.sh'
+        QEMU_KERNEL_BUILD_DIR = '/root/gr/qemu/general_kernel'
 
         KERNEL_DRIVER_REPO = 'git@192.168.21.185:raid_max/kernel_driver.git'
         KERNEL_DRIVER_BRANCH = 'main'
@@ -620,7 +621,65 @@ echo "[${ip}] install latest dpraid"
 set -o pipefail
 {
 echo "[${ip}] build and reload draid kernel driver"
-                                ${targetSsh} '
+if [ "${qemuEnv}" = "1" ]; then
+    host_build_dir="/tmp/draid_build_${env.BUILD_NUMBER}"
+    host_module="/tmp/draid_${env.BUILD_NUMBER}.ko"
+    local_module="draid_${ip}_${env.BUILD_NUMBER}.ko"
+
+    ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} "
+        set -eu
+        test -d '${env.QEMU_KERNEL_BUILD_DIR}' || {
+            echo 'QEMU kernel build dir not found: ${env.QEMU_KERNEL_BUILD_DIR}' >&2
+            exit 1
+        }
+        test -f '${env.QEMU_KERNEL_BUILD_DIR}/Makefile' || {
+            echo 'QEMU kernel build dir has no Makefile: ${env.QEMU_KERNEL_BUILD_DIR}' >&2
+            exit 1
+        }
+        rm -rf '\${host_build_dir}'
+        mkdir -p '\${host_build_dir}'
+    "
+    tar -czf - -C kernel_driver/drivers/draid . | ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} "tar -xzf - -C '\${host_build_dir}'"
+    ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} "
+        set -eu
+        command -v make >/dev/null 2>&1 || { echo 'make is required on QEMU host for draid build' >&2; exit 1; }
+        command -v gcc >/dev/null 2>&1 || { echo 'gcc is required on QEMU host for draid build' >&2; exit 1; }
+        make -C '${env.QEMU_KERNEL_BUILD_DIR}' M='\${host_build_dir}' modules
+        test -f '\${host_build_dir}/draid.ko'
+        cp -f '\${host_build_dir}/draid.ko' '\${host_module}'
+    "
+    scp ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}:"\${host_module}" "\${local_module}"
+    ${targetScp} "\${local_module}" ${env.TARGET_USER}@${ip}:${remoteDir}/kernel_driver/drivers/draid/draid.ko
+    rm -f "\${local_module}"
+    ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} "rm -rf '\${host_build_dir}' '\${host_module}'" || true
+    ${targetSsh} '
+        set -eu
+        cd ${remoteDir}/kernel_driver/drivers/draid
+        test -f ./draid.ko
+        module_name=\$(modinfo -F name ./draid.ko 2>/dev/null || true)
+        module_name=\${module_name:-draid}
+        echo "draid.ko module name: \${module_name}"
+        for candidate in "\${module_name}" draid; do
+            if [ -n "\${candidate}" ] && grep -q "^\${candidate} " /proc/modules; then
+                rmmod "\${candidate}" || modprobe -r "\${candidate}"
+            fi
+        done
+        for candidate in "\${module_name}" draid; do
+            if [ -n "\${candidate}" ] && grep -q "^\${candidate} " /proc/modules; then
+                echo "kernel module \${candidate} is still loaded after remove attempt" >&2
+                grep -i draid /proc/modules >&2 || true
+                exit 1
+            fi
+        done
+        if ! insmod ./draid.ko; then
+            echo "insmod ./draid.ko failed. Current related modules:" >&2
+            grep -i draid /proc/modules >&2 || true
+            exit 1
+        fi
+        grep -q "^\${module_name} " /proc/modules
+    '
+else
+    ${targetSsh} '
                                     set -eu
                                     need_driver_deps=0
                                     for tool in make gcc insmod modinfo; do
@@ -671,6 +730,7 @@ echo "[${ip}] build and reload draid kernel driver"
                                     fi
                                     grep -q "^\${module_name} " /proc/modules
                                 '
+fi
 } 2>&1 | tee -a ${envPrepareLog}
 """
                                 )

@@ -57,6 +57,7 @@ def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
     assert "triggerSource = 'kernel_driver Merge Request'" in source
     assert "QEMU_VM_SSH_PORT = '2233'" in source
     assert "QEMU_VM_SCP_PORT = '2233'" in source
+    assert "QEMU_KERNEL_BUILD_DIR = '/root/gr/qemu/general_kernel'" in source
     assert "cd ${env.QEMU_VM_WORKDIR}" in source
     assert "${env.QEMU_VM_START_SCRIPT}" in source
     assert "QEMU_VM_TARGET=${qemuEnv}" in source
@@ -104,3 +105,13 @@ def test_qemu_vm_auto_installs_required_test_tools():
     assert "apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest" in source
     assert "for tool in fio nvme lspci findmnt lsblk; do" in source
     assert "Missing required QEMU VM test tools after auto install" in source
+
+
+def test_qemu_vm_builds_draid_against_qemu_host_kernel_tree():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert 'if [ "${qemuEnv}" = "1" ]; then' in source
+    assert "QEMU kernel build dir not found: ${env.QEMU_KERNEL_BUILD_DIR}" in source
+    assert "tar -czf - -C kernel_driver/drivers/draid ." in source
+    assert "make -C '${env.QEMU_KERNEL_BUILD_DIR}' M='\\${host_build_dir}' modules" in source
+    assert '${targetScp} "\\${local_module}"' in source
