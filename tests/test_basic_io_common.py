@@ -62,6 +62,33 @@ Node             SN                   Model                                    N
     assert "QEMU NVMe Ctrl" in EXCLUDED_NVME_MODELS
 
 
+def test_discover_nvme_data_disks_sorts_by_inventory_bdf(monkeypatch):
+    text = """
+Node             SN                   Model                                    Namespace Usage                      Format           FW Rev
+---------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------
+/dev/nvme10n1    SN10                 DAPUSTOR DPRD3108T0T506T4000             1           6.40  TB /   6.40  TB    512   B +  0 B   1.0
+/dev/nvme21n1    SN21                 DAPUSTOR DPRD3108T0T506T4000             1           6.40  TB /   6.40  TB    512   B +  0 B   1.0
+/dev/nvme3n1     SN3                  DAPUSTOR DPRD3108T0T506T4000             1           6.40  TB /   6.40  TB    512   B +  0 B   1.0
+"""
+    inventory = [
+        NvmeDisk(namespace="nvme10n1", controller="nvme10", size_gb=Decimal("6400"), sn="SN10", bdf="0000:10:00.0"),
+        NvmeDisk(namespace="nvme21n1", controller="nvme21", size_gb=Decimal("6400"), sn="SN21", bdf="0000:21:00.0"),
+        NvmeDisk(namespace="nvme3n1", controller="nvme3", size_gb=Decimal("6400"), sn="SN3", bdf="0000:03:00.0"),
+    ]
+
+    class Result:
+        stdout = text
+        returncode = 0
+
+    monkeypatch.setattr(basic_io_common, "protected_system_devices", lambda log: set())
+    monkeypatch.setattr(basic_io_common, "mounted_devices", lambda log: set())
+    monkeypatch.setattr(basic_io_common, "run_cmd", lambda cmd, log, check=True, shell=False: Result())
+
+    disks = basic_io_common.discover_nvme_data_disks(CommandLog(), inventory)
+
+    assert [disk.controller for disk in disks] == ["nvme3", "nvme10", "nvme21"]
+
+
 def test_nvme_inventory_excludes_qemu_nvme_ctrl(monkeypatch):
     text = """
 Node             SN                   Model                                    Namespace Usage                      Format           FW Rev
@@ -201,7 +228,7 @@ DG/VD  State  Consist TYPE
     monkeypatch.setattr(basic_io_common, "verify_vd_count", lambda log, expected=8: [f"dp0-vd{i}" for i in range(1, 9)])
     show_virtual_outputs = iter([existing_vd_show, "vd output"])
     monkeypatch.setattr(basic_io_common, "show_virtual_devices", lambda log: next(show_virtual_outputs))
-    monkeypatch.setattr(basic_io_common, "discover_nvme_data_disks", lambda log: nvme_disks)
+    monkeypatch.setattr(basic_io_common, "discover_nvme_data_disks", lambda log, inventory_disks=None: nvme_disks)
 
     def fake_run_cmd(cmd, log, check=True, shell=False):
         calls.append(cmd)

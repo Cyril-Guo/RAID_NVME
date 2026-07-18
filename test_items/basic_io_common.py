@@ -31,6 +31,37 @@ def is_excluded_nvme_model(model):
     return " ".join((model or "").split()) in EXCLUDED_NVME_MODELS
 
 
+def nvme_controller_number(controller):
+    match = re.fullmatch(r"nvme(\d+)", controller or "")
+    if not match:
+        return 10**9
+    return int(match.group(1))
+
+
+def bdf_sort_key(bdf):
+    match = re.fullmatch(
+        r"([0-9a-fA-F]{4}):([0-9a-fA-F]{2}):([0-9a-fA-F]{2})\.([0-9a-fA-F])",
+        bdf or "",
+    )
+    if not match:
+        return (1, 0, 0, 0, 0)
+    return (0, *(int(part, 16) for part in match.groups()))
+
+
+def nvme_disk_sort_key(disk):
+    return (*bdf_sort_key(disk.bdf), nvme_controller_number(disk.controller), disk.namespace)
+
+
+def apply_bdf_from_inventory(disks, inventory_disks):
+    by_namespace = {disk.namespace: disk for disk in inventory_disks if disk.namespace}
+    by_controller = {disk.controller: disk for disk in inventory_disks if disk.controller}
+    by_sn = {disk.sn: disk for disk in inventory_disks if disk.sn}
+    for disk in disks:
+        inventory_disk = by_namespace.get(disk.namespace) or by_controller.get(disk.controller) or by_sn.get(disk.sn)
+        if inventory_disk:
+            disk.bdf = inventory_disk.bdf
+
+
 def ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -172,7 +203,7 @@ def parse_nvme_list(text):
     return disks
 
 
-def discover_nvme_data_disks(log):
+def discover_nvme_data_disks(log, inventory_disks=None):
     protected = protected_system_devices(log)
     mounted = mounted_devices(log)
     result = run_cmd(["nvme", "list"], log, check=True)
@@ -194,7 +225,13 @@ def discover_nvme_data_disks(log):
 
     if len(disks) < 2:
         raise AssertionError(f"Need at least 2 non-system NVMe disks, got {len(disks)}")
-    log.write("Selected NVMe disks: " + ", ".join(f"{d.namespace}({d.model},{d.size_gb}GB)" for d in disks))
+    if inventory_disks:
+        apply_bdf_from_inventory(disks, inventory_disks)
+    disks = sorted(disks, key=nvme_disk_sort_key)
+    log.write(
+        "Selected NVMe disks: "
+        + ", ".join(f"{d.namespace}({d.model},{d.size_gb}GB,bdf={d.bdf or 'unknown'})" for d in disks)
+    )
     return disks
 
 
@@ -358,7 +395,7 @@ def prepare_basic_raid5_vds(log):
     for disk in nvme_inventory_disks:
         if disk.size_gb > 0:
             query_bdf(disk, log)
-    nvme_disks = discover_nvme_data_disks(log)
+    nvme_disks = discover_nvme_data_disks(log, nvme_inventory_disks)
     add_physical_disks(nvme_disks, log)
     physical_output = show_physical_devices(log)
     disks = []
