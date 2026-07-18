@@ -533,13 +533,17 @@ if ! command -v sshpass >/dev/null 2>&1; then
     fi
 fi
 command -v sshpass >/dev/null 2>&1 || { echo "sshpass is required on Jenkins server for QEMU VM login, and automatic install failed"; exit 1; }
-timeout --kill-after=60s 10m ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
-    set -eu
-    cd ${env.QEMU_VM_WORKDIR}
-    ${env.QEMU_VM_START_SCRIPT}
-'
-echo "[${ip}] wait 60s for QEMU VM boot"
-sleep 60
+if ${targetSsh} 'echo qemu vm already running' >/dev/null 2>&1; then
+    echo "[${ip}] QEMU VM is already running, skip ${env.QEMU_VM_START_SCRIPT}"
+else
+    timeout --kill-after=60s 10m ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
+        set -eu
+        cd ${env.QEMU_VM_WORKDIR}
+        ${env.QEMU_VM_START_SCRIPT}
+    '
+    echo "[${ip}] wait 60s for QEMU VM boot"
+    sleep 60
+fi
 for attempt in \$(seq 1 24); do
     if ${targetSsh} 'echo qemu vm ssh ready' >/dev/null 2>&1; then
         echo "[${ip}] QEMU VM SSH is ready"

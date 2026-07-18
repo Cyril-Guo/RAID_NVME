@@ -73,6 +73,15 @@ def test_qemu_vm_installs_sshpass_on_jenkins_server():
     assert "sudo zypper install -y sshpass" in source
 
 
+def test_qemu_vm_start_is_skipped_when_vm_is_already_running():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "qemu vm already running" in source
+    assert "QEMU VM is already running, skip ${env.QEMU_VM_START_SCRIPT}" in source
+    assert "else\n    timeout --kill-after=60s 10m ssh" in source
+    assert "QEMU VM SSH is ready" in source
+
+
 def test_manual_debug_can_simulate_automatic_mr_trigger():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
