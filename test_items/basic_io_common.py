@@ -21,7 +21,10 @@ class NvmeDisk:
     did: int | None = None
 
 
-EXCLUDED_NVME_MODELS = {"DAPUSTOR DPRP5108T0TF06T4000"}
+EXCLUDED_NVME_MODELS = {
+    "DAPUSTOR DPRP5108T0TF06T4000",
+    "QEMU NVMe Ctrl",
+}
 
 
 def ts():

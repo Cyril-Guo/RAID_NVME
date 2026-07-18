@@ -38,6 +38,30 @@ Node             SN                   Model                                    N
     assert disks[2].model in EXCLUDED_NVME_MODELS
 
 
+def test_discover_nvme_data_disks_excludes_qemu_nvme_ctrl(monkeypatch):
+    text = """
+Node             SN                   Model                                    Namespace Usage                      Format           FW Rev
+---------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------
+/dev/nvme0n1     nvme0                QEMU NVMe Ctrl                           1           3.22  GB /   3.22  GB    512   B +  0 B   1.0
+/dev/nvme1n1     nvme7                QEMU NVMe Ctrl                           1           3.22  GB /   3.22  GB    512   B +  0 B   1.0
+/dev/nvme2n1     SN2                  DAPUSTOR DPRD3108T0T506T4000             1           6.40  TB /   6.40  TB    512   B +  0 B   1.0
+/dev/nvme3n1     SN3                  DAPUSTOR DPRD3108T0T506T4000             1           6.40  TB /   6.40  TB    512   B +  0 B   1.0
+"""
+
+    class Result:
+        stdout = text
+        returncode = 0
+
+    monkeypatch.setattr(basic_io_common, "protected_system_devices", lambda log: set())
+    monkeypatch.setattr(basic_io_common, "mounted_devices", lambda log: set())
+    monkeypatch.setattr(basic_io_common, "run_cmd", lambda cmd, log, check=True, shell=False: Result())
+
+    disks = basic_io_common.discover_nvme_data_disks(CommandLog())
+
+    assert [disk.namespace for disk in disks] == ["nvme2n1", "nvme3n1"]
+    assert "QEMU NVMe Ctrl" in EXCLUDED_NVME_MODELS
+
+
 def test_split_groups_puts_odd_extra_disk_in_second_group():
     disks = [NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("960.20")) for i in range(15)]
 
