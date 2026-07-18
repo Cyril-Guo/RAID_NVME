@@ -25,6 +25,10 @@ EXCLUDED_NVME_MODELS = {
     "DAPUSTOR DPRP5108T0TF06T4000",
     "QEMU NVMe Ctrl",
 }
+VDS_PER_GROUP = 4
+VD_SIZE_RESERVE_PERCENT = Decimal("8")
+VD_SIZE_RETRY_STEP_PERCENT = Decimal("5")
+VD_SIZE_RETRY_LIMIT = 6
 
 
 def is_excluded_nvme_model(model):
@@ -354,20 +358,63 @@ def drives_expr(group):
     return ",".join(str(did) for did in dids)
 
 
-def vd_size(group):
+def vd_size_gb(group, reserve_percent=Decimal("0")):
     min_size = min(disk.size_gb for disk in group)
     size = (min_size * Decimal(len(group) - 1) / Decimal(4)).to_integral_value(rounding=ROUND_FLOOR)
+    if reserve_percent:
+        size = (size * (Decimal("100") - reserve_percent) / Decimal("100")).to_integral_value(
+            rounding=ROUND_FLOOR
+        )
     if size <= 0:
         raise AssertionError(f"Invalid RAID5 VD size calculated from group: {group}")
-    return f"{size}GB"
+    return int(size)
+
+
+def vd_size(group):
+    return f"{vd_size_gb(group)}GB"
+
+
+def cleanup_created_vds(before_ids, log):
+    after_ids = set(parse_dpraid_virtual_ids(show_virtual_devices(log)))
+    for index in sorted(after_ids - before_ids):
+        run_cmd(["dpraid", f"/c0/v{index}", "delete"], log, check=False)
 
 
 def create_raid5_vds(groups, log):
     for group in groups:
         expr = drives_expr(group)
-        size = vd_size(group)
-        for _ in range(4):
-            run_cmd(["dpraid", "/c0", "add", "vd", "r=5", f"Size={size}", "Strip=4", f"drives={expr}"], log, check=True)
+        size_gb = vd_size_gb(group, VD_SIZE_RESERVE_PERCENT)
+        for attempt in range(1, VD_SIZE_RETRY_LIMIT + 1):
+            before_ids = set(parse_dpraid_virtual_ids(show_virtual_devices(log)))
+            failed_result = None
+            for _ in range(VDS_PER_GROUP):
+                result = run_cmd(
+                    ["dpraid", "/c0", "add", "vd", "r=5", f"Size={size_gb}GB", "Strip=4", f"drives={expr}"],
+                    log,
+                    check=False,
+                )
+                if result.returncode != 0:
+                    failed_result = result
+                    break
+            if failed_result is None:
+                break
+            cleanup_created_vds(before_ids, log)
+            output = failed_result.stdout or ""
+            if "Cannot allocate memory" not in output:
+                raise AssertionError(
+                    f"Command failed rc={failed_result.returncode}: dpraid /c0 add vd r=5 Size={size_gb}GB Strip=4 drives={expr}"
+                )
+            if attempt == VD_SIZE_RETRY_LIMIT:
+                raise AssertionError(
+                    f"Cannot create RAID5 VDs after {VD_SIZE_RETRY_LIMIT} attempts: drives={expr}, last Size={size_gb}GB"
+                )
+            step = max(1, (size_gb * int(VD_SIZE_RETRY_STEP_PERCENT) // 100))
+            next_size_gb = size_gb - step
+            log.write(
+                f"Retry RAID5 VD creation with smaller size after allocation failure: "
+                f"drives={expr}, {size_gb}GB -> {next_size_gb}GB"
+            )
+            size_gb = next_size_gb
 
 
 def dp_vd_devices(log):
