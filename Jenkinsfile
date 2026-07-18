@@ -11,6 +11,7 @@ def raidCliFullCommit = ''
 def raidCliDpraidPath = ''
 def triggerSource = ''
 def shouldRunTests = false
+def useQemuVmTarget = false
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     sh """
@@ -66,6 +67,11 @@ pipeline {
         ALLOW_DESTRUCTIVE_FIO = '1'
         TARGET_NODE_TIMEOUT_MINUTES = '90'
         SSH_OPTS = '-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
+        QEMU_VM_SSH_PORT = '2233'
+        QEMU_VM_SCP_PORT = '2222'
+        QEMU_VM_PASSWORD = '1'
+        QEMU_VM_WORKDIR = '/root/gr/qemu'
+        QEMU_VM_START_SCRIPT = './start_vm.sh'
 
         KERNEL_DRIVER_REPO = 'git@192.168.21.185:raid_max/kernel_driver.git'
         KERNEL_DRIVER_BRANCH = 'main'
@@ -163,6 +169,7 @@ pipeline {
                         if (manuallyTriggered) {
                             def manualMrIid = (params.MANUAL_MR_IID ?: '').trim()
                             shouldRunTests = true
+                            useQemuVmTarget = false
                             def raidCliBootstrapMissing = sh(
                                 script: "test -d '${raidCliWorkDir}/.git' && test -x '${raidCliDpraidPath}'; echo \$?",
                                 returnStdout: true
@@ -327,6 +334,7 @@ PY
                             kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
 
                             shouldRunTests = true
+                            useQemuVmTarget = true
                             triggerSource = 'kernel_driver Merge Request'
 
                             if (kernelDriverMrIid) {
@@ -484,8 +492,51 @@ PY
                             stage("Test on ${ip}") {
                                 def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_${env.BUILD_NUMBER}"
                                 def envPrepareLog = "environment_prepare_${ip}.log"
+                                def qemuVmForNode = useQemuVmTarget
+                                def targetSsh = qemuVmForNode ?
+                                    "sshpass -p '${env.QEMU_VM_PASSWORD}' ssh ${env.SSH_OPTS} -p ${env.QEMU_VM_SSH_PORT} ${env.TARGET_USER}@${ip}" :
+                                    "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
+                                def targetScp = qemuVmForNode ?
+                                    "sshpass -p '${env.QEMU_VM_PASSWORD}' scp ${env.SSH_OPTS} -P ${env.QEMU_VM_SCP_PORT}" :
+                                    "scp ${env.SSH_OPTS}"
+                                def qemuEnv = qemuVmForNode ? '1' : '0'
 
                                 writeFile file: envPrepareLog, text: "[${ip}] Environment_Prepare started\n"
+
+                                if (qemuVmForNode) {
+                                    echo "[${ip}] start QEMU VM for automatic MR test"
+                                    def qemuStatus = sh(
+                                        returnStatus: true,
+                                        script: """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] start QEMU VM for automatic MR test"
+command -v sshpass >/dev/null 2>&1 || { echo "sshpass is required on Jenkins server for QEMU VM login"; exit 1; }
+timeout --kill-after=60s 10m ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
+    set -eu
+    cd ${env.QEMU_VM_WORKDIR}
+    ${env.QEMU_VM_START_SCRIPT}
+'
+echo "[${ip}] wait 60s for QEMU VM boot"
+sleep 60
+for attempt in \$(seq 1 24); do
+    if ${targetSsh} 'echo qemu vm ssh ready' >/dev/null 2>&1; then
+        echo "[${ip}] QEMU VM SSH is ready"
+        exit 0
+    fi
+    echo "[${ip}] waiting for QEMU VM SSH, attempt \${attempt}/24"
+    sleep 5
+done
+echo "[${ip}] QEMU VM SSH is not ready after wait" >&2
+exit 1
+} 2>&1 | tee -a ${envPrepareLog}
+"""
+                                    )
+                                    if (qemuStatus != 0) {
+                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                        error "[${ip}] QEMU VM startup failed with exit code ${qemuStatus}"
+                                    }
+                                }
 
                                 echo "[${ip}] deploy workspace"
                                 def deployStatus = sh(
@@ -494,7 +545,7 @@ PY
 set -o pipefail
 {
 echo "[${ip}] deploy workspace"
-ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
+${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
 tar \\
   --exclude='./.git' \\
   --exclude='./kernel_driver/.git' \\
@@ -507,7 +558,7 @@ tar \\
   --exclude='./test_execution_*.log' \\
   --exclude='./environment_prepare_*.log' \\
   --exclude='./feishu_payload.json' \\
-  -czf - . | ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} 'tar -xzf - -C ${remoteDir}'
+  -czf - . | ${targetSsh} 'tar -xzf - -C ${remoteDir}'
 } 2>&1 | tee -a ${envPrepareLog}
 """
                                 )
@@ -523,8 +574,8 @@ tar \\
 set -o pipefail
 {
 echo "[${ip}] install latest dpraid"
-                                scp ${env.SSH_OPTS} '${raidCliDpraidPathForRun}' ${env.TARGET_USER}@${ip}:/tmp/dpraid_${env.BUILD_NUMBER}
-                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
+                                ${targetScp} '${raidCliDpraidPathForRun}' ${env.TARGET_USER}@${ip}:/tmp/dpraid_${env.BUILD_NUMBER}
+                                ${targetSsh} '
                                     install -m 0755 /tmp/dpraid_${env.BUILD_NUMBER} /usr/bin/dpraid
                                     rm -f /tmp/dpraid_${env.BUILD_NUMBER}
                                     /usr/bin/dpraid --help >/dev/null 2>&1 || true
@@ -544,7 +595,7 @@ echo "[${ip}] install latest dpraid"
 set -o pipefail
 {
 echo "[${ip}] build and reload draid kernel driver"
-                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
+                                ${targetSsh} '
                                     set -eu
                                     if command -v apt-get >/dev/null 2>&1; then
                                         export DEBIAN_FRONTEND=noninteractive
@@ -595,7 +646,7 @@ echo "[${ip}] build and reload draid kernel driver"
 set -o pipefail
 {
 echo "[${ip}] install python dependencies"
-                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
+                                ${targetSsh} '
                                     cd ${remoteDir}
                                     if command -v apt-get >/dev/null 2>&1; then
                                         export DEBIAN_FRONTEND=noninteractive
@@ -638,7 +689,7 @@ echo "[${ip}] install python dependencies"
 
                                 echo "[${ip}] collect environment metadata"
                                 sh """
-                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
+                                ${targetSsh} '
                                     cd ${remoteDir}
                                     mkdir -p allure-results
                                     {
@@ -654,8 +705,9 @@ echo "[${ip}] install python dependencies"
                                     returnStatus: true,
                                     script: """#!/bin/bash
 set -o pipefail
-timeout --kill-after=60s ${env.TARGET_NODE_TIMEOUT_MINUTES}m ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} \"
+timeout --kill-after=60s ${env.TARGET_NODE_TIMEOUT_MINUTES}m ${targetSsh} \"
     cd ${remoteDir} && \
+    QEMU_VM_TARGET=${qemuEnv} \
     ALLOW_DESTRUCTIVE_FIO=${env.ALLOW_DESTRUCTIVE_FIO} \
     sudo -E python3 nvme_raid_test.py
 \" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), \$0 }' | tee test_execution_${ip}.log
@@ -671,12 +723,12 @@ exit "\$test_rc"
                                 sh """
                                 mkdir -p allure-results
                                 rm -rf allure-results-${ip}
-                                scp ${env.SSH_OPTS} -r ${env.TARGET_USER}@${ip}:${remoteDir}/allure-results ./allure-results-${ip} || true
+                                ${targetScp} -r ${env.TARGET_USER}@${ip}:${remoteDir}/allure-results ./allure-results-${ip} || true
                                 if [ -d allure-results-${ip} ]; then
                                     cp -R allure-results-${ip}/. ./allure-results/ || true
                                     rm -rf allure-results-${ip}
                                 fi
-                                scp ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}:${remoteDir}/report.xml ./report_${ip}.xml || true
+                                ${targetScp} ${env.TARGET_USER}@${ip}:${remoteDir}/report.xml ./report_${ip}.xml || true
                                 """
 
                                 if (testStatus != 0) {

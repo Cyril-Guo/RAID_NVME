@@ -374,6 +374,7 @@ def slot_from_bdf(bdf, log):
 def power_cycle_one_disk_per_group(groups, log):
     selected = []
     rng = random.SystemRandom()
+    qemu_vm_target = os.environ.get("QEMU_VM_TARGET", "0") == "1"
     for group in groups:
         candidates = [disk for disk in group if disk.bdf]
         if not candidates:
@@ -383,6 +384,13 @@ def power_cycle_one_disk_per_group(groups, log):
             )
         selected.append(rng.choice(candidates))
     for disk in selected:
+        if qemu_vm_target:
+            log.write(f"QEMU VM power cycle {disk.namespace} BDF {disk.bdf}")
+            run_cmd(f"echo 1 > /sys/bus/pci/devices/{disk.bdf}/remove", log, check=True, shell=True)
+            run_cmd(["sleep", "1"], log, check=True)
+            run_cmd("echo 1 > /sys/bus/pci/rescan", log, check=True, shell=True)
+            run_cmd(["sleep", "2"], log, check=True)
+            continue
         slot = slot_from_bdf(disk.bdf, log)
         power_file = f"/sys/bus/pci/slots/{slot}/power"
         run_cmd(f"echo 0 > {power_file}", log, check=True, shell=True)

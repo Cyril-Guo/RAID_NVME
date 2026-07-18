@@ -211,3 +211,51 @@ def test_lsblk_rows_uses_pairs_without_raw_flag(monkeypatch):
 
     assert basic_io_common.lsblk_rows(log=None) == [("nvme3n1", "", "")]
     assert captured["cmd"] == ["lsblk", "-nP", "-o", "NAME,PKNAME,MOUNTPOINT"]
+
+
+def test_qemu_vm_power_cycle_uses_pci_remove_and_rescan(monkeypatch):
+    calls = []
+    disk = NvmeDisk(namespace="nvme0n1", controller="nvme0", size_gb=Decimal("1"), bdf="0000:01:00.0", did=0)
+
+    def fake_run_cmd(cmd, log, check=True, shell=False):
+        calls.append((cmd, shell))
+
+        class Result:
+            stdout = ""
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setenv("QEMU_VM_TARGET", "1")
+    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+
+    basic_io_common.power_cycle_one_disk_per_group([[disk]], CommandLog())
+
+    assert ("echo 1 > /sys/bus/pci/devices/0000:01:00.0/remove", True) in calls
+    assert (["sleep", "1"], False) in calls
+    assert ("echo 1 > /sys/bus/pci/rescan", True) in calls
+    assert (["sleep", "2"], False) in calls
+
+
+def test_physical_power_cycle_still_uses_slot_power(monkeypatch):
+    calls = []
+    disk = NvmeDisk(namespace="nvme0n1", controller="nvme0", size_gb=Decimal("1"), bdf="0000:01:00.0", did=0)
+
+    def fake_run_cmd(cmd, log, check=True, shell=False):
+        calls.append((cmd, shell))
+
+        class Result:
+            stdout = ""
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.delenv("QEMU_VM_TARGET", raising=False)
+    monkeypatch.setattr(basic_io_common, "slot_from_bdf", lambda bdf, log: "81")
+    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+
+    basic_io_common.power_cycle_one_disk_per_group([[disk]], CommandLog())
+
+    assert ("echo 0 > /sys/bus/pci/slots/81/power", True) in calls
+    assert ("echo 1 > /sys/bus/pci/slots/81/power", True) in calls
+    assert not any("/sys/bus/pci/rescan" in str(cmd) for cmd, _ in calls)

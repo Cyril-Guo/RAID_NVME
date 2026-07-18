@@ -43,6 +43,21 @@ def test_target_hang_times_out_and_keeps_pipeline_control():
     assert "ServerAliveInterval=30" in source
     assert "ServerAliveCountMax=3" in source
     assert "ConnectTimeout=15" in source
-    assert "timeout --kill-after=60s ${env.TARGET_NODE_TIMEOUT_MINUTES}m ssh" in source
+    assert "timeout --kill-after=60s ${env.TARGET_NODE_TIMEOUT_MINUTES}m ${targetSsh}" in source
     assert "nvme_raid_test.py timed out after ${env.TARGET_NODE_TIMEOUT_MINUTES} minutes" in source
     assert "exit \"\\$test_rc\"" in source
+
+
+def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "useQemuVmTarget = false" in source
+    assert "useQemuVmTarget = true" in source
+    assert "triggerSource = 'Manual MR Build'" in source
+    assert "triggerSource = 'kernel_driver Merge Request'" in source
+    assert "QEMU_VM_SSH_PORT = '2233'" in source
+    assert "QEMU_VM_SCP_PORT = '2222'" in source
+    assert "cd ${env.QEMU_VM_WORKDIR}" in source
+    assert "${env.QEMU_VM_START_SCRIPT}" in source
+    assert "QEMU_VM_TARGET=${qemuEnv}" in source
+    assert "sshpass is required on Jenkins server for QEMU VM login" in source
