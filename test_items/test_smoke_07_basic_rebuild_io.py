@@ -24,9 +24,13 @@ def test_basic_rebuild_io():
 
     log = CommandLog()
     try:
+        log.write("Test_Smoke_07_basic_rebuild_IO phase: prepare RAID5 VDs")
         _, groups, _ = prepare_basic_raid5_vds(log)
+        log.write("Test_Smoke_07_basic_rebuild_IO phase: power-cycle one disk in each group before FIO")
         power_cycle_one_disk_per_group(groups, log)
+        log.write("Test_Smoke_07_basic_rebuild_IO phase: verify degraded VDs")
         verify_all_vds_degraded(log, expected=8)
+        log.write("Test_Smoke_07_basic_rebuild_IO phase: start lawdisk FIO on degraded VDs")
     finally:
         log.attach("Test_Smoke_07_basic_rebuild_IO_terminal_output")
 

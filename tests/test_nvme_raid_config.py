@@ -23,6 +23,13 @@ def test_basic_io_items_are_registered_after_existing_smoke_items():
     assert nvme_raid_test.TEST_ITEMS["basic_rebuild_io"] == "test_items/test_smoke_07_basic_rebuild_io.py"
 
 
+def test_main_prints_item_boundaries():
+    source = Path("nvme_raid_test.py").read_text(encoding="utf-8")
+
+    assert "[ITEM_START] {item}" in source
+    assert "[ITEM_END] {item} exit_code={exit_code}" in source
+
+
 def test_parse_selection_block_controls_enabled_items(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(

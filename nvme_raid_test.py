@@ -268,9 +268,11 @@ def main():
     exit_codes = []
     for index, item in enumerate(run_order):
         params = params_map.get(item, {})
+        print(f"[ITEM_START] {item}")
         if stress_monitor_enabled(params):
             clean_monitor_log(base_dir)
         exit_code = run_single_item(item, params, clean_allure=(index == 0))
+        print(f"[ITEM_END] {item} exit_code={exit_code}")
         if stress_monitor_enabled(params):
             stop_monitor_for_item(base_dir)
             add_allure_monitor_archive(item, base_dir)

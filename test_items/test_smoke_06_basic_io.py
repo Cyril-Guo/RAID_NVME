@@ -19,7 +19,9 @@ def test_basic_io():
 
     log = CommandLog()
     try:
+        log.write("Test_Smoke_06_basic_IO phase: prepare RAID5 VDs")
         prepare_basic_raid5_vds(log)
+        log.write("Test_Smoke_06_basic_IO phase: start lawdisk FIO")
     finally:
         log.attach("Test_Smoke_06_basic_IO_terminal_output")
 
