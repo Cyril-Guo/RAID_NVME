@@ -73,7 +73,7 @@ pipeline {
         TARGET_NODE_TIMEOUT_MINUTES = '90'
         SSH_OPTS = '-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
         QEMU_VM_SSH_PORT = '2233'
-        QEMU_VM_SCP_PORT = '2222'
+        QEMU_VM_SCP_PORT = '2233'
         QEMU_VM_PASSWORD = '1'
         QEMU_VM_WORKDIR = '/root/gr/qemu'
         QEMU_VM_START_SCRIPT = './start_vm.sh'
@@ -622,14 +622,29 @@ set -o pipefail
 echo "[${ip}] build and reload draid kernel driver"
                                 ${targetSsh} '
                                     set -eu
-                                    if command -v apt-get >/dev/null 2>&1; then
-                                        export DEBIAN_FRONTEND=noninteractive
-                                        apt-get -o DPkg::Lock::Timeout=600 update
-                                        apt-get -o DPkg::Lock::Timeout=600 install -y build-essential "linux-headers-\$(uname -r)" kmod
-                                    elif command -v dnf >/dev/null 2>&1; then
-                                        dnf install -y make gcc kernel-devel kmod
-                                    elif command -v yum >/dev/null 2>&1; then
-                                        yum install -y make gcc kernel-devel kmod
+                                    need_driver_deps=0
+                                    for tool in make gcc insmod modinfo; do
+                                        command -v "\${tool}" >/dev/null 2>&1 || need_driver_deps=1
+                                    done
+                                    [ -e "/lib/modules/\$(uname -r)/build" ] || need_driver_deps=1
+                                    if [ "\${need_driver_deps}" = "1" ]; then
+                                        if command -v apt-get >/dev/null 2>&1; then
+                                            export DEBIAN_FRONTEND=noninteractive
+                                            apt_retry() {
+                                                for attempt in 1 2 3; do
+                                                    "\$@" && return 0
+                                                    echo "apt command failed, retry \${attempt}/3: \$*" >&2
+                                                    sleep \$((attempt * 10))
+                                                done
+                                                "\$@"
+                                            }
+                                            apt_retry apt-get -o DPkg::Lock::Timeout=600 update
+                                            apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y build-essential "linux-headers-\$(uname -r)" kmod
+                                        elif command -v dnf >/dev/null 2>&1; then
+                                            dnf install -y make gcc kernel-devel kmod
+                                        elif command -v yum >/dev/null 2>&1; then
+                                            yum install -y make gcc kernel-devel kmod
+                                        fi
                                     fi
                                     cd ${remoteDir}/kernel_driver/drivers/draid
                                     make
@@ -673,41 +688,58 @@ set -o pipefail
 echo "[${ip}] install python dependencies"
                                 ${targetSsh} '
                                     cd ${remoteDir}
-                                    if command -v apt-get >/dev/null 2>&1; then
-                                        export DEBIAN_FRONTEND=noninteractive
-                                        apt-get -o DPkg::Lock::Timeout=600 update
-                                        if [ "${qemuEnv}" = "1" ]; then
-                                            apt-get -o DPkg::Lock::Timeout=600 install -y \
-                                                python3-pip python3-pytest python-is-python3 \
-                                                fio nvme-cli pciutils util-linux smartmontools sdparm \
-                                                sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-                                                xfsprogs parted make gcc g++
-                                        else
-                                            apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest
-                                        fi
-                                    elif command -v dnf >/dev/null 2>&1; then
-                                        if [ "${qemuEnv}" = "1" ]; then
-                                            dnf install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
-                                                smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-                                                xfsprogs parted make gcc gcc-c++
-                                        else
-                                            dnf install -y python3-pip python3-pytest
-                                        fi
-                                    elif command -v yum >/dev/null 2>&1; then
-                                        if [ "${qemuEnv}" = "1" ]; then
-                                            yum install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
-                                                smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-                                                xfsprogs parted make gcc gcc-c++
-                                        else
-                                            yum install -y python3-pip python3-pytest
-                                        fi
-                                    elif command -v zypper >/dev/null 2>&1; then
-                                        if [ "${qemuEnv}" = "1" ]; then
-                                            zypper install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
-                                                smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-                                                xfsprogs parted make gcc gcc-c++
-                                        else
-                                            zypper install -y python3-pip python3-pytest
+                                    need_test_deps=0
+                                    python3 -c "import pytest" >/dev/null 2>&1 || need_test_deps=1
+                                    if [ "${qemuEnv}" = "1" ]; then
+                                        for tool in fio nvme lspci findmnt lsblk; do
+                                            command -v "\${tool}" >/dev/null 2>&1 || need_test_deps=1
+                                        done
+                                    fi
+                                    if [ "\${need_test_deps}" = "1" ]; then
+                                        if command -v apt-get >/dev/null 2>&1; then
+                                            export DEBIAN_FRONTEND=noninteractive
+                                            apt_retry() {
+                                                for attempt in 1 2 3; do
+                                                    "\$@" && return 0
+                                                    echo "apt command failed, retry \${attempt}/3: \$*" >&2
+                                                    sleep \$((attempt * 10))
+                                                done
+                                                "\$@"
+                                            }
+                                            apt_retry apt-get -o DPkg::Lock::Timeout=600 update
+                                            if [ "${qemuEnv}" = "1" ]; then
+                                                apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y \
+                                                    python3-pip python3-pytest python-is-python3 \
+                                                    fio nvme-cli pciutils util-linux smartmontools sdparm \
+                                                    sysstat gawk nmap bc psmisc numactl lsscsi unzip \
+                                                    xfsprogs parted make gcc g++
+                                            else
+                                                apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest
+                                            fi
+                                        elif command -v dnf >/dev/null 2>&1; then
+                                            if [ "${qemuEnv}" = "1" ]; then
+                                                dnf install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
+                                                    smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
+                                                    xfsprogs parted make gcc gcc-c++
+                                            else
+                                                dnf install -y python3-pip python3-pytest
+                                            fi
+                                        elif command -v yum >/dev/null 2>&1; then
+                                            if [ "${qemuEnv}" = "1" ]; then
+                                                yum install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
+                                                    smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
+                                                    xfsprogs parted make gcc gcc-c++
+                                            else
+                                                yum install -y python3-pip python3-pytest
+                                            fi
+                                        elif command -v zypper >/dev/null 2>&1; then
+                                            if [ "${qemuEnv}" = "1" ]; then
+                                                zypper install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
+                                                    smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
+                                                    xfsprogs parted make gcc gcc-c++
+                                            else
+                                                zypper install -y python3-pip python3-pytest
+                                            fi
                                         fi
                                     fi
 

@@ -56,7 +56,7 @@ def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
     assert "'Manual MR Build (Simulate Auto MR)' : 'Manual MR Build'" in source
     assert "triggerSource = 'kernel_driver Merge Request'" in source
     assert "QEMU_VM_SSH_PORT = '2233'" in source
-    assert "QEMU_VM_SCP_PORT = '2222'" in source
+    assert "QEMU_VM_SCP_PORT = '2233'" in source
     assert "cd ${env.QEMU_VM_WORKDIR}" in source
     assert "${env.QEMU_VM_START_SCRIPT}" in source
     assert "QEMU_VM_TARGET=${qemuEnv}" in source
@@ -96,6 +96,8 @@ def test_qemu_vm_auto_installs_required_test_tools():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
     assert 'if [ "${qemuEnv}" = "1" ]; then' in source
+    assert "need_test_deps=0" in source
+    assert "apt_retry apt-get -o DPkg::Lock::Timeout=600 update" in source
     assert "fio nvme-cli pciutils util-linux smartmontools sdparm" in source
     assert "sysstat gawk nmap bc psmisc numactl lsscsi unzip" in source
     assert "xfsprogs parted make gcc g++" in source
