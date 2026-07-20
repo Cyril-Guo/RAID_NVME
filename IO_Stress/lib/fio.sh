@@ -766,7 +766,7 @@ extract_parent_disks_from_words()
             device=$1
             sub("^/dev/", "", device)
             sub("^mapper/", "", device)
-            if (device ~ /^sd[a-z]+[0-9]*$/) {
+            if (device ~ /^(sd|vd|xvd|hd)[a-z]+[0-9]*$/) {
                 sub(/[0-9]+$/, "", device)
                 print device
             } else if (device ~ /^nvme[0-9]+n[0-9]+p?[0-9]*$/) {
@@ -791,7 +791,7 @@ normalize_system_disk()
     device=$(normalize_block_name "$device")
     [[ -z "$device" ]] && return
 
-    if [[ "$device" =~ ^(sd[a-z]+)[0-9]*$ ]]; then
+    if [[ "$device" =~ ^((sd|vd|xvd|hd)[a-z]+)[0-9]*$ ]]; then
         echo "${BASH_REMATCH[1]}"
         return
     fi
@@ -805,7 +805,7 @@ normalize_system_disk()
     while [[ -n "$current" ]]; do
         parent=$(lsblk -nr -o NAME,PKNAME 2>/dev/null | awk -v name="$current" '$1==name {print $2; exit}')
         [[ -z "$parent" ]] && return 0
-        if [[ "$parent" =~ ^(sd[a-z]+)[0-9]*$ ]]; then
+        if [[ "$parent" =~ ^((sd|vd|xvd|hd)[a-z]+)[0-9]*$ ]]; then
             echo "${BASH_REMATCH[1]}"
             return
         fi

@@ -213,6 +213,77 @@ def test_fio_system_disk_detection_falls_back_to_boot_nvme_partition(tmp_path):
     assert "auto_disks=dp0-vd1" in result.stdout
 
 
+def test_fio_system_disk_detection_handles_virtio_vda_partitions(tmp_path):
+    findmnt = tmp_path / "findmnt"
+    findmnt.write_text(
+        textwrap.dedent(
+            """\
+            #!/bin/sh
+            if [ "$1" = "-nvo" ] && [ "$2" = "SOURCE" ]; then
+              case "$3" in
+                /) echo /dev/vda1 ;;
+                /boot) echo /dev/vda15 ;;
+                /boot/efi) echo /dev/vda15 ;;
+              esac
+            fi
+            """
+        ),
+        encoding="utf-8",
+    )
+    lsblk = tmp_path / "lsblk"
+    lsblk.write_text(
+        textwrap.dedent(
+            """\
+            #!/bin/sh
+            if [ "$1" = "-nr" ] && [ "$2" = "-o" ] && [ "$3" = "NAME,PKNAME,MOUNTPOINT" ]; then
+              echo "vda  "
+              echo "vda1 vda /"
+              echo "vda15 vda /boot/efi"
+              echo "dp0-vd1  "
+            elif [ "$1" = "-nr" ] && [ "$2" = "-o" ] && [ "$3" = "NAME,PKNAME" ]; then
+              echo "vda1 vda"
+              echo "vda15 vda"
+            elif [ "$1" = "-dn" ]; then
+              echo "vda disk"
+              echo "dp0-vd1 disk"
+            fi
+            """
+        ),
+        encoding="utf-8",
+    )
+    findmnt.chmod(0o755)
+    lsblk.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{tmp_path}{os.pathsep}{env['PATH']}"
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            "set -e; "
+            "source IO_Stress/lib/fio.sh; "
+            "get_system_disk; "
+            "echo system_disk=$system_disk; "
+            "echo system_block_devices=$system_block_devices; "
+            "disk_is_system vda15 && echo vda15_is_system=yes; "
+            "test_disk=dp0-vd1,vda15; "
+            "validate_test_disks || echo validate_vda_partition_rejected=yes; "
+            "disk=$(select_auto_test_disks); "
+            "echo auto_disks=$(echo $disk | tr ' ' ',')",
+        ],
+        cwd=Path.cwd(),
+        env=env,
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert "system_disk=vda" in result.stdout
+    assert "vda15_is_system=yes" in result.stdout
+    assert "validate_vda_partition_rejected=yes" in result.stdout
+    assert "auto_disks=dp0-vd1" in result.stdout
+
+
 def test_fio_system_disk_detection_parses_jenkins_source_line_under_set_e():
     result = subprocess.run(
         [
