@@ -42,6 +42,13 @@ def nvme_controller_number(controller):
     return int(match.group(1))
 
 
+def nvme_namespace_number(namespace):
+    match = re.fullmatch(r"nvme\d+n(\d+)", namespace or "")
+    if not match:
+        return 10**9
+    return int(match.group(1))
+
+
 def bdf_sort_key(bdf):
     match = re.fullmatch(
         r"([0-9a-fA-F]{4}):([0-9a-fA-F]{2}):([0-9a-fA-F]{2})\.([0-9a-fA-F])",
@@ -53,7 +60,23 @@ def bdf_sort_key(bdf):
 
 
 def nvme_disk_sort_key(disk):
-    return (*bdf_sort_key(disk.bdf), nvme_controller_number(disk.controller), disk.namespace)
+    return (
+        *bdf_sort_key(disk.bdf),
+        nvme_controller_number(disk.controller),
+        nvme_namespace_number(disk.namespace),
+        disk.namespace,
+    )
+
+
+def unique_nvme_controllers(disks, log=None):
+    selected = {}
+    for disk in sorted(disks, key=lambda item: (nvme_controller_number(item.controller), nvme_namespace_number(item.namespace))):
+        if disk.controller not in selected:
+            selected[disk.controller] = disk
+            continue
+        if log:
+            log.write(f"Skip duplicate NVMe namespace for controller: {disk.namespace} -> {disk.controller}")
+    return list(selected.values())
 
 
 def apply_bdf_from_inventory(disks, inventory_disks):
@@ -227,6 +250,7 @@ def discover_nvme_data_disks(log, inventory_disks=None):
             continue
         disks.append(disk)
 
+    disks = unique_nvme_controllers(disks, log)
     if len(disks) < 2:
         raise AssertionError(f"Need at least 2 non-system NVMe disks, got {len(disks)}")
     if inventory_disks:
@@ -247,6 +271,7 @@ def nvme_inventory(log):
             log.write(f"Skip excluded NVMe inventory model: {disk.namespace} {disk.model}")
             continue
         disks.append(disk)
+    disks = unique_nvme_controllers(disks, log)
     log.write("NVMe inventory: " + ", ".join(f"{d.namespace}({d.sn},{d.size_gb}GB)" for d in disks))
     return disks
 

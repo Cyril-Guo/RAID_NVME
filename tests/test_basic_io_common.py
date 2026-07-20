@@ -89,6 +89,29 @@ Node             SN                   Model                                    N
     assert [disk.controller for disk in disks] == ["nvme3", "nvme10", "nvme21"]
 
 
+def test_discover_nvme_data_disks_uses_one_namespace_per_controller(monkeypatch):
+    text = """
+Node             SN                   Model                                    Namespace Usage                      Format           FW Rev
+---------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------
+/dev/nvme23n2    SN23N2               DAPUSTOR DPRD3108T0T506T4000             1           6.40  TB /   6.40  TB    512   B +  0 B   1.0
+/dev/nvme23n1    SN23N1               DAPUSTOR DPRD3108T0T506T4000             1           6.40  TB /   6.40  TB    512   B +  0 B   1.0
+/dev/nvme24n2    SN24N2               DAPUSTOR DPRD3108T0T506T4000             1           6.40  TB /   6.40  TB    512   B +  0 B   1.0
+"""
+
+    class Result:
+        stdout = text
+        returncode = 0
+
+    monkeypatch.setattr(basic_io_common, "protected_system_devices", lambda log: set())
+    monkeypatch.setattr(basic_io_common, "mounted_devices", lambda log: set())
+    monkeypatch.setattr(basic_io_common, "run_cmd", lambda cmd, log, check=True, shell=False: Result())
+
+    disks = basic_io_common.discover_nvme_data_disks(CommandLog())
+
+    assert [disk.namespace for disk in disks] == ["nvme23n1", "nvme24n2"]
+    assert [disk.controller for disk in disks] == ["nvme23", "nvme24"]
+
+
 def test_nvme_inventory_excludes_qemu_nvme_ctrl(monkeypatch):
     text = """
 Node             SN                   Model                                    Namespace Usage                      Format           FW Rev
@@ -106,6 +129,26 @@ Node             SN                   Model                                    N
     disks = basic_io_common.nvme_inventory(CommandLog())
 
     assert [disk.namespace for disk in disks] == ["nvme2n1"]
+
+
+def test_nvme_inventory_uses_one_namespace_per_controller(monkeypatch):
+    text = """
+Node             SN                   Model                                    Namespace Usage                      Format           FW Rev
+---------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------
+/dev/nvme23n2    SN23N2               DAPUSTOR DPRD3108T0T506T4000             1           6.40  TB /   6.40  TB    512   B +  0 B   1.0
+/dev/nvme23n1    SN23N1               DAPUSTOR DPRD3108T0T506T4000             1           6.40  TB /   6.40  TB    512   B +  0 B   1.0
+/dev/nvme24n2    SN24N2               DAPUSTOR DPRD3108T0T506T4000             1           6.40  TB /   6.40  TB    512   B +  0 B   1.0
+"""
+
+    class Result:
+        stdout = text
+        returncode = 0
+
+    monkeypatch.setattr(basic_io_common, "run_cmd", lambda cmd, log, check=True, shell=False: Result())
+
+    disks = basic_io_common.nvme_inventory(CommandLog())
+
+    assert [disk.namespace for disk in disks] == ["nvme23n1", "nvme24n2"]
 
 
 def test_split_groups_puts_odd_extra_disk_in_second_group():
