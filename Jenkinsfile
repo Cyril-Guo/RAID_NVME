@@ -290,7 +290,7 @@ if not merge_requests:
     print('MR_SIGNATURE=none')
 else:
     signature_parts = [
-        f"{mr.get('iid')}:{mr.get('updated_at')}:{mr.get('sha')}"
+        f"{mr.get('iid')}:{mr.get('sha')}"
         for mr in sorted(merge_requests, key=lambda item: item.get('iid') or 0)
     ]
     latest = merge_requests[0]
@@ -323,6 +323,10 @@ PY
 
                             def currentSignatures = currentMrSignature == 'none' ? [] : currentMrSignature.split('\\|') as List
                             def previousSignatures = previousMrSignature ? previousMrSignature.split('\\|') as List : []
+                            previousSignatures = previousSignatures.collect { signature ->
+                                def parts = signature.split(':')
+                                parts.size() >= 3 ? "${parts[0]}:${parts[-1]}" : signature
+                            }
                             def previousSignatureSet = previousSignatures as Set
                             hasNewOpenMrEvent = currentSignatures.any { !previousSignatureSet.contains(it) }
 

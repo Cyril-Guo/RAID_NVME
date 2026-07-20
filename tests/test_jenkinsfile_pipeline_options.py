@@ -64,6 +64,15 @@ def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
     assert "sshpass is required on Jenkins server for QEMU VM login, and automatic install failed" in source
 
 
+def test_automatic_mr_signature_only_tracks_code_sha():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert 'f"{mr.get(\'iid\')}:{mr.get(\'sha\')}"' in source
+    assert 'f"{mr.get(\'iid\')}:{mr.get(\'updated_at\')}:{mr.get(\'sha\')}"' not in source
+    assert 'parts.size() >= 3 ? "${parts[0]}:${parts[-1]}" : signature' in source
+    assert "hasNewOpenMrEvent = currentSignatures.any" in source
+
+
 def test_qemu_vm_installs_sshpass_on_jenkins_server():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
