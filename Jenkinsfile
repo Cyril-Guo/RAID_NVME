@@ -178,6 +178,7 @@ pipeline {
                             def manualMrIid = (params.MANUAL_MR_IID ?: '').trim()
                             shouldRunTests = true
                             useQemuVmTarget = params.SIMULATE_AUTO_MR_TRIGGER
+                            automaticMrTriggered = params.SIMULATE_AUTO_MR_TRIGGER
                             def raidCliBootstrapMissing = sh(
                                 script: "test -d '${raidCliWorkDir}/.git' && test -x '${raidCliDpraidPath}'; echo \$?",
                                 returnStdout: true

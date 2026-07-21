@@ -117,6 +117,7 @@ def test_manual_debug_can_simulate_automatic_mr_trigger():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
     assert "name: 'SIMULATE_AUTO_MR_TRIGGER'" in source
+    assert "automaticMrTriggered = params.SIMULATE_AUTO_MR_TRIGGER" in source
     assert "Manual MR Build (Simulate Auto MR)" in source
     assert "Manual Build (Simulate Auto MR)" in source
     assert "SIMULATE_AUTO_MR_TRIGGER=true, use QEMU VM target path for this manual build." in source
