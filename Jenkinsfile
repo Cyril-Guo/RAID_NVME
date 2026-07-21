@@ -441,6 +441,7 @@ pipeline {
                     ).trim()
                     echo "Use dpraid artifact: ${raidCliDpraidPathForRun}"
                     echo "Use raid_cli(${env.RAID_CLI_BRANCH}) commit: ${raidCliCommit}"
+                    sh "test -d kernel_driver/drivers/draid && test -f kernel_driver/drivers/draid/Makefile"
 
                     def parallelTasks = [:]
 

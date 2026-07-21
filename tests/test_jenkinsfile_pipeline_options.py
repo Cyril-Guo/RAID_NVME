@@ -184,8 +184,12 @@ def test_qemu_vm_builds_draid_against_qemu_host_kernel_tree():
 
     assert 'if [ "${QEMU_VM_TARGET}" = "1" ]; then' in source
     assert "QEMU kernel build dir not found: ${QEMU_KERNEL_BUILD_DIR}" in source
-    assert "tar -czf - -C kernel_driver/drivers/draid ." in source
+    assert "Local kernel_driver draid source not found: ${local_draid_src}" in source
+    assert "test -d kernel_driver/drivers/draid && test -f kernel_driver/drivers/draid/Makefile" in source
+    assert 'local_draid_src="kernel_driver/drivers/draid"' in source
+    assert 'tar -czf - -C "${local_draid_src}" .' in source
     assert 'make -C "${QEMU_KERNEL_BUILD_DIR}" M="${host_build_dir}" modules' in source
+    assert "mkdir -p '${REMOTE_DIR}/kernel_driver/drivers/draid'" in source
     assert 'target_scp "${local_module}"' in source
 
 

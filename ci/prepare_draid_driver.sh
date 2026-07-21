@@ -107,6 +107,17 @@ if [ "${QEMU_VM_TARGET}" = "1" ]; then
     host_build_dir="/tmp/draid_build_${BUILD_NUMBER}"
     host_module="/tmp/draid_${BUILD_NUMBER}.ko"
     local_module="draid_${NODE_IP}_${BUILD_NUMBER}.ko"
+    local_draid_src="kernel_driver/drivers/draid"
+
+    test -d "${local_draid_src}" || {
+        echo "Local kernel_driver draid source not found: ${local_draid_src}" >&2
+        echo "kernel_driver checkout is required before preparing QEMU draid driver" >&2
+        exit 1
+    }
+    test -f "${local_draid_src}/Makefile" || {
+        echo "Local kernel_driver draid source has no Makefile: ${local_draid_src}" >&2
+        exit 1
+    }
 
     host_ssh "QEMU_KERNEL_BUILD_DIR='${QEMU_KERNEL_BUILD_DIR}' host_build_dir='${host_build_dir}' bash -s" <<'HOST_INIT'
 set -euo pipefail
@@ -122,7 +133,7 @@ rm -rf "${host_build_dir}"
 mkdir -p "${host_build_dir}"
 HOST_INIT
 
-    tar -czf - -C kernel_driver/drivers/draid . | host_ssh "host_build_dir='${host_build_dir}' tar -xzf - -C \"\${host_build_dir}\""
+    tar -czf - -C "${local_draid_src}" . | host_ssh "host_build_dir='${host_build_dir}' tar -xzf - -C \"\${host_build_dir}\""
     host_ssh "QEMU_KERNEL_BUILD_DIR='${QEMU_KERNEL_BUILD_DIR}' host_build_dir='${host_build_dir}' host_module='${host_module}' bash -s" <<'HOST_BUILD'
 set -euo pipefail
 command -v make >/dev/null 2>&1 || { echo "make is required on QEMU host for draid build" >&2; exit 1; }
@@ -133,6 +144,7 @@ cp -f "${host_build_dir}/draid.ko" "${host_module}"
 HOST_BUILD
 
     host_scp "${TARGET_USER}@${NODE_IP}:${host_module}" "${local_module}"
+    target_ssh "mkdir -p '${REMOTE_DIR}/kernel_driver/drivers/draid'"
     target_scp "${local_module}" "${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/kernel_driver/drivers/draid/draid.ko"
     rm -f "${local_module}"
     host_ssh "rm -rf '${host_build_dir}' '${host_module}'" || true
