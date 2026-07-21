@@ -12,6 +12,7 @@ def raidCliDpraidPath = ''
 def triggerSource = ''
 def shouldRunTests = false
 def useQemuVmTarget = false
+def automaticMrTriggered = false
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     sh """
@@ -78,6 +79,7 @@ pipeline {
         QEMU_VM_WORKDIR = '/root/gr/qemu'
         QEMU_VM_START_SCRIPT = './start_vm.sh'
         QEMU_KERNEL_BUILD_DIR = '/root/gr/qemu/general_kernel'
+        QEMU_VFIO_BIND_SCRIPT = './vfio-bind.sh'
 
         KERNEL_DRIVER_REPO = 'git@192.168.21.185:raid_max/kernel_driver.git'
         KERNEL_DRIVER_BRANCH = 'main'
@@ -348,6 +350,7 @@ PY
 
                             shouldRunTests = true
                             useQemuVmTarget = true
+                            automaticMrTriggered = true
                             triggerSource = 'kernel_driver Merge Request'
 
                             if (kernelDriverMrIid) {
@@ -539,8 +542,62 @@ if ! command -v sshpass >/dev/null 2>&1; then
 fi
 command -v sshpass >/dev/null 2>&1 || { echo "sshpass is required on Jenkins server for QEMU VM login, and automatic install failed"; exit 1; }
 if ${targetSsh} 'echo qemu vm already running' >/dev/null 2>&1; then
-    echo "[${ip}] QEMU VM is already running, skip ${env.QEMU_VM_START_SCRIPT}"
+    echo "[${ip}] QEMU VM is already running, skip vfio bind and ${env.QEMU_VM_START_SCRIPT}"
 else
+    timeout --kill-after=60s 10m ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
+    set -eu
+    cd ${env.QEMU_VM_WORKDIR}
+    test -x ${env.QEMU_VFIO_BIND_SCRIPT} || {
+        echo "QEMU vfio bind script not found or not executable: ${env.QEMU_VM_WORKDIR}/${env.QEMU_VFIO_BIND_SCRIPT}" >&2
+        exit 1
+    }
+    protected_names=\$(
+        {
+            findmnt -nvo SOURCE / /boot /boot/efi 2>/dev/null || true
+            lsblk -nP -o NAME,PKNAME,MOUNTPOINT 2>/dev/null |
+                awk -F'"'"'"'"'"' '"'"'\$6 != "" { print "/dev/" \$2; if (\$4 != "") print "/dev/" \$4 }'"'"'"'"'"'
+        } |
+        while read -r source; do
+            [ -n "\$source" ] || continue
+            source="\${source#/dev/}"
+            printf "%s\\n" "\$source"
+            pk=\$(lsblk -npo PKNAME "/dev/\$source" 2>/dev/null | sed "s#^/dev/##" || true)
+            [ -n "\$pk" ] && printf "%s\\n" "\$pk"
+        done | sort -u
+    )
+    vfio_devices=""
+    for ctrl_path in /sys/class/nvme/nvme*; do
+        [ -e "\$ctrl_path" ] || continue
+        ctrl=\$(basename "\$ctrl_path")
+        bdf=\$(basename "\$(readlink -f "\$ctrl_path/device")")
+        skip=0
+        for ns_path in "\$ctrl_path"/nvme*n*; do
+            [ -e "\$ns_path" ] || continue
+            ns=\$(basename "\$ns_path")
+            pk=\$(lsblk -npo PKNAME "/dev/\$ns" 2>/dev/null | sed "s#^/dev/##" || true)
+            for protected in \$protected_names; do
+                if [ "\$ns" = "\$protected" ] || [ "\$pk" = "\$protected" ] || [ "\$ctrl" = "\$protected" ]; then
+                    skip=1
+                fi
+            done
+        done
+        if [ "\$skip" = "1" ]; then
+            echo "[${ip}] keep system NVMe on host: \$ctrl \$bdf"
+            continue
+        fi
+        vfio_devices="\${vfio_devices} \${bdf}"
+    done
+    if [ -z "\$(printf "%s" "\$vfio_devices" | tr -d " ")" ]; then
+        echo "[${ip}] no non-system NVMe PCI devices found for QEMU vfio bind"
+        : > .jenkins_nvme_${env.BUILD_NUMBER}_vfio_devices
+    else
+        printf "%s\\n" \$vfio_devices > .jenkins_nvme_${env.BUILD_NUMBER}_vfio_devices
+        for dev in \$vfio_devices; do
+            echo "[${ip}] bind NVMe PCI device to QEMU vfio: \$dev"
+            DEV="\$dev" ${env.QEMU_VFIO_BIND_SCRIPT} bind
+        done
+    fi
+'
     timeout --kill-after=60s 10m ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
         set -eu
         cd ${env.QEMU_VM_WORKDIR}
@@ -896,6 +953,271 @@ exit "\$test_rc"
 
                                 if (!fileExists("report_${ip}.xml")) {
                                     error "[${ip}] Missing report_${ip}.xml. nvme_raid_test.py did not produce a JUnit report."
+                                }
+
+                                if (qemuVmForNode && automaticMrTriggered) {
+                                    def hostRemoteDir = "/root/Cyril/Jenkins/jenkins_nvme_${env.BUILD_NUMBER}_physical"
+                                    def hostEnvPrepareLog = "environment_prepare_${ip}_physical.log"
+                                    def hostSsh = "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
+                                    def hostScp = "scp ${env.SSH_OPTS}"
+
+                                    writeFile file: hostEnvPrepareLog, text: "[${ip}] Physical Environment_Prepare started after QEMU VM test\n"
+
+                                    echo "[${ip}] stop QEMU VM and return NVMe devices to physical host"
+                                    def handbackStatus = sh(
+                                        returnStatus: true,
+                                        script: """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] stop QEMU VM and return NVMe devices to physical host"
+${targetSsh} 'sync; nohup sh -c "sleep 1; poweroff" >/dev/null 2>&1 &' >/dev/null 2>&1 || true
+for attempt in \$(seq 1 30); do
+    if ${targetSsh} 'true' >/dev/null 2>&1; then
+        echo "[${ip}] waiting for QEMU VM shutdown, attempt \${attempt}/30"
+        sleep 2
+    else
+        echo "[${ip}] QEMU VM SSH is down"
+        break
+    fi
+done
+${hostSsh} '
+    set -eu
+    cd ${env.QEMU_VM_WORKDIR}
+    test -x ${env.QEMU_VFIO_BIND_SCRIPT} || {
+        echo "QEMU vfio bind script not found or not executable: ${env.QEMU_VM_WORKDIR}/${env.QEMU_VFIO_BIND_SCRIPT}" >&2
+        exit 1
+    }
+    device_file=.jenkins_nvme_${env.BUILD_NUMBER}_vfio_devices
+    if [ ! -s "\$device_file" ]; then
+        echo "[${ip}] no recorded QEMU vfio devices to unbind"
+        for pci_path in /sys/bus/pci/devices/*; do
+            [ -e "\$pci_path/class" ] || continue
+            [ "\$(cat "\$pci_path/class")" = "0x010802" ] || continue
+            driver=\$(basename "\$(readlink -f "\$pci_path/driver" 2>/dev/null || true)")
+            [ "\$driver" = "vfio-pci" ] || continue
+            dev=\$(basename "\$pci_path")
+            echo "[${ip}] fallback unbind vfio NVMe PCI device back to host: \$dev"
+            DEV="\$dev" ${env.QEMU_VFIO_BIND_SCRIPT} unbind
+        done
+    else
+        while read -r dev; do
+            [ -n "\$dev" ] || continue
+            echo "[${ip}] unbind NVMe PCI device back to host: \$dev"
+            DEV="\$dev" ${env.QEMU_VFIO_BIND_SCRIPT} unbind
+        done < "\$device_file"
+    fi
+    echo 1 > /sys/bus/pci/rescan
+    sleep 5
+    nvme list || true
+'
+} 2>&1 | tee -a ${hostEnvPrepareLog}
+"""
+                                    )
+                                    if (handbackStatus != 0) {
+                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${hostEnvPrepareLog}"
+                                        error "[${ip}] returning NVMe devices to physical host failed with exit code ${handbackStatus}"
+                                    }
+
+                                    echo "[${ip}] deploy workspace for physical host test"
+                                    def hostDeployStatus = sh(
+                                        returnStatus: true,
+                                        script: """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] deploy workspace for physical host test"
+${hostSsh} 'rm -rf ${hostRemoteDir} && mkdir -p ${hostRemoteDir}'
+tar \\
+  --exclude='./.git' \\
+  --exclude='./kernel_driver/.git' \\
+  --exclude='./raid_cli' \\
+  --exclude='./.pytest_cache' \\
+  --exclude='./__pycache__' \\
+  --exclude='./allure-results' \\
+  --exclude='./report.xml' \\
+  --exclude='./report_*.xml' \\
+  --exclude='./test_execution_*.log' \\
+  --exclude='./environment_prepare_*.log' \\
+  --exclude='./feishu_payload.json' \\
+  -czf - . | ${hostSsh} 'tar -xzf - -C ${hostRemoteDir}'
+} 2>&1 | tee -a ${hostEnvPrepareLog}
+"""
+                                    )
+                                    if (hostDeployStatus != 0) {
+                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${hostEnvPrepareLog}"
+                                        error "[${ip}] deploy physical host workspace failed with exit code ${hostDeployStatus}"
+                                    }
+
+                                    echo "[${ip}] install latest dpraid on physical host"
+                                    def hostDpraidStatus = sh(
+                                        returnStatus: true,
+                                        script: """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] install latest dpraid on physical host"
+${hostScp} '${raidCliDpraidPathForRun}' ${env.TARGET_USER}@${ip}:/tmp/dpraid_${env.BUILD_NUMBER}_physical
+${hostSsh} '
+    install -m 0755 /tmp/dpraid_${env.BUILD_NUMBER}_physical /usr/bin/dpraid
+    rm -f /tmp/dpraid_${env.BUILD_NUMBER}_physical
+    /usr/bin/dpraid --help >/dev/null 2>&1 || true
+'
+} 2>&1 | tee -a ${hostEnvPrepareLog}
+"""
+                                    )
+                                    if (hostDpraidStatus != 0) {
+                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${hostEnvPrepareLog}"
+                                        error "[${ip}] install physical host dpraid failed with exit code ${hostDpraidStatus}"
+                                    }
+
+                                    echo "[${ip}] build and reload draid kernel driver on physical host"
+                                    def hostDriverStatus = sh(
+                                        returnStatus: true,
+                                        script: """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] build and reload draid kernel driver on physical host"
+${hostSsh} '
+    set -eu
+    need_driver_deps=0
+    for tool in make gcc insmod modinfo; do
+        command -v "\$tool" >/dev/null 2>&1 || need_driver_deps=1
+    done
+    [ -e "/lib/modules/\$(uname -r)/build" ] || need_driver_deps=1
+    if [ "\$need_driver_deps" = "1" ]; then
+        if command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            apt_retry() {
+                for attempt in 1 2 3; do
+                    "\$@" && return 0
+                    echo "apt command failed, retry \${attempt}/3: \$*" >&2
+                    sleep \$((attempt * 10))
+                done
+                "\$@"
+            }
+            apt_retry apt-get -o DPkg::Lock::Timeout=600 update
+            apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y build-essential "linux-headers-\$(uname -r)" kmod
+        elif command -v dnf >/dev/null 2>&1; then
+            dnf install -y make gcc kernel-devel kmod
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y make gcc kernel-devel kmod
+        fi
+    fi
+    cd ${hostRemoteDir}/kernel_driver/drivers/draid
+    make
+    test -f ./draid.ko
+    module_name=\$(modinfo -F name ./draid.ko 2>/dev/null || true)
+    module_name=\${module_name:-draid}
+    echo "draid.ko module name: \${module_name}"
+    for candidate in "\${module_name}" draid; do
+        if [ -n "\${candidate}" ] && grep -q "^\${candidate} " /proc/modules; then
+            rmmod "\${candidate}" || modprobe -r "\${candidate}"
+        fi
+    done
+    for candidate in "\${module_name}" draid; do
+        if [ -n "\${candidate}" ] && grep -q "^\${candidate} " /proc/modules; then
+            echo "kernel module \${candidate} is still loaded after remove attempt" >&2
+            grep -i draid /proc/modules >&2 || true
+            exit 1
+        fi
+    done
+    if ! insmod ./draid.ko; then
+        echo "insmod ./draid.ko failed. Current related modules:" >&2
+        grep -i draid /proc/modules >&2 || true
+        exit 1
+    fi
+    grep -q "^\${module_name} " /proc/modules
+'
+} 2>&1 | tee -a ${hostEnvPrepareLog}
+"""
+                                    )
+                                    if (hostDriverStatus != 0) {
+                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${hostEnvPrepareLog}"
+                                        error "[${ip}] build and reload physical host draid kernel driver failed with exit code ${hostDriverStatus}"
+                                    }
+
+                                    echo "[${ip}] install python dependencies on physical host"
+                                    def hostPythonDepsStatus = sh(
+                                        returnStatus: true,
+                                        script: """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] install python dependencies on physical host"
+${hostSsh} '
+    cd ${hostRemoteDir}
+    if ! python3 -c "import pytest" >/dev/null 2>&1; then
+        if command -v apt-get >/dev/null 2>&1; then
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get -o DPkg::Lock::Timeout=600 update
+            apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest
+        elif command -v dnf >/dev/null 2>&1; then
+            dnf install -y python3-pip python3-pytest
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y python3-pip python3-pytest
+        elif command -v zypper >/dev/null 2>&1; then
+            zypper install -y python3-pip python3-pytest
+        fi
+    fi
+    python3 -c "import pytest"
+'
+} 2>&1 | tee -a ${hostEnvPrepareLog}
+"""
+                                    )
+                                    if (hostPythonDepsStatus != 0) {
+                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${hostEnvPrepareLog}"
+                                        error "[${ip}] install physical host python dependencies failed with exit code ${hostPythonDepsStatus}"
+                                    }
+                                    sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=passed' >> ${hostEnvPrepareLog}"
+
+                                    echo "[${ip}] collect physical host environment metadata"
+                                    sh """
+                                    ${hostSsh} '
+                                        cd ${hostRemoteDir}
+                                        mkdir -p allure-results
+                                        {
+                                            echo "Node_${ip}_Physical_Host=\$(hostname)"
+                                            echo "Node_${ip}_Physical_Kernel=\$(uname -r)"
+                                            echo "Node_${ip}_Physical_NVMe_Count=\$(ls /dev/nvme*n1 2>/dev/null | wc -l)"
+                                        } > allure-results/environment_${ip}_physical.properties
+                                    '
+                                    """
+
+                                    echo "[${ip}] run nvme_raid_test.py on physical host"
+                                    def hostTestStatus = sh(
+                                        returnStatus: true,
+                                        script: """#!/bin/bash
+set -o pipefail
+timeout --kill-after=60s ${env.TARGET_NODE_TIMEOUT_MINUTES}m ${hostSsh} \"
+    cd ${hostRemoteDir} && \
+    QEMU_VM_TARGET=0 \
+    ALLOW_DESTRUCTIVE_FIO=${env.ALLOW_DESTRUCTIVE_FIO} \
+    sudo -E python3 nvme_raid_test.py
+\" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), \$0 }' | tee test_execution_${ip}_physical.log
+test_rc=\${PIPESTATUS[0]}
+if [ "\$test_rc" = "124" ] || [ "\$test_rc" = "137" ]; then
+    echo "[${ip}] ERROR: physical host nvme_raid_test.py timed out after ${env.TARGET_NODE_TIMEOUT_MINUTES} minutes, target may be hung." | tee -a test_execution_${ip}_physical.log
+fi
+exit "\$test_rc"
+"""
+                                    )
+
+                                    echo "[${ip}] copy back physical host reports"
+                                    sh """
+                                    mkdir -p allure-results
+                                    rm -rf allure-results-${ip}-physical
+                                    ${hostScp} -r ${env.TARGET_USER}@${ip}:${hostRemoteDir}/allure-results ./allure-results-${ip}-physical || true
+                                    if [ -d allure-results-${ip}-physical ]; then
+                                        cp -R allure-results-${ip}-physical/. ./allure-results/ || true
+                                        rm -rf allure-results-${ip}-physical
+                                    fi
+                                    ${hostScp} ${env.TARGET_USER}@${ip}:${hostRemoteDir}/report.xml ./report_${ip}_physical.xml || true
+                                    """
+
+                                    if (hostTestStatus != 0) {
+                                        error "[${ip}] physical host nvme_raid_test.py failed with exit code ${hostTestStatus}"
+                                    }
+
+                                    if (!fileExists("report_${ip}_physical.xml")) {
+                                        error "[${ip}] Missing report_${ip}_physical.xml. physical host nvme_raid_test.py did not produce a JUnit report."
+                                    }
                                 }
                             }
                         }

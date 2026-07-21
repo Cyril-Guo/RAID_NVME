@@ -87,9 +87,30 @@ def test_qemu_vm_start_is_skipped_when_vm_is_already_running():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
     assert "qemu vm already running" in source
-    assert "QEMU VM is already running, skip ${env.QEMU_VM_START_SCRIPT}" in source
+    assert "QEMU VM is already running, skip vfio bind and ${env.QEMU_VM_START_SCRIPT}" in source
     assert "else\n    timeout --kill-after=60s 10m ssh" in source
     assert "QEMU VM SSH is ready" in source
+
+
+def test_automatic_mr_runs_qemu_then_physical_host():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "automaticMrTriggered = true" in source
+    assert "if (qemuVmForNode && automaticMrTriggered)" in source
+    assert "Physical Environment_Prepare started after QEMU VM test" in source
+    assert "QEMU_VM_TARGET=0" in source
+    assert "report_${ip}_physical.xml" in source
+
+
+def test_automatic_mr_moves_nvme_between_host_and_qemu():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "QEMU_VFIO_BIND_SCRIPT = './vfio-bind.sh'" in source
+    assert "bind NVMe PCI device to QEMU vfio" in source
+    assert "return NVMe devices to physical host" in source
+    assert "unbind NVMe PCI device back to host" in source
+    assert "fallback unbind vfio NVMe PCI device back to host" in source
+    assert ".jenkins_nvme_${env.BUILD_NUMBER}_vfio_devices" in source
 
 
 def test_manual_debug_can_simulate_automatic_mr_trigger():
