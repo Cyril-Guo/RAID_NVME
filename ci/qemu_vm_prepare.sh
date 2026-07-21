@@ -217,15 +217,26 @@ cat > "${wrapper_dir}/qemu-system-x86_64" <<'QEMU_WRAPPER'
 #!/bin/bash
 set -euo pipefail
 filtered_args=()
+seen_vfio_hosts=""
+root_port_ids=""
+used_vfio_buses=""
 while [ "$#" -gt 0 ]; do
     arg="$1"
     shift
     if [ "$arg" = "-device" ] && [ "$#" -gt 0 ]; then
         device_arg="$1"
         shift
+        if [[ "$device_arg" == pcie-root-port,* ]]; then
+            port_id="${device_arg#*id=}"
+            port_id="${port_id%%,*}"
+            [ "$port_id" != "$device_arg" ] && root_port_ids="${root_port_ids} ${port_id}"
+        fi
         if [[ "$device_arg" == vfio-pci,host=* ]]; then
             bdf="${device_arg#*host=}"
             bdf="${bdf%%,*}"
+            bus_id="${device_arg#*bus=}"
+            bus_id="${bus_id%%,*}"
+            [ "$bus_id" = "$device_arg" ] && bus_id=""
             group_path=$(readlink -f "/sys/bus/pci/devices/${bdf}/iommu_group" 2>/dev/null || true)
             group="${group_path##*/}"
             if ! grep -Fxq "$bdf" "${QEMU_ALLOWED_VFIO_FILE}"; then
@@ -236,12 +247,43 @@ while [ "$#" -gt 0 ]; do
                 echo "skip QEMU vfio device without vfio node: ${bdf}, group=${group:-none}, node=/dev/vfio/${group:-none}" >&2
                 continue
             fi
+            seen_vfio_hosts="${seen_vfio_hosts} ${bdf}"
+            [ -n "$bus_id" ] && used_vfio_buses="${used_vfio_buses} ${bus_id}"
         fi
         filtered_args+=("-device" "$device_arg")
         continue
     fi
     filtered_args+=("$arg")
 done
+next_port=90
+while IFS= read -r bdf; do
+    [ -n "$bdf" ] || continue
+    case " ${seen_vfio_hosts} " in
+        *" ${bdf} "*) continue ;;
+    esac
+    group_path=$(readlink -f "/sys/bus/pci/devices/${bdf}/iommu_group" 2>/dev/null || true)
+    group="${group_path##*/}"
+    if [ -z "$group" ] || [ ! -e "/dev/vfio/${group}" ]; then
+        echo "skip auto QEMU vfio device without vfio node: ${bdf}, group=${group:-none}, node=/dev/vfio/${group:-none}" >&2
+        continue
+    fi
+    echo "append auto detected QEMU vfio device: ${bdf}" >&2
+    target_bus=""
+    for port_id in $root_port_ids; do
+        case " ${used_vfio_buses} " in
+            *" ${port_id} "*) ;;
+            *) target_bus="$port_id"; break ;;
+        esac
+    done
+    if [ -z "$target_bus" ]; then
+        target_bus="autoport${next_port}"
+        filtered_args+=("-device" "pcie-root-port,id=${target_bus},chassis=${next_port},bus=pcie.0")
+        root_port_ids="${root_port_ids} ${target_bus}"
+        next_port=$((next_port + 1))
+    fi
+    filtered_args+=("-device" "vfio-pci,host=${bdf},bus=${target_bus}")
+    used_vfio_buses="${used_vfio_buses} ${target_bus}"
+done < "${QEMU_ALLOWED_VFIO_FILE}"
 exec "${QEMU_REAL_BINARY}" "${filtered_args[@]}"
 QEMU_WRAPPER
 chmod +x "${wrapper_dir}/qemu-system-x86_64"

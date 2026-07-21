@@ -135,6 +135,8 @@ def test_automatic_mr_moves_nvme_between_host_and_qemu():
     assert "QEMU_ALLOWED_VFIO_FILE" in source
     assert "skip QEMU vfio device not in validated list" in source
     assert "skip QEMU vfio device without vfio node" in source
+    assert "append auto detected QEMU vfio device" in source
+    assert "skip auto QEMU vfio device without vfio node" in source
     assert 'patched_start_script=".jenkins_start_vm_${BUILD_NUMBER}.sh"' in source
     assert "use auto detected QEMU passthrough hosts from ${allowed_file}" in source
     assert "use original script and rely on QEMU vfio wrapper filtering" in source
