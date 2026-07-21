@@ -179,6 +179,40 @@ allowed_file=".jenkins_nvme_${BUILD_NUMBER}_vfio_devices"
 real_qemu=$(command -v qemu-system-x86_64)
 wrapper_dir=".jenkins_qemu_wrapper_${BUILD_NUMBER}"
 mkdir -p "${wrapper_dir}"
+patched_start_script=".jenkins_start_vm_${BUILD_NUMBER}.sh"
+if [ ! -s "${allowed_file}" ]; then
+    echo "[${NODE_IP}] no validated QEMU vfio device list found: ${allowed_file}" >&2
+    exit 1
+fi
+{
+    replacing=0
+    replaced=0
+    while IFS= read -r line; do
+        if [ "${replacing}" = "0" ] && printf '%s\n' "${line}" | grep -Eq '^[[:space:]]*PASSTHROUGH_HOSTS=\('; then
+            printf '%s\n' 'PASSTHROUGH_HOSTS=('
+            while IFS= read -r bdf; do
+                [ -n "${bdf}" ] || continue
+                printf '  "%s"\n' "${bdf}"
+            done < "${allowed_file}"
+            printf '%s\n' ')'
+            replacing=1
+            replaced=1
+            continue
+        fi
+        if [ "${replacing}" = "1" ]; then
+            [ "$(printf '%s' "${line}" | tr -d '[:space:]')" = ")" ] && replacing=0
+            continue
+        fi
+        printf '%s\n' "${line}"
+    done < "${QEMU_VM_START_SCRIPT}"
+    [ "${replaced}" = "1" ] || {
+        echo "PASSTHROUGH_HOSTS block not found in ${QEMU_VM_START_SCRIPT}" >&2
+        exit 1
+    }
+} > "${patched_start_script}"
+chmod +x "${patched_start_script}"
+echo "[${NODE_IP}] use auto detected QEMU passthrough hosts from ${allowed_file}:"
+cat "${allowed_file}"
 cat > "${wrapper_dir}/qemu-system-x86_64" <<'QEMU_WRAPPER'
 #!/bin/bash
 set -euo pipefail
@@ -214,7 +248,7 @@ chmod +x "${wrapper_dir}/qemu-system-x86_64"
 start_log=".jenkins_qemu_start_${BUILD_NUMBER}.log"
 rm -f "${start_log}"
 (
-    QEMU_REAL_BINARY="${real_qemu}" QEMU_ALLOWED_VFIO_FILE="${PWD}/${allowed_file}" PATH="${PWD}/${wrapper_dir}:$PATH" "${QEMU_VM_START_SCRIPT}"
+    QEMU_REAL_BINARY="${real_qemu}" QEMU_ALLOWED_VFIO_FILE="${PWD}/${allowed_file}" PATH="${PWD}/${wrapper_dir}:$PATH" "./${patched_start_script}"
 ) >"${start_log}" 2>&1 &
 start_pid=$!
 for attempt in $(seq 1 30); do
