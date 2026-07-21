@@ -20,11 +20,12 @@ def test_apt_get_waits_for_dpkg_lock():
 
 
 def test_debug_no_feishu_only_skips_notification():
-    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+    source = pipeline_sources()
 
     assert "name: 'DEBUG_NO_FEISHU'" in source
     assert "DEBUG_NO_FEISHU=true, skip Feishu notification." in source
-    assert "writeFile file: 'feishu_payload.json'" in source
+    assert "python3 ci/build_feishu_payload.py" in source
+    assert "feishu_payload.json" in source
 
 
 def test_feishu_webhook_uses_jenkins_credential():
@@ -46,15 +47,15 @@ def test_manual_mr_iid_reruns_merge_request():
 
 
 def test_target_hang_times_out_and_keeps_pipeline_control():
-    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+    source = pipeline_sources()
 
     assert "TARGET_NODE_TIMEOUT_MINUTES = '90'" in source
     assert "ServerAliveInterval=30" in source
     assert "ServerAliveCountMax=3" in source
     assert "ConnectTimeout=15" in source
-    assert "timeout --kill-after=60s ${env.TARGET_NODE_TIMEOUT_MINUTES}m ${targetSsh}" in source
-    assert "nvme_raid_test.py timed out after ${env.TARGET_NODE_TIMEOUT_MINUTES} minutes" in source
-    assert "exit \"\\$test_rc\"" in source
+    assert 'timeout --kill-after=60s "${TARGET_NODE_TIMEOUT_MINUTES}m"' in source
+    assert "${test_label} timed out after ${TARGET_NODE_TIMEOUT_MINUTES} minutes" in source
+    assert 'exit "${test_rc}"' in source
 
 
 def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
@@ -120,7 +121,7 @@ def test_automatic_mr_runs_qemu_then_physical_host():
     assert "if (qemuVmForNode && automaticMrTriggered)" in source
     assert "Physical Environment_Prepare started after QEMU VM test" in source
     assert "QEMU_VM_TARGET=0" in source
-    assert "report_${ip}_physical.xml" in source
+    assert "REPORT_SUFFIX='_physical'" in source
 
 
 def test_automatic_mr_moves_nvme_between_host_and_qemu():

@@ -598,222 +598,48 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                                 ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && NODE_IP=${ip} REMOTE_DIR=${remoteDir} PREFIX=Node_${ip} ci/collect_environment_metadata.sh'
                                 """
 
-                                echo "[${ip}] run nvme_raid_test.py"
+                                echo "[${ip}] run nvme_raid_test.py and copy back reports"
                                 def testStatus = sh(
                                     returnStatus: true,
                                     script: """#!/bin/bash
-set -o pipefail
-timeout --kill-after=60s ${env.TARGET_NODE_TIMEOUT_MINUTES}m ${targetSsh} \"
-    cd ${remoteDir} && \
-    QEMU_VM_TARGET=${qemuEnv} \
-    ALLOW_DESTRUCTIVE_FIO=${env.ALLOW_DESTRUCTIVE_FIO} \
-    sudo -E python3 nvme_raid_test.py
-\" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), \$0 }' | tee test_execution_${ip}.log
-test_rc=\${PIPESTATUS[0]}
-if [ "\$test_rc" = "124" ] || [ "\$test_rc" = "137" ]; then
-    echo "[${ip}] ERROR: nvme_raid_test.py timed out after ${env.TARGET_NODE_TIMEOUT_MINUTES} minutes, target may be hung." | tee -a test_execution_${ip}.log
-fi
-exit "\$test_rc"
-"""
+ chmod +x ci/run_remote_test_and_collect.sh
+ NODE_IP='${ip}' \
+ TARGET_USER='${env.TARGET_USER}' \
+ REMOTE_DIR='${remoteDir}' \
+ REMOTE_SSH_COMMAND="${targetSsh}" \
+ REMOTE_SCP_COMMAND="${targetScp}" \
+ TARGET_NODE_TIMEOUT_MINUTES='${env.TARGET_NODE_TIMEOUT_MINUTES}' \
+ QEMU_VM_TARGET='${qemuEnv}' \
+ ALLOW_DESTRUCTIVE_FIO='${env.ALLOW_DESTRUCTIVE_FIO}' \
+ ci/run_remote_test_and_collect.sh
+ """
                                 )
-
-                                echo "[${ip}] copy back reports"
-                                sh """
-                                mkdir -p allure-results
-                                rm -rf allure-results-${ip}
-                                ${targetScp} -r ${env.TARGET_USER}@${ip}:${remoteDir}/allure-results ./allure-results-${ip} || true
-                                if [ -d allure-results-${ip} ]; then
-                                    cp -R allure-results-${ip}/. ./allure-results/ || true
-                                    rm -rf allure-results-${ip}
-                                fi
-                                ${targetScp} ${env.TARGET_USER}@${ip}:${remoteDir}/report.xml ./report_${ip}.xml || true
-                                """
-
                                 if (testStatus != 0) {
-                                    error "[${ip}] nvme_raid_test.py failed with exit code ${testStatus}"
-                                }
-
-                                if (!fileExists("report_${ip}.xml")) {
-                                    error "[${ip}] Missing report_${ip}.xml. nvme_raid_test.py did not produce a JUnit report."
+                                    error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"
                                 }
 
                                 if (qemuVmForNode && automaticMrTriggered) {
-                                    def hostRemoteDir = "/root/Cyril/Jenkins/jenkins_nvme_${env.BUILD_NUMBER}_physical"
-                                    def hostEnvPrepareLog = "environment_prepare_${ip}_physical.log"
-                                    def hostSsh = "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
-                                    def hostScp = "scp ${env.SSH_OPTS}"
-
-                                    writeFile file: hostEnvPrepareLog, text: "[${ip}] Physical Environment_Prepare started after QEMU VM test\n"
-
-                                    echo "[${ip}] stop QEMU VM and return NVMe devices to physical host"
-                                    def handbackStatus = sh(
+                                    echo "[${ip}] run physical host test after QEMU VM test"
+                                    def hostStatus = sh(
                                         returnStatus: true,
                                         script: """#!/bin/bash
-set -o pipefail
-chmod +x ci/qemu_vfio_cleanup.sh
-NODE_IP='${ip}' \\
-TARGET_USER='${env.TARGET_USER}' \\
-SSH_OPTS='${env.SSH_OPTS}' \\
-QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
-QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
-QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
-QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
-BUILD_NUMBER='${env.BUILD_NUMBER}' \\
-CLEANUP_REASON='stop QEMU VM and return NVMe devices to physical host' \\
-POWER_OFF_QEMU=1 \\
-ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${hostEnvPrepareLog}
-"""
+ chmod +x ci/run_physical_host_test.sh
+ NODE_IP='${ip}' \
+ TARGET_USER='${env.TARGET_USER}' \
+ SSH_OPTS='${env.SSH_OPTS}' \
+ QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \
+ QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \
+ QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \
+ QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \
+ BUILD_NUMBER='${env.BUILD_NUMBER}' \
+ DPRAID_SOURCE='${raidCliDpraidPathForRun}' \
+ TARGET_NODE_TIMEOUT_MINUTES='${env.TARGET_NODE_TIMEOUT_MINUTES}' \
+ ALLOW_DESTRUCTIVE_FIO='${env.ALLOW_DESTRUCTIVE_FIO}' \
+ ci/run_physical_host_test.sh
+ """
                                     )
-                                    if (handbackStatus != 0) {
-                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${hostEnvPrepareLog}"
-                                        error "[${ip}] returning NVMe devices to physical host failed with exit code ${handbackStatus}"
-                                    }
-
-                                    echo "[${ip}] deploy workspace for physical host test"
-                                    def hostDeployStatus = sh(
-                                        returnStatus: true,
-                                        script: """#!/bin/bash
-set -o pipefail
-{
-echo "[${ip}] deploy workspace for physical host test"
-${hostSsh} 'rm -rf ${hostRemoteDir} && mkdir -p ${hostRemoteDir}'
-chmod +x ci/deploy_workspace.sh
-NODE_IP='${ip}' \\
-TARGET_USER='${env.TARGET_USER}' \\
-REMOTE_DIR='${hostRemoteDir}' \\
-REMOTE_SSH_COMMAND="${hostSsh}" \\
-ci/deploy_workspace.sh
-} 2>&1 | tee -a ${hostEnvPrepareLog}
-"""
-                                    )
-                                    if (hostDeployStatus != 0) {
-                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${hostEnvPrepareLog}"
-                                        error "[${ip}] deploy physical host workspace failed with exit code ${hostDeployStatus}"
-                                    }
-
-                                    echo "[${ip}] install latest dpraid on physical host"
-                                    def hostDpraidStatus = sh(
-                                        returnStatus: true,
-                                        script: """#!/bin/bash
-set -o pipefail
-{
-echo "[${ip}] install latest dpraid on physical host"
-chmod +x ci/install_dpraid_remote.sh
-NODE_IP='${ip}' \\
-TARGET_USER='${env.TARGET_USER}' \\
-SSH_OPTS='${env.SSH_OPTS}' \\
-DPRAID_SOURCE='${raidCliDpraidPathForRun}' \\
-BUILD_NUMBER='${env.BUILD_NUMBER}' \\
-TMP_SUFFIX='_physical' \\
-REMOTE_SSH_COMMAND="${hostSsh}" \\
-REMOTE_SCP_COMMAND="${hostScp}" \\
-ci/install_dpraid_remote.sh
-} 2>&1 | tee -a ${hostEnvPrepareLog}
-"""
-                                    )
-                                    if (hostDpraidStatus != 0) {
-                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${hostEnvPrepareLog}"
-                                        error "[${ip}] install physical host dpraid failed with exit code ${hostDpraidStatus}"
-                                    }
-
-                                    echo "[${ip}] build and reload draid kernel driver on physical host"
-                                    def hostDriverStatus = sh(
-                                        returnStatus: true,
-                                        script: """#!/bin/bash
-set -o pipefail
-{
-echo "[${ip}] build and reload draid kernel driver on physical host"
-chmod +x ci/prepare_draid_driver.sh
-NODE_IP='${ip}' \\
-TARGET_USER='${env.TARGET_USER}' \\
-SSH_OPTS='${env.SSH_OPTS}' \\
-REMOTE_DIR='${hostRemoteDir}' \\
-BUILD_NUMBER='${env.BUILD_NUMBER}' \\
-QEMU_VM_TARGET='0' \\
-ci/prepare_draid_driver.sh
-} 2>&1 | tee -a ${hostEnvPrepareLog}
-"""
-                                    )
-                                    if (hostDriverStatus != 0) {
-                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${hostEnvPrepareLog}"
-                                        error "[${ip}] build and reload physical host draid kernel driver failed with exit code ${hostDriverStatus}"
-                                    }
-
-                                    echo "[${ip}] install python dependencies on physical host"
-                                    def hostPythonDepsStatus = sh(
-                                        returnStatus: true,
-                                        script: """#!/bin/bash
-set -o pipefail
-{
-echo "[${ip}] install python dependencies on physical host"
-${hostSsh} 'cd ${hostRemoteDir} && chmod +x ci/install_test_dependencies.sh && QEMU_VM_TARGET=0 ci/install_test_dependencies.sh'
-} 2>&1 | tee -a ${hostEnvPrepareLog}
-"""
-                                    )
-                                    if (hostPythonDepsStatus != 0) {
-                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${hostEnvPrepareLog}"
-                                        error "[${ip}] install physical host python dependencies failed with exit code ${hostPythonDepsStatus}"
-                                    }
-                                    sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=passed' >> ${hostEnvPrepareLog}"
-
-                                    echo "[${ip}] collect physical host environment metadata"
-                                    sh """
-                                    ${hostSsh} 'cd ${hostRemoteDir} && chmod +x ci/collect_environment_metadata.sh && NODE_IP=${ip} REMOTE_DIR=${hostRemoteDir} PREFIX=Node_${ip}_Physical SUFFIX=_physical ci/collect_environment_metadata.sh'
-                                    """
-
-                                    echo "[${ip}] run nvme_raid_test.py on physical host"
-                                    def hostTestStatus = sh(
-                                        returnStatus: true,
-                                        script: """#!/bin/bash
-set -o pipefail
-timeout --kill-after=60s ${env.TARGET_NODE_TIMEOUT_MINUTES}m ${hostSsh} \"
-    cd ${hostRemoteDir} && \
-    QEMU_VM_TARGET=0 \
-    ALLOW_DESTRUCTIVE_FIO=${env.ALLOW_DESTRUCTIVE_FIO} \
-    sudo -E python3 nvme_raid_test.py
-\" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), \$0 }' | tee test_execution_${ip}_physical.log
-test_rc=\${PIPESTATUS[0]}
-if [ "\$test_rc" = "124" ] || [ "\$test_rc" = "137" ]; then
-    echo "[${ip}] ERROR: physical host nvme_raid_test.py timed out after ${env.TARGET_NODE_TIMEOUT_MINUTES} minutes, target may be hung." | tee -a test_execution_${ip}_physical.log
-fi
-exit "\$test_rc"
-"""
-                                    )
-
-                                    echo "[${ip}] copy back physical host reports"
-                                    sh """
-                                    mkdir -p allure-results
-                                    rm -rf allure-results-${ip}-physical
-                                    ${hostScp} -r ${env.TARGET_USER}@${ip}:${hostRemoteDir}/allure-results ./allure-results-${ip}-physical || true
-                                    if [ -d allure-results-${ip}-physical ]; then
-                                        cp -R allure-results-${ip}-physical/. ./allure-results/ || true
-                                        rm -rf allure-results-${ip}-physical
-                                    fi
-                                    ${hostScp} ${env.TARGET_USER}@${ip}:${hostRemoteDir}/report.xml ./report_${ip}_physical.xml || true
-                                    """
-
-                                    echo "[${ip}] restore physical host RAID state after physical host test"
-                                    def hostFinalResetStatus = sh(
-                                        returnStatus: true,
-                                        script: """#!/bin/bash
-set -o pipefail
-{
-echo "[${ip}] restore physical host RAID state after physical host test"
-${hostSsh} 'cd ${hostRemoteDir} && chmod +x ci/restore_physical_raid_state.sh && NODE_IP=${ip} ci/restore_physical_raid_state.sh'
-} 2>&1 | tee -a ${hostEnvPrepareLog}
-"""
-                                    )
-                                    if (hostFinalResetStatus != 0) {
-                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${hostEnvPrepareLog}"
-                                        error "[${ip}] restore physical host RAID state after physical host test failed with exit code ${hostFinalResetStatus}"
-                                    }
-
-                                    if (hostTestStatus != 0) {
-                                        error "[${ip}] physical host nvme_raid_test.py failed with exit code ${hostTestStatus}"
-                                    }
-
-                                    if (!fileExists("report_${ip}_physical.xml")) {
-                                        error "[${ip}] Missing report_${ip}_physical.xml. physical host nvme_raid_test.py did not produce a JUnit report."
+                                    if (hostStatus != 0) {
+                                        error "[${ip}] physical host test failed with exit code ${hostStatus}"
                                     }
                                 }
                             }
@@ -868,14 +694,8 @@ ${hostSsh} 'cd ${hostRemoteDir} && chmod +x ci/restore_physical_raid_state.sh &&
                 def errors = metrics[2].toInteger()
                 def skipped = metrics[3].toInteger()
 
-                def passed = total - failed - errors - skipped
-                def execRate = total > 0 ? String.format('%.2f%%', ((total - skipped) / (double) total) * 100) : '0%'
-                def passRate = total > 0 ? String.format('%.1f%%', (passed / (double) total) * 100) : '0%'
-
                 def startStr = new Date(currentBuild.startTimeInMillis).format('yyyy-MM-dd HH:mm:ss')
                 def endStr = new Date().format('yyyy-MM-dd HH:mm:ss')
-                def statusColor = (failed + errors == 0 && total > 0) ? 'blue' : 'red'
-                def fontColor = statusColor == 'blue' ? 'green' : 'red'
                 def ipListStr = targetIPs.join(', ')
                 if (!raidCliCommit || raidCliCommit == 'unknown') {
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
@@ -890,68 +710,28 @@ ${hostSsh} 'cd ${hostRemoteDir} && chmod +x ci/restore_physical_raid_state.sh &&
                         returnStdout: true
                     ).trim()
                 }
-                def driverLines = []
-                if (kernelDriverMrIid) {
-                    driverLines << "MR: !${kernelDriverMrIid} ${kernelDriverMrTitle ?: ''}".trim()
-                    driverLines << "Source: ${kernelDriverRef ?: 'unknown'}"
-                    driverLines << "Updated: ${kernelDriverMrUpdatedAt ?: 'unknown'}"
-                } else {
-                    driverLines << "Branch: ${kernelDriverRef ?: env.KERNEL_DRIVER_BRANCH}"
+                withEnv([
+                    "TOTAL=${total}",
+                    "FAILED=${failed}",
+                    "ERRORS=${errors}",
+                    "SKIPPED=${skipped}",
+                    "START_STR=${startStr}",
+                    "END_STR=${endStr}",
+                    "IP_LIST=${ipListStr}",
+                    "TRIGGER_SOURCE=${triggerSource ?: 'unknown'}",
+                    "KERNEL_DRIVER_BRANCH=${env.KERNEL_DRIVER_BRANCH}",
+                    "KERNEL_DRIVER_REF=${kernelDriverRef ?: ''}",
+                    "KERNEL_DRIVER_COMMIT=${kernelDriverCommit ?: 'unknown'}",
+                    "KERNEL_DRIVER_MR_IID=${kernelDriverMrIid ?: ''}",
+                    "KERNEL_DRIVER_MR_TITLE=${kernelDriverMrTitle ?: ''}",
+                    "KERNEL_DRIVER_MR_UPDATED_AT=${kernelDriverMrUpdatedAt ?: ''}",
+                    "KERNEL_DRIVER_MR_URL=${kernelDriverMrUrl ?: ''}",
+                    "RAID_CLI_BRANCH=${env.RAID_CLI_BRANCH}",
+                    "RAID_CLI_COMMIT=${raidCliCommit ?: 'unknown'}",
+                    "BUILD_URL=${env.BUILD_URL}"
+                ]) {
+                    sh 'python3 ci/build_feishu_payload.py'
                 }
-                driverLines << "Commit: ${kernelDriverCommit ?: 'unknown'}"
-                driverLines << "raid_cli(${env.RAID_CLI_BRANCH}): ${raidCliCommit ?: 'unknown'}"
-
-                def actions = [[
-                    tag: 'button',
-                    text: [tag: 'plain_text', content: '查看报告'],
-                    url: "${env.BUILD_URL}allure/",
-                    type: 'primary'
-                ]]
-                if (kernelDriverMrUrl) {
-                    actions << [
-                        tag: 'button',
-                        text: [tag: 'plain_text', content: '查看 MR'],
-                        url: kernelDriverMrUrl,
-                        type: 'default'
-                    ]
-                }
-
-                def payload = [
-                    msg_type: 'interactive',
-                    card: [
-                        config: [wide_screen_mode: true],
-                        header: [
-                            title: [tag: 'plain_text', content: 'NVMe_RAID(F6501) Test Report'],
-                            template: statusColor
-                        ],
-                        elements: [
-                            [
-                                tag: 'div',
-                                fields: [
-                                    [is_short: true, text: [tag: 'lark_md', content: "**用户名:** dapustor"]],
-                                    [is_short: true, text: [tag: 'lark_md', content: "**密码:** Admin@9000"]],
-                                    [is_short: false, text: [tag: 'lark_md', content: "**触发来源:**\n${triggerSource ?: 'unknown'}"]],
-                                    [is_short: false, text: [tag: 'lark_md', content: "**被测驱动:**\n${driverLines.join('\n')}"]],
-                                    [is_short: false, text: [tag: 'lark_md', content: "**时间周期:**\n${startStr} ~ ${endStr}"]],
-                                    [is_short: false, text: [tag: 'lark_md', content: "**并发节点:**\n${ipListStr}"]]
-                                ]
-                            ],
-                            [
-                                tag: 'div',
-                                text: [
-                                    tag: 'lark_md',
-                                    content: "通过 **${passed}**  失败 **${failed}**  错误 **${errors}**  Total: **${total}**\n执行率: ${execRate}   通过率: <font color=\"${fontColor}\">${passRate}</font>"
-                                ]
-                            ],
-                            [
-                                tag: 'action',
-                                actions: actions
-                            ]
-                        ]
-                    ]
-                ]
-
-                writeFile file: 'feishu_payload.json', text: groovy.json.JsonOutput.toJson(payload)
                 if (params.DEBUG_NO_FEISHU) {
                     echo 'DEBUG_NO_FEISHU=true, skip Feishu notification.'
                 } else {
