@@ -153,6 +153,8 @@ def test_automatic_mr_restores_physical_host_raid_state_before_and_after_tests()
 
     assert "restore physical host RAID state before QEMU handoff" in source
     assert "restore physical host RAID state after physical host test" in source
+    assert "unload draid module before QEMU handoff if loaded" in source
+    assert "unload draid module before restoring physical RAID state if loaded" in source
     assert "dpraid /c0/vall show" in source
     assert "dpraid /c0/eall/sall show" in source
     assert 'dpraid "/c0/v${vd}" delete' in source

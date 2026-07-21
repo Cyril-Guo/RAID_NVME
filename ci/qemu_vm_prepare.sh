@@ -49,6 +49,16 @@ set -euo pipefail
 install -m 0755 "/tmp/dpraid_${BUILD_NUMBER}_host_prepare" /usr/bin/dpraid
 rm -f "/tmp/dpraid_${BUILD_NUMBER}_host_prepare"
 
+echo "[${NODE_IP}] unload draid module before QEMU handoff if loaded"
+if grep -q "^draid " /proc/modules; then
+    rmmod draid || modprobe -r draid
+fi
+if grep -q "^draid " /proc/modules; then
+    echo "[${NODE_IP}] draid module is still loaded before QEMU handoff" >&2
+    grep -i draid /proc/modules >&2 || true
+    exit 1
+fi
+
 echo "[${NODE_IP}] restore physical host RAID state before QEMU handoff"
 vd_ids=$(
     dpraid /c0/vall show 2>/dev/null |

@@ -4,6 +4,16 @@ set -euo pipefail
 NODE_IP=${NODE_IP:-unknown}
 
 echo "[${NODE_IP}] restore physical host RAID state after physical host test"
+echo "[${NODE_IP}] unload draid module before restoring physical RAID state if loaded"
+if grep -q "^draid " /proc/modules; then
+    rmmod draid || modprobe -r draid
+fi
+if grep -q "^draid " /proc/modules; then
+    echo "[${NODE_IP}] draid module is still loaded before restoring physical RAID state" >&2
+    grep -i draid /proc/modules >&2 || true
+    exit 1
+fi
+
 vd_ids=$(
     dpraid /c0/vall show 2>/dev/null |
     while read -r first rest; do
