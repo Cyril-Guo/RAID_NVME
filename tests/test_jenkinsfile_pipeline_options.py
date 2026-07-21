@@ -94,6 +94,16 @@ def test_qemu_vm_start_is_skipped_when_vm_is_already_running():
     assert "QEMU VM SSH is ready" in source
 
 
+def test_qemu_vm_start_fails_fast_when_qemu_process_exits():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "qemu-system-x86_64.*vm-serial.log" in source
+    assert "QEMU process is not running after ${env.QEMU_VM_START_SCRIPT}; startup failed before SSH wait" in source
+    assert "QEMU process exited before SSH became ready; stop waiting and fail startup" in source
+    assert "QEMU startup failed, return vfio devices to physical host" in source
+    assert "cleanup vfio NVMe PCI device after QEMU startup failure" in source
+
+
 def test_automatic_mr_runs_qemu_then_physical_host():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 

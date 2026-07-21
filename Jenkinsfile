@@ -655,6 +655,11 @@ else
         set -eu
         cd ${env.QEMU_VM_WORKDIR}
         ${env.QEMU_VM_START_SCRIPT}
+        sleep 2
+        if ! pgrep -f "qemu-system-x86_64.*vm-serial.log" >/dev/null 2>&1; then
+            echo "[${ip}] QEMU process is not running after ${env.QEMU_VM_START_SCRIPT}; startup failed before SSH wait" >&2
+            exit 1
+        fi
     '
     echo "[${ip}] wait 60s for QEMU VM boot"
     sleep 60
@@ -663,6 +668,10 @@ for attempt in \$(seq 1 24); do
     if ${targetSsh} 'echo qemu vm ssh ready' >/dev/null 2>&1; then
         echo "[${ip}] QEMU VM SSH is ready"
         exit 0
+    fi
+    if ! ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} 'pgrep -f "qemu-system-x86_64.*vm-serial.log" >/dev/null 2>&1'; then
+        echo "[${ip}] QEMU process exited before SSH became ready; stop waiting and fail startup" >&2
+        exit 1
     fi
     echo "[${ip}] waiting for QEMU VM SSH, attempt \${attempt}/24"
     sleep 5
@@ -674,6 +683,41 @@ exit 1
                                     )
                                     if (qemuStatus != 0) {
                                         sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                        sh(
+                                            returnStatus: true,
+                                            script: """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] QEMU startup failed, return vfio devices to physical host"
+ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
+    set -u
+    cd ${env.QEMU_VM_WORKDIR} || exit 0
+    test -x ${env.QEMU_VFIO_BIND_SCRIPT} || exit 0
+    device_file=.jenkins_nvme_${env.BUILD_NUMBER}_vfio_devices
+    if [ -s "\$device_file" ]; then
+        while read -r dev; do
+            [ -n "\$dev" ] || continue
+            echo "[${ip}] cleanup vfio NVMe PCI device after QEMU startup failure: \$dev"
+            DEV="\$dev" ${env.QEMU_VFIO_BIND_SCRIPT} unbind || true
+        done < "\$device_file"
+    else
+        for pci_path in /sys/bus/pci/devices/*; do
+            [ -e "\$pci_path/class" ] || continue
+            [ "\$(cat "\$pci_path/class")" = "0x010802" ] || continue
+            driver=\$(basename "\$(readlink -f "\$pci_path/driver" 2>/dev/null || true)")
+            [ "\$driver" = "vfio-pci" ] || continue
+            dev=\$(basename "\$pci_path")
+            echo "[${ip}] fallback cleanup vfio NVMe PCI device after QEMU startup failure: \$dev"
+            DEV="\$dev" ${env.QEMU_VFIO_BIND_SCRIPT} unbind || true
+        done
+    fi
+    echo 1 > /sys/bus/pci/rescan || true
+    sleep 5
+    nvme list || true
+'
+} 2>&1 | tee -a ${envPrepareLog}
+"""
+                                        )
                                         error "[${ip}] QEMU VM startup failed with exit code ${qemuStatus}"
                                     }
                                 }
