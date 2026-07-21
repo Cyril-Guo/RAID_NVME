@@ -137,7 +137,7 @@ def test_automatic_mr_moves_nvme_between_host_and_qemu():
     assert "skip QEMU vfio device without vfio node" in source
     assert 'patched_start_script=".jenkins_start_vm_${BUILD_NUMBER}.sh"' in source
     assert "use auto detected QEMU passthrough hosts from ${allowed_file}" in source
-    assert "PASSTHROUGH_HOSTS block not found in ${QEMU_VM_START_SCRIPT}" in source
+    assert "use original script and rely on QEMU vfio wrapper filtering" in source
     assert ".jenkins_qemu_start_${BUILD_NUMBER}.log" in source
     assert "waiting for QEMU process" in source
     assert "return NVMe devices to physical host" in source

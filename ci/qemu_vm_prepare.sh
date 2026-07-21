@@ -206,8 +206,8 @@ fi
         printf '%s\n' "${line}"
     done < "${QEMU_VM_START_SCRIPT}"
     [ "${replaced}" = "1" ] || {
-        echo "PASSTHROUGH_HOSTS block not found in ${QEMU_VM_START_SCRIPT}" >&2
-        exit 1
+        echo "[${NODE_IP}] PASSTHROUGH_HOSTS block not found in ${QEMU_VM_START_SCRIPT}; use original script and rely on QEMU vfio wrapper filtering" >&2
+        cat "${QEMU_VM_START_SCRIPT}"
     }
 } > "${patched_start_script}"
 chmod +x "${patched_start_script}"
