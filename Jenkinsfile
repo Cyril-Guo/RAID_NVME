@@ -551,12 +551,38 @@ else
     install -m 0755 /tmp/dpraid_${env.BUILD_NUMBER}_host_prepare /usr/bin/dpraid
     rm -f /tmp/dpraid_${env.BUILD_NUMBER}_host_prepare
     echo "[${ip}] restore physical host RAID state before QEMU handoff"
-    vd_ids=\$(dpraid /c0/vall show 2>/dev/null | awk '"'"'\$1 ~ /^[0-9]+\/[0-9]+$/ { split(\$1, a, "/"); if (a[2] ~ /^[0-9]+$/) print a[2] }'"'"' | sort -n -u || true)
+    vd_ids=\$(
+        dpraid /c0/vall show 2>/dev/null |
+        while read -r first rest; do
+            case "\$first" in
+                */*)
+                    vd="\${first#*/}"
+                    case "\$vd" in
+                        ""|*[!0-9]*) ;;
+                        *) printf "%s\\n" "\$vd" ;;
+                    esac
+                    ;;
+            esac
+        done | sort -n -u || true
+    )
     for vd in \$vd_ids; do
         echo "[${ip}] delete existing VD before QEMU handoff: v\$vd"
         dpraid /c0/v\$vd delete || true
     done
-    slot_ids=\$(dpraid /c0/eall/sall show 2>/dev/null | awk '"'"'\$1 ~ /^[0-9]+:[0-9]+$/ { split(\$1, a, ":"); if (a[2] ~ /^[0-9]+$/) print a[2] }'"'"' | sort -n -u || true)
+    slot_ids=\$(
+        dpraid /c0/eall/sall show 2>/dev/null |
+        while read -r first rest; do
+            case "\$first" in
+                *:*)
+                    slot="\${first#*:}"
+                    case "\$slot" in
+                        ""|*[!0-9]*) ;;
+                        *) printf "%s\\n" "\$slot" ;;
+                    esac
+                    ;;
+            esac
+        done | sort -n -u || true
+    )
     for slot in \$slot_ids; do
         echo "[${ip}] release physical disk before QEMU handoff: s\$slot"
         dpraid /c0/eall/s\$slot delete || true
@@ -573,7 +599,16 @@ else
         {
             findmnt -nvo SOURCE / /boot /boot/efi 2>/dev/null || true
             lsblk -nP -o NAME,PKNAME,MOUNTPOINT 2>/dev/null |
-                awk -F'"'"'"'"'"' '"'"'\$6 != "" { print "/dev/" \$2; if (\$4 != "") print "/dev/" \$4 }'"'"'"'"'"'
+                while read -r lsblk_line; do
+                    NAME=""
+                    PKNAME=""
+                    MOUNTPOINT=""
+                    eval "\$lsblk_line"
+                    if [ -n "\$MOUNTPOINT" ]; then
+                        printf "/dev/%s\\n" "\$NAME"
+                        [ -n "\$PKNAME" ] && printf "/dev/%s\\n" "\$PKNAME"
+                    fi
+                done
         } |
         while read -r source; do
             [ -n "\$source" ] || continue
@@ -1238,12 +1273,38 @@ set -o pipefail
 echo "[${ip}] restore physical host RAID state after physical host test"
 ${hostSsh} '
     set -eu
-    vd_ids=\$(dpraid /c0/vall show 2>/dev/null | awk '"'"'\$1 ~ /^[0-9]+\/[0-9]+$/ { split(\$1, a, "/"); if (a[2] ~ /^[0-9]+$/) print a[2] }'"'"' | sort -n -u || true)
+    vd_ids=\$(
+        dpraid /c0/vall show 2>/dev/null |
+        while read -r first rest; do
+            case "\$first" in
+                */*)
+                    vd="\${first#*/}"
+                    case "\$vd" in
+                        ""|*[!0-9]*) ;;
+                        *) printf "%s\\n" "\$vd" ;;
+                    esac
+                    ;;
+            esac
+        done | sort -n -u || true
+    )
     for vd in \$vd_ids; do
         echo "[${ip}] delete existing VD after physical host test: v\$vd"
         dpraid /c0/v\$vd delete || true
     done
-    slot_ids=\$(dpraid /c0/eall/sall show 2>/dev/null | awk '"'"'\$1 ~ /^[0-9]+:[0-9]+$/ { split(\$1, a, ":"); if (a[2] ~ /^[0-9]+$/) print a[2] }'"'"' | sort -n -u || true)
+    slot_ids=\$(
+        dpraid /c0/eall/sall show 2>/dev/null |
+        while read -r first rest; do
+            case "\$first" in
+                *:*)
+                    slot="\${first#*:}"
+                    case "\$slot" in
+                        ""|*[!0-9]*) ;;
+                        *) printf "%s\\n" "\$slot" ;;
+                    esac
+                    ;;
+            esac
+        done | sort -n -u || true
+    )
     for slot in \$slot_ids; do
         echo "[${ip}] release physical disk after physical host test: s\$slot"
         dpraid /c0/eall/s\$slot delete || true
