@@ -106,8 +106,11 @@ if [ "${QEMU_VM_TARGET}" = "1" ]; then
 
     host_build_dir="/tmp/draid_build_${BUILD_NUMBER}"
     host_module="/tmp/draid_${BUILD_NUMBER}.ko"
+    host_archive="/tmp/draid_src_${BUILD_NUMBER}.tar.gz"
+    local_archive="draid_src_${NODE_IP}_${BUILD_NUMBER}.tar.gz"
     local_module="draid_${NODE_IP}_${BUILD_NUMBER}.ko"
     local_draid_src="kernel_driver/drivers/draid"
+    trap 'rm -f "${local_archive:-}" "${local_module:-}"' EXIT
 
     test -d "${local_draid_src}" || {
         echo "Local kernel_driver draid source not found: ${local_draid_src}" >&2
@@ -133,7 +136,19 @@ rm -rf "${host_build_dir}"
 mkdir -p "${host_build_dir}"
 HOST_INIT
 
-    tar -czf - -C "${local_draid_src}" . | host_ssh "host_build_dir='${host_build_dir}' tar -xzf - -C \"\${host_build_dir}\""
+    rm -f "${local_archive}"
+    tar -czf "${local_archive}" -C "${local_draid_src}" .
+    host_scp "${local_archive}" "${TARGET_USER}@${NODE_IP}:${host_archive}"
+    rm -f "${local_archive}"
+    host_ssh "host_archive='${host_archive}' host_build_dir='${host_build_dir}' bash -s" <<'HOST_EXTRACT'
+set -euo pipefail
+test -f "${host_archive}" || {
+    echo "Uploaded draid source archive not found: ${host_archive}" >&2
+    exit 1
+}
+tar -xzf "${host_archive}" -C "${host_build_dir}"
+rm -f "${host_archive}"
+HOST_EXTRACT
     host_ssh "QEMU_KERNEL_BUILD_DIR='${QEMU_KERNEL_BUILD_DIR}' host_build_dir='${host_build_dir}' host_module='${host_module}' bash -s" <<'HOST_BUILD'
 set -euo pipefail
 command -v make >/dev/null 2>&1 || { echo "make is required on QEMU host for draid build" >&2; exit 1; }
@@ -147,7 +162,7 @@ HOST_BUILD
     target_ssh "mkdir -p '${REMOTE_DIR}/kernel_driver/drivers/draid'"
     target_scp "${local_module}" "${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/kernel_driver/drivers/draid/draid.ko"
     rm -f "${local_module}"
-    host_ssh "rm -rf '${host_build_dir}' '${host_module}'" || true
+    host_ssh "rm -rf '${host_build_dir}' '${host_module}' '${host_archive}'" || true
     reload_remote_module
 else
     install_driver_build_deps
