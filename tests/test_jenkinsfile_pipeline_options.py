@@ -101,6 +101,8 @@ def test_qemu_vm_start_forces_clean_environment_before_start():
     assert "QEMU pre-test cleanup failed with exit code" in source
     assert "QEMU VM is still running before fresh start; try to power it off" in source
     assert "QEMU VM is still running after pre-test cleanup; refuse to reuse stale VM" in source
+    assert "force stop stale QEMU processes on host" in source
+    assert "force stop stale QEMU process before fresh start" in source
     assert "QEMU VM is already running, skip vfio bind and ${QEMU_VM_START_SCRIPT}" not in source
     assert "dpraid_${BUILD_NUMBER}_host_prepare" in source
     assert "restore physical host RAID state before QEMU handoff" in source

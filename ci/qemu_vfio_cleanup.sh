@@ -36,13 +36,33 @@ if [ "${POWER_OFF_QEMU}" = "1" ]; then
     done
 fi
 
-host_ssh "NODE_IP='${NODE_IP}' BUILD_NUMBER='${BUILD_NUMBER}' QEMU_VM_WORKDIR='${QEMU_VM_WORKDIR}' QEMU_VFIO_BIND_SCRIPT='${QEMU_VFIO_BIND_SCRIPT}' bash -s" <<'HOST_CLEANUP'
+host_ssh "NODE_IP='${NODE_IP}' BUILD_NUMBER='${BUILD_NUMBER}' QEMU_VM_WORKDIR='${QEMU_VM_WORKDIR}' QEMU_VFIO_BIND_SCRIPT='${QEMU_VFIO_BIND_SCRIPT}' POWER_OFF_QEMU='${POWER_OFF_QEMU}' bash -s" <<'HOST_CLEANUP'
 set -euo pipefail
 cd "${QEMU_VM_WORKDIR}" || exit 0
 test -x "${QEMU_VFIO_BIND_SCRIPT}" || {
     echo "QEMU vfio bind script not found or not executable: ${QEMU_VM_WORKDIR}/${QEMU_VFIO_BIND_SCRIPT}" >&2
     exit 1
 }
+
+if [ "${POWER_OFF_QEMU}" = "1" ]; then
+    qemu_pids=$(pgrep -f "qemu-system-x86_64.*vm-serial.log" || true)
+    if [ -n "${qemu_pids}" ]; then
+        echo "[${NODE_IP}] force stop stale QEMU processes on host: ${qemu_pids}"
+        kill ${qemu_pids} >/dev/null 2>&1 || true
+        for attempt in $(seq 1 15); do
+            still_running=""
+            for qemu_pid in ${qemu_pids}; do
+                kill -0 "${qemu_pid}" >/dev/null 2>&1 && still_running="${still_running} ${qemu_pid}" || true
+            done
+            [ -z "${still_running}" ] && break
+            echo "[${NODE_IP}] waiting for stale QEMU process exit, attempt ${attempt}/15:${still_running}"
+            sleep 2
+        done
+        for qemu_pid in ${qemu_pids}; do
+            kill -0 "${qemu_pid}" >/dev/null 2>&1 && kill -9 "${qemu_pid}" >/dev/null 2>&1 || true
+        done
+    fi
+fi
 
 device_file=".jenkins_nvme_${BUILD_NUMBER}_vfio_devices"
 if [ ! -s "$device_file" ]; then

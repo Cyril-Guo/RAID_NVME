@@ -58,6 +58,27 @@ if qemu_ssh 'echo qemu vm already running' >/dev/null 2>&1; then
     fi
 fi
 
+host_ssh "NODE_IP='${NODE_IP}' bash -s" <<'HOST_STOP_STALE_QEMU'
+set -euo pipefail
+qemu_pids=$(pgrep -f "qemu-system-x86_64.*vm-serial.log" || true)
+if [ -n "${qemu_pids}" ]; then
+    echo "[${NODE_IP}] force stop stale QEMU process before fresh start: ${qemu_pids}"
+    kill ${qemu_pids} >/dev/null 2>&1 || true
+    for attempt in $(seq 1 15); do
+        still_running=""
+        for qemu_pid in ${qemu_pids}; do
+            kill -0 "${qemu_pid}" >/dev/null 2>&1 && still_running="${still_running} ${qemu_pid}" || true
+        done
+        [ -z "${still_running}" ] && break
+        echo "[${NODE_IP}] waiting for stale QEMU process exit before fresh start, attempt ${attempt}/15:${still_running}"
+        sleep 2
+    done
+    for qemu_pid in ${qemu_pids}; do
+        kill -0 "${qemu_pid}" >/dev/null 2>&1 && kill -9 "${qemu_pid}" >/dev/null 2>&1 || true
+    done
+fi
+HOST_STOP_STALE_QEMU
+
     scp ${SSH_OPTS} "${RAID_CLI_DPRAID_PATH_FOR_RUN}" "${TARGET_USER}@${NODE_IP}:/tmp/dpraid_${BUILD_NUMBER}_host_prepare"
     host_ssh "NODE_IP='${NODE_IP}' BUILD_NUMBER='${BUILD_NUMBER}' QEMU_VM_WORKDIR='${QEMU_VM_WORKDIR}' QEMU_VFIO_BIND_SCRIPT='${QEMU_VFIO_BIND_SCRIPT}' bash -s" <<'HOST_PREPARE'
 set -euo pipefail
