@@ -172,10 +172,46 @@ else
 fi
 HOST_PREPARE
 
-    host_ssh "NODE_IP='${NODE_IP}' QEMU_VM_WORKDIR='${QEMU_VM_WORKDIR}' QEMU_VM_START_SCRIPT='${QEMU_VM_START_SCRIPT}' bash -s" <<'HOST_START'
+    host_ssh "NODE_IP='${NODE_IP}' BUILD_NUMBER='${BUILD_NUMBER}' QEMU_VM_WORKDIR='${QEMU_VM_WORKDIR}' QEMU_VM_START_SCRIPT='${QEMU_VM_START_SCRIPT}' bash -s" <<'HOST_START'
 set -euo pipefail
 cd "${QEMU_VM_WORKDIR}"
-"${QEMU_VM_START_SCRIPT}"
+allowed_file=".jenkins_nvme_${BUILD_NUMBER}_vfio_devices"
+real_qemu=$(command -v qemu-system-x86_64)
+wrapper_dir=".jenkins_qemu_wrapper_${BUILD_NUMBER}"
+mkdir -p "${wrapper_dir}"
+cat > "${wrapper_dir}/qemu-system-x86_64" <<'QEMU_WRAPPER'
+#!/bin/bash
+set -euo pipefail
+filtered_args=()
+while [ "$#" -gt 0 ]; do
+    arg="$1"
+    shift
+    if [ "$arg" = "-device" ] && [ "$#" -gt 0 ]; then
+        device_arg="$1"
+        shift
+        if [[ "$device_arg" == vfio-pci,host=* ]]; then
+            bdf="${device_arg#*host=}"
+            bdf="${bdf%%,*}"
+            group_path=$(readlink -f "/sys/bus/pci/devices/${bdf}/iommu_group" 2>/dev/null || true)
+            group="${group_path##*/}"
+            if ! grep -Fxq "$bdf" "${QEMU_ALLOWED_VFIO_FILE}"; then
+                echo "skip QEMU vfio device not in validated list: ${bdf}" >&2
+                continue
+            fi
+            if [ -z "$group" ] || [ ! -e "/dev/vfio/${group}" ]; then
+                echo "skip QEMU vfio device without vfio node: ${bdf}, group=${group:-none}, node=/dev/vfio/${group:-none}" >&2
+                continue
+            fi
+        fi
+        filtered_args+=("-device" "$device_arg")
+        continue
+    fi
+    filtered_args+=("$arg")
+done
+exec "${QEMU_REAL_BINARY}" "${filtered_args[@]}"
+QEMU_WRAPPER
+chmod +x "${wrapper_dir}/qemu-system-x86_64"
+QEMU_REAL_BINARY="${real_qemu}" QEMU_ALLOWED_VFIO_FILE="${PWD}/${allowed_file}" PATH="${PWD}/${wrapper_dir}:$PATH" "${QEMU_VM_START_SCRIPT}"
 sleep 2
 if ! pgrep -f "qemu-system-x86_64.*vm-serial.log" >/dev/null 2>&1; then
     echo "[${NODE_IP}] QEMU process is not running after ${QEMU_VM_START_SCRIPT}; startup failed before SSH wait" >&2
