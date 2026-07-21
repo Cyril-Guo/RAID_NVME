@@ -41,8 +41,23 @@ command -v sshpass >/dev/null 2>&1 || {
 }
 
 if qemu_ssh 'echo qemu vm already running' >/dev/null 2>&1; then
-    echo "[${NODE_IP}] QEMU VM is already running, skip vfio bind and ${QEMU_VM_START_SCRIPT}"
-else
+    echo "[${NODE_IP}] QEMU VM is still running before fresh start; try to power it off"
+    qemu_ssh 'sync; nohup sh -c "sleep 1; poweroff" >/dev/null 2>&1 &' >/dev/null 2>&1 || true
+    for attempt in $(seq 1 30); do
+        if qemu_ssh 'true' >/dev/null 2>&1; then
+            echo "[${NODE_IP}] waiting for stale QEMU VM shutdown, attempt ${attempt}/30"
+            sleep 2
+        else
+            echo "[${NODE_IP}] stale QEMU VM SSH is down"
+            break
+        fi
+    done
+    if qemu_ssh 'true' >/dev/null 2>&1; then
+        echo "[${NODE_IP}] QEMU VM is still running after pre-test cleanup; refuse to reuse stale VM" >&2
+        exit 1
+    fi
+fi
+
     scp ${SSH_OPTS} "${RAID_CLI_DPRAID_PATH_FOR_RUN}" "${TARGET_USER}@${NODE_IP}:/tmp/dpraid_${BUILD_NUMBER}_host_prepare"
     host_ssh "NODE_IP='${NODE_IP}' BUILD_NUMBER='${BUILD_NUMBER}' QEMU_VM_WORKDIR='${QEMU_VM_WORKDIR}' QEMU_VFIO_BIND_SCRIPT='${QEMU_VFIO_BIND_SCRIPT}' bash -s" <<'HOST_PREPARE'
 set -euo pipefail
@@ -324,7 +339,6 @@ HOST_START
 
     echo "[${NODE_IP}] wait 60s for QEMU VM boot"
     sleep 60
-fi
 
 for attempt in $(seq 1 24); do
     if qemu_ssh 'echo qemu vm ssh ready' >/dev/null 2>&1; then

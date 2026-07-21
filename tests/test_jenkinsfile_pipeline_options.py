@@ -93,11 +93,15 @@ def test_qemu_vm_installs_sshpass_on_jenkins_server():
     assert "sudo zypper install -y sshpass" in source
 
 
-def test_qemu_vm_start_is_skipped_when_vm_is_already_running():
+def test_qemu_vm_start_forces_clean_environment_before_start():
     source = pipeline_sources()
 
     assert "qemu vm already running" in source
-    assert "QEMU VM is already running, skip vfio bind and ${QEMU_VM_START_SCRIPT}" in source
+    assert "pre-test cleanup: stop existing QEMU VM and return vfio devices to physical host" in source
+    assert "QEMU pre-test cleanup failed with exit code" in source
+    assert "QEMU VM is still running before fresh start; try to power it off" in source
+    assert "QEMU VM is still running after pre-test cleanup; refuse to reuse stale VM" in source
+    assert "QEMU VM is already running, skip vfio bind and ${QEMU_VM_START_SCRIPT}" not in source
     assert "dpraid_${BUILD_NUMBER}_host_prepare" in source
     assert "restore physical host RAID state before QEMU handoff" in source
     assert "\"${QEMU_VM_START_SCRIPT}\"" in source

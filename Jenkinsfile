@@ -464,6 +464,30 @@ pipeline {
                                 writeFile file: envPrepareLog, text: "[${ip}] Environment_Prepare started\n"
 
                                 if (qemuVmForNode) {
+                                    echo "[${ip}] reset QEMU VM and host devices before automatic MR test"
+                                    def qemuPreCleanStatus = sh(
+                                        returnStatus: true,
+                                        script: """#!/bin/bash
+set -o pipefail
+chmod +x ci/qemu_vfio_cleanup.sh
+NODE_IP='${ip}' \\
+TARGET_USER='${env.TARGET_USER}' \\
+SSH_OPTS='${env.SSH_OPTS}' \\
+QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
+QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
+QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
+QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
+BUILD_NUMBER='${env.BUILD_NUMBER}' \\
+CLEANUP_REASON='pre-test cleanup: stop existing QEMU VM and return vfio devices to physical host' \\
+POWER_OFF_QEMU=1 \\
+ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
+"""
+                                    )
+                                    if (qemuPreCleanStatus != 0) {
+                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                        error "[${ip}] QEMU pre-test cleanup failed with exit code ${qemuPreCleanStatus}"
+                                    }
+
                                     echo "[${ip}] start QEMU VM for automatic MR test"
                                     def qemuStatus = sh(
                                         returnStatus: true,
