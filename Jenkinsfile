@@ -526,159 +526,18 @@ PY
                                         returnStatus: true,
                                         script: """#!/bin/bash
 set -o pipefail
-{
-echo "[${ip}] start QEMU VM for automatic MR test"
-if ! command -v sshpass >/dev/null 2>&1; then
-    echo "[${ip}] sshpass is missing on Jenkins server, try to install it automatically."
-    if command -v apt-get >/dev/null 2>&1; then
-        sudo apt-get -o DPkg::Lock::Timeout=600 update
-        sudo apt-get -o DPkg::Lock::Timeout=600 install -y sshpass
-    elif command -v dnf >/dev/null 2>&1; then
-        sudo dnf install -y sshpass
-    elif command -v yum >/dev/null 2>&1; then
-        sudo yum install -y sshpass
-    elif command -v zypper >/dev/null 2>&1; then
-        sudo zypper install -y sshpass
-    fi
-fi
-command -v sshpass >/dev/null 2>&1 || { echo "sshpass is required on Jenkins server for QEMU VM login, and automatic install failed"; exit 1; }
-if ${targetSsh} 'echo qemu vm already running' >/dev/null 2>&1; then
-    echo "[${ip}] QEMU VM is already running, skip vfio bind and ${env.QEMU_VM_START_SCRIPT}"
-else
-    scp ${env.SSH_OPTS} '${raidCliDpraidPathForRun}' ${env.TARGET_USER}@${ip}:/tmp/dpraid_${env.BUILD_NUMBER}_host_prepare
-    timeout --kill-after=60s 10m ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
-    set -eu
-    install -m 0755 /tmp/dpraid_${env.BUILD_NUMBER}_host_prepare /usr/bin/dpraid
-    rm -f /tmp/dpraid_${env.BUILD_NUMBER}_host_prepare
-    echo "[${ip}] restore physical host RAID state before QEMU handoff"
-    vd_ids=\$(
-        dpraid /c0/vall show 2>/dev/null |
-        while read -r first rest; do
-            case "\$first" in
-                */*)
-                    vd="\${first#*/}"
-                    case "\$vd" in
-                        ""|*[!0-9]*) ;;
-                        *) printf "%s\\n" "\$vd" ;;
-                    esac
-                    ;;
-            esac
-        done | sort -n -u || true
-    )
-    for vd in \$vd_ids; do
-        echo "[${ip}] delete existing VD before QEMU handoff: v\$vd"
-        dpraid /c0/v\$vd delete || true
-    done
-    slot_ids=\$(
-        dpraid /c0/eall/sall show 2>/dev/null |
-        while read -r first rest; do
-            case "\$first" in
-                *:*)
-                    slot="\${first#*:}"
-                    case "\$slot" in
-                        ""|*[!0-9]*) ;;
-                        *) printf "%s\\n" "\$slot" ;;
-                    esac
-                    ;;
-            esac
-        done | sort -n -u || true
-    )
-    for slot in \$slot_ids; do
-        echo "[${ip}] release physical disk before QEMU handoff: s\$slot"
-        dpraid /c0/eall/s\$slot delete || true
-    done
-    echo 1 > /sys/bus/pci/rescan || true
-    sleep 5
-    nvme list || true
-    cd ${env.QEMU_VM_WORKDIR}
-    test -x ${env.QEMU_VFIO_BIND_SCRIPT} || {
-        echo "QEMU vfio bind script not found or not executable: ${env.QEMU_VM_WORKDIR}/${env.QEMU_VFIO_BIND_SCRIPT}" >&2
-        exit 1
-    }
-    protected_names=\$(
-        {
-            findmnt -nvo SOURCE / /boot /boot/efi 2>/dev/null || true
-            lsblk -nP -o NAME,PKNAME,MOUNTPOINT 2>/dev/null |
-                while read -r lsblk_line; do
-                    NAME=""
-                    PKNAME=""
-                    MOUNTPOINT=""
-                    eval "\$lsblk_line"
-                    if [ -n "\$MOUNTPOINT" ]; then
-                        printf "/dev/%s\\n" "\$NAME"
-                        [ -n "\$PKNAME" ] && printf "/dev/%s\\n" "\$PKNAME"
-                    fi
-                done
-        } |
-        while read -r source; do
-            [ -n "\$source" ] || continue
-            source="\${source#/dev/}"
-            printf "%s\\n" "\$source"
-            pk=\$(lsblk -npo PKNAME "/dev/\$source" 2>/dev/null | sed "s#^/dev/##" || true)
-            [ -n "\$pk" ] && printf "%s\\n" "\$pk"
-        done | sort -u
-    )
-    vfio_devices=""
-    for ctrl_path in /sys/class/nvme/nvme*; do
-        [ -e "\$ctrl_path" ] || continue
-        ctrl=\$(basename "\$ctrl_path")
-        bdf=\$(basename "\$(readlink -f "\$ctrl_path/device")")
-        skip=0
-        for ns_path in "\$ctrl_path"/nvme*n*; do
-            [ -e "\$ns_path" ] || continue
-            ns=\$(basename "\$ns_path")
-            pk=\$(lsblk -npo PKNAME "/dev/\$ns" 2>/dev/null | sed "s#^/dev/##" || true)
-            for protected in \$protected_names; do
-                if [ "\$ns" = "\$protected" ] || [ "\$pk" = "\$protected" ] || [ "\$ctrl" = "\$protected" ]; then
-                    skip=1
-                fi
-            done
-        done
-        if [ "\$skip" = "1" ]; then
-            echo "[${ip}] keep system NVMe on host: \$ctrl \$bdf"
-            continue
-        fi
-        vfio_devices="\${vfio_devices} \${bdf}"
-    done
-    if [ -z "\$(printf "%s" "\$vfio_devices" | tr -d " ")" ]; then
-        echo "[${ip}] no non-system NVMe PCI devices found for QEMU vfio bind"
-        : > .jenkins_nvme_${env.BUILD_NUMBER}_vfio_devices
-    else
-        printf "%s\\n" \$vfio_devices > .jenkins_nvme_${env.BUILD_NUMBER}_vfio_devices
-        for dev in \$vfio_devices; do
-            echo "[${ip}] bind NVMe PCI device to QEMU vfio: \$dev"
-            DEV="\$dev" ${env.QEMU_VFIO_BIND_SCRIPT} bind
-        done
-    fi
-'
-    timeout --kill-after=60s 10m ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
-        set -eu
-        cd ${env.QEMU_VM_WORKDIR}
-        ${env.QEMU_VM_START_SCRIPT}
-        sleep 2
-        if ! pgrep -f "qemu-system-x86_64.*vm-serial.log" >/dev/null 2>&1; then
-            echo "[${ip}] QEMU process is not running after ${env.QEMU_VM_START_SCRIPT}; startup failed before SSH wait" >&2
-            exit 1
-        fi
-    '
-    echo "[${ip}] wait 60s for QEMU VM boot"
-    sleep 60
-fi
-for attempt in \$(seq 1 24); do
-    if ${targetSsh} 'echo qemu vm ssh ready' >/dev/null 2>&1; then
-        echo "[${ip}] QEMU VM SSH is ready"
-        exit 0
-    fi
-    if ! ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} 'pgrep -f "qemu-system-x86_64.*vm-serial.log" >/dev/null 2>&1'; then
-        echo "[${ip}] QEMU process exited before SSH became ready; stop waiting and fail startup" >&2
-        exit 1
-    fi
-    echo "[${ip}] waiting for QEMU VM SSH, attempt \${attempt}/24"
-    sleep 5
-done
-echo "[${ip}] QEMU VM SSH is not ready after wait" >&2
-exit 1
-} 2>&1 | tee -a ${envPrepareLog}
+chmod +x ci/qemu_vm_prepare.sh
+NODE_IP='${ip}' \\
+TARGET_USER='${env.TARGET_USER}' \\
+SSH_OPTS='${env.SSH_OPTS}' \\
+QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
+QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
+QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
+QEMU_VM_START_SCRIPT='${env.QEMU_VM_START_SCRIPT}' \\
+QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
+RAID_CLI_DPRAID_PATH_FOR_RUN='${raidCliDpraidPathForRun}' \\
+BUILD_NUMBER='${env.BUILD_NUMBER}' \\
+ci/qemu_vm_prepare.sh 2>&1 | tee -a ${envPrepareLog}
 """
                                     )
                                     if (qemuStatus != 0) {
@@ -687,37 +546,15 @@ exit 1
                                             returnStatus: true,
                                             script: """#!/bin/bash
 set -o pipefail
-{
-echo "[${ip}] QEMU startup failed, return vfio devices to physical host"
-ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
-    set -u
-    cd ${env.QEMU_VM_WORKDIR} || exit 0
-    test -x ${env.QEMU_VFIO_BIND_SCRIPT} || exit 0
-    device_file=.jenkins_nvme_${env.BUILD_NUMBER}_vfio_devices
-    if [ -s "\$device_file" ]; then
-        while read -r dev; do
-            [ -n "\$dev" ] || continue
-            echo "[${ip}] cleanup vfio NVMe PCI device after QEMU startup failure: \$dev"
-            DEV="\$dev" ${env.QEMU_VFIO_BIND_SCRIPT} unbind || true
-        done < "\$device_file"
-    else
-        for pci_path in /sys/bus/pci/devices/*; do
-            [ -e "\$pci_path/class" ] || continue
-            pci_class=\$(cat "\$pci_path/class")
-            [ "\$pci_class" = "0x010802" ] || continue
-            driver_path=\$(readlink -f "\$pci_path/driver" 2>/dev/null || true)
-            driver=\${driver_path##*/}
-            [ "\$driver" = "vfio-pci" ] || continue
-            dev=\$(basename "\$pci_path")
-            echo "[${ip}] fallback cleanup vfio NVMe PCI device after QEMU startup failure: \$dev"
-            DEV="\$dev" ${env.QEMU_VFIO_BIND_SCRIPT} unbind || true
-        done
-    fi
-    echo 1 > /sys/bus/pci/rescan || true
-    sleep 5
-    nvme list || true
-'
-} 2>&1 | tee -a ${envPrepareLog}
+chmod +x ci/qemu_vfio_cleanup.sh
+NODE_IP='${ip}' \\
+TARGET_USER='${env.TARGET_USER}' \\
+SSH_OPTS='${env.SSH_OPTS}' \\
+QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
+QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
+BUILD_NUMBER='${env.BUILD_NUMBER}' \\
+CLEANUP_REASON='QEMU startup failed, return vfio devices to physical host' \\
+ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
 """
                                         )
                                         error "[${ip}] QEMU VM startup failed with exit code ${qemuStatus}"
@@ -781,116 +618,18 @@ echo "[${ip}] install latest dpraid"
 set -o pipefail
 {
 echo "[${ip}] build and reload draid kernel driver"
-if [ "${qemuEnv}" = "1" ]; then
-    host_build_dir="/tmp/draid_build_${env.BUILD_NUMBER}"
-    host_module="/tmp/draid_${env.BUILD_NUMBER}.ko"
-    local_module="draid_${ip}_${env.BUILD_NUMBER}.ko"
-
-    ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} "
-        set -eu
-        test -d '${env.QEMU_KERNEL_BUILD_DIR}' || {
-            echo 'QEMU kernel build dir not found: ${env.QEMU_KERNEL_BUILD_DIR}' >&2
-            exit 1
-        }
-        test -f '${env.QEMU_KERNEL_BUILD_DIR}/Makefile' || {
-            echo 'QEMU kernel build dir has no Makefile: ${env.QEMU_KERNEL_BUILD_DIR}' >&2
-            exit 1
-        }
-        rm -rf '\${host_build_dir}'
-        mkdir -p '\${host_build_dir}'
-    "
-    tar -czf - -C kernel_driver/drivers/draid . | ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} "tar -xzf - -C '\${host_build_dir}'"
-    ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} "
-        set -eu
-        command -v make >/dev/null 2>&1 || { echo 'make is required on QEMU host for draid build' >&2; exit 1; }
-        command -v gcc >/dev/null 2>&1 || { echo 'gcc is required on QEMU host for draid build' >&2; exit 1; }
-        make -C '${env.QEMU_KERNEL_BUILD_DIR}' M='\${host_build_dir}' modules
-        test -f '\${host_build_dir}/draid.ko'
-        cp -f '\${host_build_dir}/draid.ko' '\${host_module}'
-    "
-    scp ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}:"\${host_module}" "\${local_module}"
-    ${targetScp} "\${local_module}" ${env.TARGET_USER}@${ip}:${remoteDir}/kernel_driver/drivers/draid/draid.ko
-    rm -f "\${local_module}"
-    ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} "rm -rf '\${host_build_dir}' '\${host_module}'" || true
-    ${targetSsh} '
-        set -eu
-        cd ${remoteDir}/kernel_driver/drivers/draid
-        test -f ./draid.ko
-        module_name=\$(modinfo -F name ./draid.ko 2>/dev/null || true)
-        module_name=\${module_name:-draid}
-        echo "draid.ko module name: \${module_name}"
-        for candidate in "\${module_name}" draid; do
-            if [ -n "\${candidate}" ] && grep -q "^\${candidate} " /proc/modules; then
-                rmmod "\${candidate}" || modprobe -r "\${candidate}"
-            fi
-        done
-        for candidate in "\${module_name}" draid; do
-            if [ -n "\${candidate}" ] && grep -q "^\${candidate} " /proc/modules; then
-                echo "kernel module \${candidate} is still loaded after remove attempt" >&2
-                grep -i draid /proc/modules >&2 || true
-                exit 1
-            fi
-        done
-        if ! insmod ./draid.ko; then
-            echo "insmod ./draid.ko failed. Current related modules:" >&2
-            grep -i draid /proc/modules >&2 || true
-            exit 1
-        fi
-        grep -q "^\${module_name} " /proc/modules
-    '
-else
-    ${targetSsh} '
-                                    set -eu
-                                    need_driver_deps=0
-                                    for tool in make gcc insmod modinfo; do
-                                        command -v "\${tool}" >/dev/null 2>&1 || need_driver_deps=1
-                                    done
-                                    [ -e "/lib/modules/\$(uname -r)/build" ] || need_driver_deps=1
-                                    if [ "\${need_driver_deps}" = "1" ]; then
-                                        if command -v apt-get >/dev/null 2>&1; then
-                                            export DEBIAN_FRONTEND=noninteractive
-                                            apt_retry() {
-                                                for attempt in 1 2 3; do
-                                                    "\$@" && return 0
-                                                    echo "apt command failed, retry \${attempt}/3: \$*" >&2
-                                                    sleep \$((attempt * 10))
-                                                done
-                                                "\$@"
-                                            }
-                                            apt_retry apt-get -o DPkg::Lock::Timeout=600 update
-                                            apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y build-essential "linux-headers-\$(uname -r)" kmod
-                                        elif command -v dnf >/dev/null 2>&1; then
-                                            dnf install -y make gcc kernel-devel kmod
-                                        elif command -v yum >/dev/null 2>&1; then
-                                            yum install -y make gcc kernel-devel kmod
-                                        fi
-                                    fi
-                                    cd ${remoteDir}/kernel_driver/drivers/draid
-                                    make
-                                    test -f ./draid.ko
-                                    module_name=\$(modinfo -F name ./draid.ko 2>/dev/null || true)
-                                    module_name=\${module_name:-draid}
-                                    echo "draid.ko module name: \${module_name}"
-                                    for candidate in "\${module_name}" draid; do
-                                        if [ -n "\${candidate}" ] && grep -q "^\${candidate} " /proc/modules; then
-                                            rmmod "\${candidate}" || modprobe -r "\${candidate}"
-                                        fi
-                                    done
-                                    for candidate in "\${module_name}" draid; do
-                                        if [ -n "\${candidate}" ] && grep -q "^\${candidate} " /proc/modules; then
-                                            echo "kernel module \${candidate} is still loaded after remove attempt" >&2
-                                            grep -i draid /proc/modules >&2 || true
-                                            exit 1
-                                        fi
-                                    done
-                                    if ! insmod ./draid.ko; then
-                                        echo "insmod ./draid.ko failed. Current related modules:" >&2
-                                        grep -i draid /proc/modules >&2 || true
-                                        exit 1
-                                    fi
-                                    grep -q "^\${module_name} " /proc/modules
-                                '
-fi
+chmod +x ci/prepare_draid_driver.sh
+NODE_IP='${ip}' \\
+TARGET_USER='${env.TARGET_USER}' \\
+SSH_OPTS='${env.SSH_OPTS}' \\
+REMOTE_DIR='${remoteDir}' \\
+BUILD_NUMBER='${env.BUILD_NUMBER}' \\
+QEMU_VM_TARGET='${qemuEnv}' \\
+QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
+QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
+QEMU_VM_SCP_PORT='${env.QEMU_VM_SCP_PORT}' \\
+QEMU_KERNEL_BUILD_DIR='${env.QEMU_KERNEL_BUILD_DIR}' \\
+ci/prepare_draid_driver.sh
 } 2>&1 | tee -a ${envPrepareLog}
 """
                                 )
@@ -906,93 +645,7 @@ fi
 set -o pipefail
 {
 echo "[${ip}] install python dependencies"
-                                ${targetSsh} '
-                                    cd ${remoteDir}
-                                    need_test_deps=0
-                                    python3 -c "import pytest" >/dev/null 2>&1 || need_test_deps=1
-                                    if [ "${qemuEnv}" = "1" ]; then
-                                        for tool in fio nvme lspci findmnt lsblk; do
-                                            command -v "\${tool}" >/dev/null 2>&1 || need_test_deps=1
-                                        done
-                                    fi
-                                    if [ "\${need_test_deps}" = "1" ]; then
-                                        if command -v apt-get >/dev/null 2>&1; then
-                                            export DEBIAN_FRONTEND=noninteractive
-                                            apt_retry() {
-                                                for attempt in 1 2 3; do
-                                                    "\$@" && return 0
-                                                    echo "apt command failed, retry \${attempt}/3: \$*" >&2
-                                                    sleep \$((attempt * 10))
-                                                done
-                                                "\$@"
-                                            }
-                                            apt_retry apt-get -o DPkg::Lock::Timeout=600 update
-                                            if [ "${qemuEnv}" = "1" ]; then
-                                                apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y \
-                                                    python3-pip python3-pytest python-is-python3 \
-                                                    fio nvme-cli pciutils util-linux smartmontools sdparm \
-                                                    sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-                                                    xfsprogs parted make gcc g++
-                                            else
-                                                apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest
-                                            fi
-                                        elif command -v dnf >/dev/null 2>&1; then
-                                            if [ "${qemuEnv}" = "1" ]; then
-                                                dnf install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
-                                                    smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-                                                    xfsprogs parted make gcc gcc-c++
-                                            else
-                                                dnf install -y python3-pip python3-pytest
-                                            fi
-                                        elif command -v yum >/dev/null 2>&1; then
-                                            if [ "${qemuEnv}" = "1" ]; then
-                                                yum install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
-                                                    smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-                                                    xfsprogs parted make gcc gcc-c++
-                                            else
-                                                yum install -y python3-pip python3-pytest
-                                            fi
-                                        elif command -v zypper >/dev/null 2>&1; then
-                                            if [ "${qemuEnv}" = "1" ]; then
-                                                zypper install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
-                                                    smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-                                                    xfsprogs parted make gcc gcc-c++
-                                            else
-                                                zypper install -y python3-pip python3-pytest
-                                            fi
-                                        fi
-                                    fi
-
-                                    if ! python3 -c "import pytest" >/dev/null 2>&1; then
-                                        python3 -m pip --version >/dev/null 2>&1 || python3 -m ensurepip --default-pip >/dev/null 2>&1 || true
-                                        if python3 -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages"; then
-                                            python3 -m pip install --break-system-packages pytest
-                                        else
-                                            python3 -m pip install pytest
-                                        fi
-                                    fi
-
-                                    if python3 -m pip --version >/dev/null 2>&1; then
-                                        if python3 -m pip install --help 2>/dev/null | grep -q -- "--break-system-packages"; then
-                                            python3 -m pip install --break-system-packages allure-pytest || true
-                                        else
-                                            python3 -m pip install allure-pytest || true
-                                        fi
-                                    fi
-                                    python3 -c "import pytest"
-                                    if [ "${qemuEnv}" = "1" ]; then
-                                        missing_tools=""
-                                        for tool in fio nvme lspci findmnt lsblk; do
-                                            if ! command -v "\$tool" >/dev/null 2>&1; then
-                                                missing_tools="\${missing_tools} \${tool}"
-                                            fi
-                                        done
-                                        if [ -n "\$missing_tools" ]; then
-                                            echo "Missing required QEMU VM test tools after auto install:\${missing_tools}" >&2
-                                            exit 1
-                                        fi
-                                    fi
-                                '
+${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEMU_VM_TARGET=${qemuEnv} ci/install_test_dependencies.sh'
 } 2>&1 | tee -a ${envPrepareLog}
 """
                                 )
@@ -1067,51 +720,18 @@ exit "\$test_rc"
                                         returnStatus: true,
                                         script: """#!/bin/bash
 set -o pipefail
-{
-echo "[${ip}] stop QEMU VM and return NVMe devices to physical host"
-${targetSsh} 'sync; nohup sh -c "sleep 1; poweroff" >/dev/null 2>&1 &' >/dev/null 2>&1 || true
-for attempt in \$(seq 1 30); do
-    if ${targetSsh} 'true' >/dev/null 2>&1; then
-        echo "[${ip}] waiting for QEMU VM shutdown, attempt \${attempt}/30"
-        sleep 2
-    else
-        echo "[${ip}] QEMU VM SSH is down"
-        break
-    fi
-done
-${hostSsh} '
-    set -eu
-    cd ${env.QEMU_VM_WORKDIR}
-    test -x ${env.QEMU_VFIO_BIND_SCRIPT} || {
-        echo "QEMU vfio bind script not found or not executable: ${env.QEMU_VM_WORKDIR}/${env.QEMU_VFIO_BIND_SCRIPT}" >&2
-        exit 1
-    }
-    device_file=.jenkins_nvme_${env.BUILD_NUMBER}_vfio_devices
-    if [ ! -s "\$device_file" ]; then
-        echo "[${ip}] no recorded QEMU vfio devices to unbind"
-        for pci_path in /sys/bus/pci/devices/*; do
-            [ -e "\$pci_path/class" ] || continue
-            pci_class=\$(cat "\$pci_path/class")
-            [ "\$pci_class" = "0x010802" ] || continue
-            driver_path=\$(readlink -f "\$pci_path/driver" 2>/dev/null || true)
-            driver=\${driver_path##*/}
-            [ "\$driver" = "vfio-pci" ] || continue
-            dev=\$(basename "\$pci_path")
-            echo "[${ip}] fallback unbind vfio NVMe PCI device back to host: \$dev"
-            DEV="\$dev" ${env.QEMU_VFIO_BIND_SCRIPT} unbind
-        done
-    else
-        while read -r dev; do
-            [ -n "\$dev" ] || continue
-            echo "[${ip}] unbind NVMe PCI device back to host: \$dev"
-            DEV="\$dev" ${env.QEMU_VFIO_BIND_SCRIPT} unbind
-        done < "\$device_file"
-    fi
-    echo 1 > /sys/bus/pci/rescan
-    sleep 5
-    nvme list || true
-'
-} 2>&1 | tee -a ${hostEnvPrepareLog}
+chmod +x ci/qemu_vfio_cleanup.sh
+NODE_IP='${ip}' \\
+TARGET_USER='${env.TARGET_USER}' \\
+SSH_OPTS='${env.SSH_OPTS}' \\
+QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
+QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
+QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
+QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
+BUILD_NUMBER='${env.BUILD_NUMBER}' \\
+CLEANUP_REASON='stop QEMU VM and return NVMe devices to physical host' \\
+POWER_OFF_QEMU=1 \\
+ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${hostEnvPrepareLog}
 """
                                     )
                                     if (handbackStatus != 0) {
@@ -1176,57 +796,14 @@ ${hostSsh} '
 set -o pipefail
 {
 echo "[${ip}] build and reload draid kernel driver on physical host"
-${hostSsh} '
-    set -eu
-    need_driver_deps=0
-    for tool in make gcc insmod modinfo; do
-        command -v "\$tool" >/dev/null 2>&1 || need_driver_deps=1
-    done
-    [ -e "/lib/modules/\$(uname -r)/build" ] || need_driver_deps=1
-    if [ "\$need_driver_deps" = "1" ]; then
-        if command -v apt-get >/dev/null 2>&1; then
-            export DEBIAN_FRONTEND=noninteractive
-            apt_retry() {
-                for attempt in 1 2 3; do
-                    "\$@" && return 0
-                    echo "apt command failed, retry \${attempt}/3: \$*" >&2
-                    sleep \$((attempt * 10))
-                done
-                "\$@"
-            }
-            apt_retry apt-get -o DPkg::Lock::Timeout=600 update
-            apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y build-essential "linux-headers-\$(uname -r)" kmod
-        elif command -v dnf >/dev/null 2>&1; then
-            dnf install -y make gcc kernel-devel kmod
-        elif command -v yum >/dev/null 2>&1; then
-            yum install -y make gcc kernel-devel kmod
-        fi
-    fi
-    cd ${hostRemoteDir}/kernel_driver/drivers/draid
-    make
-    test -f ./draid.ko
-    module_name=\$(modinfo -F name ./draid.ko 2>/dev/null || true)
-    module_name=\${module_name:-draid}
-    echo "draid.ko module name: \${module_name}"
-    for candidate in "\${module_name}" draid; do
-        if [ -n "\${candidate}" ] && grep -q "^\${candidate} " /proc/modules; then
-            rmmod "\${candidate}" || modprobe -r "\${candidate}"
-        fi
-    done
-    for candidate in "\${module_name}" draid; do
-        if [ -n "\${candidate}" ] && grep -q "^\${candidate} " /proc/modules; then
-            echo "kernel module \${candidate} is still loaded after remove attempt" >&2
-            grep -i draid /proc/modules >&2 || true
-            exit 1
-        fi
-    done
-    if ! insmod ./draid.ko; then
-        echo "insmod ./draid.ko failed. Current related modules:" >&2
-        grep -i draid /proc/modules >&2 || true
-        exit 1
-    fi
-    grep -q "^\${module_name} " /proc/modules
-'
+chmod +x ci/prepare_draid_driver.sh
+NODE_IP='${ip}' \\
+TARGET_USER='${env.TARGET_USER}' \\
+SSH_OPTS='${env.SSH_OPTS}' \\
+REMOTE_DIR='${hostRemoteDir}' \\
+BUILD_NUMBER='${env.BUILD_NUMBER}' \\
+QEMU_VM_TARGET='0' \\
+ci/prepare_draid_driver.sh
 } 2>&1 | tee -a ${hostEnvPrepareLog}
 """
                                     )
@@ -1242,23 +819,7 @@ ${hostSsh} '
 set -o pipefail
 {
 echo "[${ip}] install python dependencies on physical host"
-${hostSsh} '
-    cd ${hostRemoteDir}
-    if ! python3 -c "import pytest" >/dev/null 2>&1; then
-        if command -v apt-get >/dev/null 2>&1; then
-            export DEBIAN_FRONTEND=noninteractive
-            apt-get -o DPkg::Lock::Timeout=600 update
-            apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest
-        elif command -v dnf >/dev/null 2>&1; then
-            dnf install -y python3-pip python3-pytest
-        elif command -v yum >/dev/null 2>&1; then
-            yum install -y python3-pip python3-pytest
-        elif command -v zypper >/dev/null 2>&1; then
-            zypper install -y python3-pip python3-pytest
-        fi
-    fi
-    python3 -c "import pytest"
-'
+${hostSsh} 'cd ${hostRemoteDir} && chmod +x ci/install_test_dependencies.sh && QEMU_VM_TARGET=0 ci/install_test_dependencies.sh'
 } 2>&1 | tee -a ${hostEnvPrepareLog}
 """
                                     )
@@ -1319,48 +880,7 @@ exit "\$test_rc"
 set -o pipefail
 {
 echo "[${ip}] restore physical host RAID state after physical host test"
-${hostSsh} '
-    set -eu
-    vd_ids=\$(
-        dpraid /c0/vall show 2>/dev/null |
-        while read -r first rest; do
-            case "\$first" in
-                */*)
-                    vd="\${first#*/}"
-                    case "\$vd" in
-                        ""|*[!0-9]*) ;;
-                        *) printf "%s\\n" "\$vd" ;;
-                    esac
-                    ;;
-            esac
-        done | sort -n -u || true
-    )
-    for vd in \$vd_ids; do
-        echo "[${ip}] delete existing VD after physical host test: v\$vd"
-        dpraid /c0/v\$vd delete || true
-    done
-    slot_ids=\$(
-        dpraid /c0/eall/sall show 2>/dev/null |
-        while read -r first rest; do
-            case "\$first" in
-                *:*)
-                    slot="\${first#*:}"
-                    case "\$slot" in
-                        ""|*[!0-9]*) ;;
-                        *) printf "%s\\n" "\$slot" ;;
-                    esac
-                    ;;
-            esac
-        done | sort -n -u || true
-    )
-    for slot in \$slot_ids; do
-        echo "[${ip}] release physical disk after physical host test: s\$slot"
-        dpraid /c0/eall/s\$slot delete || true
-    done
-    echo 1 > /sys/bus/pci/rescan || true
-    sleep 5
-    nvme list || true
-'
+${hostSsh} 'cd ${hostRemoteDir} && chmod +x ci/restore_physical_raid_state.sh && NODE_IP=${ip} ci/restore_physical_raid_state.sh'
 } 2>&1 | tee -a ${hostEnvPrepareLog}
 """
                                     )
