@@ -545,8 +545,25 @@ command -v sshpass >/dev/null 2>&1 || { echo "sshpass is required on Jenkins ser
 if ${targetSsh} 'echo qemu vm already running' >/dev/null 2>&1; then
     echo "[${ip}] QEMU VM is already running, skip vfio bind and ${env.QEMU_VM_START_SCRIPT}"
 else
+    scp ${env.SSH_OPTS} '${raidCliDpraidPathForRun}' ${env.TARGET_USER}@${ip}:/tmp/dpraid_${env.BUILD_NUMBER}_host_prepare
     timeout --kill-after=60s 10m ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
     set -eu
+    install -m 0755 /tmp/dpraid_${env.BUILD_NUMBER}_host_prepare /usr/bin/dpraid
+    rm -f /tmp/dpraid_${env.BUILD_NUMBER}_host_prepare
+    echo "[${ip}] restore physical host RAID state before QEMU handoff"
+    vd_ids=\$(dpraid /c0/vall show 2>/dev/null | awk '"'"'\$1 ~ /^[0-9]+\/[0-9]+$/ { split(\$1, a, "/"); if (a[2] ~ /^[0-9]+$/) print a[2] }'"'"' | sort -n -u || true)
+    for vd in \$vd_ids; do
+        echo "[${ip}] delete existing VD before QEMU handoff: v\$vd"
+        dpraid /c0/v\$vd delete || true
+    done
+    slot_ids=\$(dpraid /c0/eall/sall show 2>/dev/null | awk '"'"'\$1 ~ /^[0-9]+:[0-9]+$/ { split(\$1, a, ":"); if (a[2] ~ /^[0-9]+$/) print a[2] }'"'"' | sort -n -u || true)
+    for slot in \$slot_ids; do
+        echo "[${ip}] release physical disk before QEMU handoff: s\$slot"
+        dpraid /c0/eall/s\$slot delete || true
+    done
+    echo 1 > /sys/bus/pci/rescan || true
+    sleep 5
+    nvme list || true
     cd ${env.QEMU_VM_WORKDIR}
     test -x ${env.QEMU_VFIO_BIND_SCRIPT} || {
         echo "QEMU vfio bind script not found or not executable: ${env.QEMU_VM_WORKDIR}/${env.QEMU_VFIO_BIND_SCRIPT}" >&2
@@ -1211,6 +1228,37 @@ exit "\$test_rc"
                                     fi
                                     ${hostScp} ${env.TARGET_USER}@${ip}:${hostRemoteDir}/report.xml ./report_${ip}_physical.xml || true
                                     """
+
+                                    echo "[${ip}] restore physical host RAID state after physical host test"
+                                    def hostFinalResetStatus = sh(
+                                        returnStatus: true,
+                                        script: """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] restore physical host RAID state after physical host test"
+${hostSsh} '
+    set -eu
+    vd_ids=\$(dpraid /c0/vall show 2>/dev/null | awk '"'"'\$1 ~ /^[0-9]+\/[0-9]+$/ { split(\$1, a, "/"); if (a[2] ~ /^[0-9]+$/) print a[2] }'"'"' | sort -n -u || true)
+    for vd in \$vd_ids; do
+        echo "[${ip}] delete existing VD after physical host test: v\$vd"
+        dpraid /c0/v\$vd delete || true
+    done
+    slot_ids=\$(dpraid /c0/eall/sall show 2>/dev/null | awk '"'"'\$1 ~ /^[0-9]+:[0-9]+$/ { split(\$1, a, ":"); if (a[2] ~ /^[0-9]+$/) print a[2] }'"'"' | sort -n -u || true)
+    for slot in \$slot_ids; do
+        echo "[${ip}] release physical disk after physical host test: s\$slot"
+        dpraid /c0/eall/s\$slot delete || true
+    done
+    echo 1 > /sys/bus/pci/rescan || true
+    sleep 5
+    nvme list || true
+'
+} 2>&1 | tee -a ${hostEnvPrepareLog}
+"""
+                                    )
+                                    if (hostFinalResetStatus != 0) {
+                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${hostEnvPrepareLog}"
+                                        error "[${ip}] restore physical host RAID state after physical host test failed with exit code ${hostFinalResetStatus}"
+                                    }
 
                                     if (hostTestStatus != 0) {
                                         error "[${ip}] physical host nvme_raid_test.py failed with exit code ${hostTestStatus}"

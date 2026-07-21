@@ -88,7 +88,9 @@ def test_qemu_vm_start_is_skipped_when_vm_is_already_running():
 
     assert "qemu vm already running" in source
     assert "QEMU VM is already running, skip vfio bind and ${env.QEMU_VM_START_SCRIPT}" in source
-    assert "else\n    timeout --kill-after=60s 10m ssh" in source
+    assert "dpraid_${env.BUILD_NUMBER}_host_prepare" in source
+    assert "restore physical host RAID state before QEMU handoff" in source
+    assert "${env.QEMU_VM_START_SCRIPT}" in source
     assert "QEMU VM SSH is ready" in source
 
 
@@ -111,6 +113,17 @@ def test_automatic_mr_moves_nvme_between_host_and_qemu():
     assert "unbind NVMe PCI device back to host" in source
     assert "fallback unbind vfio NVMe PCI device back to host" in source
     assert ".jenkins_nvme_${env.BUILD_NUMBER}_vfio_devices" in source
+
+
+def test_automatic_mr_restores_physical_host_raid_state_before_and_after_tests():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "restore physical host RAID state before QEMU handoff" in source
+    assert "restore physical host RAID state after physical host test" in source
+    assert "dpraid /c0/vall show" in source
+    assert "dpraid /c0/eall/sall show" in source
+    assert "dpraid /c0/v\\$vd delete" in source
+    assert "dpraid /c0/eall/s\\$slot delete" in source
 
 
 def test_manual_debug_can_simulate_automatic_mr_trigger():
