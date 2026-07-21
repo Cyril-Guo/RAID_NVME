@@ -203,6 +203,12 @@ cd "${QEMU_VM_WORKDIR}"
 allowed_file=".jenkins_nvme_${BUILD_NUMBER}_vfio_devices"
 real_qemu=$(command -v qemu-system-x86_64)
 wrapper_dir=".jenkins_qemu_wrapper_${BUILD_NUMBER}"
+rm -rf .jenkins_qemu_wrapper_* .jenkins_start_vm_* .jenkins_qemu_start_*
+for old_vfio_file in .jenkins_nvme_*_vfio_devices; do
+    [ -e "${old_vfio_file}" ] || continue
+    [ "${old_vfio_file}" = "${allowed_file}" ] && continue
+    rm -f "${old_vfio_file}"
+done
 mkdir -p "${wrapper_dir}"
 patched_start_script=".jenkins_start_vm_${BUILD_NUMBER}.sh"
 if [ ! -s "${allowed_file}" ]; then
@@ -319,10 +325,26 @@ rm -f "${start_log}"
 ) >"${start_log}" 2>&1 &
 start_pid=$!
 for attempt in $(seq 1 30); do
-    if pgrep -f "qemu-system-x86_64.*vm-serial.log" >/dev/null 2>&1; then
-        echo "[${NODE_IP}] QEMU process is running"
-        tail -n 80 "${start_log}" || true
-        exit 0
+    qemu_pids=$(pgrep -f "qemu-system-x86_64.*vm-serial.log" || true)
+    if [ -n "${qemu_pids}" ]; then
+        for qemu_pid in ${qemu_pids}; do
+            qemu_cmdline=$(tr '\000' ' ' < "/proc/${qemu_pid}/cmdline" 2>/dev/null || true)
+            missing_bdf=""
+            while IFS= read -r bdf; do
+                [ -n "${bdf}" ] || continue
+                if ! printf '%s\n' "${qemu_cmdline}" | grep -Fq "host=${bdf}"; then
+                    missing_bdf="${missing_bdf} ${bdf}"
+                fi
+            done < "${allowed_file}"
+            if [ -z "$(printf '%s' "${missing_bdf}" | tr -d ' ')" ]; then
+                echo "[${NODE_IP}] QEMU process is running with validated vfio devices"
+                tail -n 80 "${start_log}" || true
+                exit 0
+            fi
+            echo "[${NODE_IP}] QEMU process ${qemu_pid} does not contain current vfio devices:${missing_bdf}" >&2
+        done
+        tail -n 120 "${start_log}" >&2 || true
+        exit 1
     fi
     if ! kill -0 "${start_pid}" >/dev/null 2>&1; then
         echo "[${NODE_IP}] ${QEMU_VM_START_SCRIPT} exited before QEMU process started" >&2
