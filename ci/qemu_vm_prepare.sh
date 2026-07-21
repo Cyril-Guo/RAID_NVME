@@ -122,7 +122,7 @@ protected_names=$(
     done | sort -u
 )
 
-vfio_devices=""
+vfio_candidates=""
 for ctrl_path in /sys/class/nvme/nvme*; do
     [ -e "$ctrl_path" ] || continue
     ctrl=$(basename "$ctrl_path")
@@ -142,18 +142,33 @@ for ctrl_path in /sys/class/nvme/nvme*; do
         echo "[${NODE_IP}] keep system NVMe on host: ${ctrl} ${bdf}"
         continue
     fi
-    vfio_devices="${vfio_devices} ${bdf}"
+    vfio_candidates="${vfio_candidates} ${bdf}"
 done
 
-if [ -z "$(printf "%s" "$vfio_devices" | tr -d " ")" ]; then
+if [ -z "$(printf "%s" "$vfio_candidates" | tr -d " ")" ]; then
     echo "[${NODE_IP}] no non-system NVMe PCI devices found for QEMU vfio bind"
     : > ".jenkins_nvme_${BUILD_NUMBER}_vfio_devices"
 else
-    printf "%s\n" $vfio_devices > ".jenkins_nvme_${BUILD_NUMBER}_vfio_devices"
-    for dev in $vfio_devices; do
+    : > ".jenkins_nvme_${BUILD_NUMBER}_vfio_devices"
+    for dev in $vfio_candidates; do
         echo "[${NODE_IP}] bind NVMe PCI device to QEMU vfio: ${dev}"
         DEV="$dev" "${QEMU_VFIO_BIND_SCRIPT}" bind
+        pci_path="/sys/bus/pci/devices/${dev}"
+        driver_path=$(readlink -f "${pci_path}/driver" 2>/dev/null || true)
+        driver=${driver_path##*/}
+        group_path=$(readlink -f "${pci_path}/iommu_group" 2>/dev/null || true)
+        group=${group_path##*/}
+        if [ "$driver" != "vfio-pci" ] || [ -z "$group" ] || [ ! -e "/dev/vfio/${group}" ]; then
+            echo "[${NODE_IP}] skip invalid QEMU vfio device: ${dev}, driver=${driver:-none}, group=${group:-none}, node=/dev/vfio/${group:-none}"
+            DEV="$dev" "${QEMU_VFIO_BIND_SCRIPT}" unbind || true
+            continue
+        fi
+        printf "%s\n" "$dev" >> ".jenkins_nvme_${BUILD_NUMBER}_vfio_devices"
     done
+    if [ ! -s ".jenkins_nvme_${BUILD_NUMBER}_vfio_devices" ]; then
+        echo "[${NODE_IP}] no usable QEMU vfio NVMe devices after bind validation"
+        exit 1
+    fi
 fi
 HOST_PREPARE
 

@@ -129,6 +129,9 @@ def test_automatic_mr_moves_nvme_between_host_and_qemu():
 
     assert "QEMU_VFIO_BIND_SCRIPT = './vfio-bind.sh'" in source
     assert "bind NVMe PCI device to QEMU vfio" in source
+    assert "skip invalid QEMU vfio device" in source
+    assert '[ ! -e "/dev/vfio/${group}" ]' in source
+    assert "no usable QEMU vfio NVMe devices after bind validation" in source
     assert "return NVMe devices to physical host" in source
     assert "unbind NVMe PCI device back to host" in source
     assert "fallback unbind vfio NVMe PCI device back to host" in source
