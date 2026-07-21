@@ -1,6 +1,7 @@
 import glob
 import json
 import os
+import re
 import uuid
 import xml.etree.ElementTree as ET
 
@@ -30,7 +31,31 @@ def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
 
-def result_key(classname, name):
+def report_context(junit_file):
+    base = os.path.basename(junit_file)
+    stem = base.removeprefix("report_").removesuffix(".xml")
+    if stem.endswith("_physical"):
+        node = stem.removesuffix("_physical")
+        if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", node):
+            return node, "physical"
+        return "", ""
+    if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", stem):
+        return stem, "qemu"
+    return "", ""
+
+
+def context_label(target_kind):
+    if target_kind == "physical":
+        return "Physical"
+    if target_kind == "qemu":
+        return "QEMU"
+    return target_kind or "unknown"
+
+
+def result_key(classname, name, target_node="", target_kind=""):
+    context = "::".join(part for part in (target_node, target_kind) if part)
+    if context:
+        return f"{context}::{classname}::{name}"
     return f"{classname}::{name}"
 
 
@@ -101,24 +126,28 @@ def attach_pending_monitor_logs(allure_dir):
     return attached
 
 
-def write_result(allure_dir, suite_name, case):
+def write_result(allure_dir, suite_name, case, target_node="", target_kind=""):
     test_uuid = str(uuid.uuid4())
     status, detail = status_from_case(case)
     name = case.attrib.get("name", "unknown")
     classname = case.attrib.get("classname", suite_name or "unknown")
+    key = result_key(classname, name, target_node, target_kind)
+    label = context_label(target_kind)
+    display_name = f"[{label} {target_node}] {name}" if target_node else name
     result = {
         "uuid": test_uuid,
-        "historyId": result_key(classname, name),
-        "testCaseId": result_key(classname, name),
-        "fullName": f"{classname}#{name}",
-        "name": name,
+        "historyId": key,
+        "testCaseId": key,
+        "fullName": f"{target_kind}:{target_node}:{classname}#{name}" if target_node else f"{classname}#{name}",
+        "name": display_name,
         "status": status,
         "stage": "finished",
         "labels": [
             {"name": "suite", "value": suite_name or "unknown"},
             {"name": "package", "value": classname},
             {"name": "testClass", "value": classname},
-            {"name": "host", "value": "jenkins"},
+            {"name": "host", "value": target_node or "jenkins"},
+            {"name": "target", "value": target_kind or "unknown"},
             {"name": "framework", "value": "pytest"},
             {"name": "language", "value": "python"},
         ],
@@ -195,23 +224,25 @@ def main():
     ensure_dir(allure_dir)
 
     existing_ids = existing_history_ids(allure_dir)
-    junit_files = glob.glob("report_*.xml")
+    junit_files = sorted(glob.glob("report_*.xml"))
     generated = 0
     for junit_file in junit_files:
         try:
             root = ET.parse(junit_file).getroot()
         except ET.ParseError:
             continue
+        target_node, target_kind = report_context(junit_file)
 
         for suite in normalize_root(root):
             suite_name = suite.attrib.get("name", "unknown")
             for case in suite.findall("testcase"):
                 name = case.attrib.get("name", "unknown")
                 classname = case.attrib.get("classname", suite_name or "unknown")
-                if result_key(classname, name) in existing_ids:
+                key = result_key(classname, name, target_node, target_kind)
+                if key in existing_ids:
                     continue
-                write_result(allure_dir, suite_name, case)
-                existing_ids.add(result_key(classname, name))
+                write_result(allure_dir, suite_name, case, target_node, target_kind)
+                existing_ids.add(key)
                 generated += 1
 
     env_generated = write_environment_prepare_results(allure_dir)

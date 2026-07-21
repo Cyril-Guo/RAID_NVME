@@ -62,3 +62,35 @@ def test_junit_to_allure_generates_environment_prepare_result(tmp_path, monkeypa
     assert env_result["labels"][0] == {"name": "suite", "value": "Environment_Prepare"}
     attachment = allure_dir / env_result["attachments"][0]["source"]
     assert "insmod ./draid.ko failed" in attachment.read_text(encoding="utf-8")
+
+
+def test_junit_to_allure_keeps_qemu_and_physical_results(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    junit = """<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="pytest" tests="1">
+  <testcase classname="test_items.test_smoke_06_basic_io" name="test_basic_io" />
+</testsuite>
+"""
+    (tmp_path / "report_192.168.22.134.xml").write_text(junit, encoding="utf-8")
+    (tmp_path / "report_192.168.22.134_physical.xml").write_text(junit, encoding="utf-8")
+
+    assert junit_to_allure.main() == 0
+
+    results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    test_results = [result for result in results if "test_basic_io" in result["name"]]
+    assert len(test_results) == 2
+    assert {
+        next(label["value"] for label in result["labels"] if label["name"] == "target")
+        for result in test_results
+    } == {"qemu", "physical"}
+    assert {result["name"] for result in test_results} == {
+        "[QEMU 192.168.22.134] test_basic_io",
+        "[Physical 192.168.22.134] test_basic_io",
+    }
+
+    assert junit_to_allure.main() == 0
+    rerun_results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    test_results = [result for result in rerun_results if "test_basic_io" in result["name"]]
+    assert len(test_results) == 2
