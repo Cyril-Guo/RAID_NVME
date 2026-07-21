@@ -211,12 +211,29 @@ done
 exec "${QEMU_REAL_BINARY}" "${filtered_args[@]}"
 QEMU_WRAPPER
 chmod +x "${wrapper_dir}/qemu-system-x86_64"
-QEMU_REAL_BINARY="${real_qemu}" QEMU_ALLOWED_VFIO_FILE="${PWD}/${allowed_file}" PATH="${PWD}/${wrapper_dir}:$PATH" "${QEMU_VM_START_SCRIPT}"
-sleep 2
-if ! pgrep -f "qemu-system-x86_64.*vm-serial.log" >/dev/null 2>&1; then
-    echo "[${NODE_IP}] QEMU process is not running after ${QEMU_VM_START_SCRIPT}; startup failed before SSH wait" >&2
-    exit 1
-fi
+start_log=".jenkins_qemu_start_${BUILD_NUMBER}.log"
+rm -f "${start_log}"
+(
+    QEMU_REAL_BINARY="${real_qemu}" QEMU_ALLOWED_VFIO_FILE="${PWD}/${allowed_file}" PATH="${PWD}/${wrapper_dir}:$PATH" "${QEMU_VM_START_SCRIPT}"
+) >"${start_log}" 2>&1 &
+start_pid=$!
+for attempt in $(seq 1 30); do
+    if pgrep -f "qemu-system-x86_64.*vm-serial.log" >/dev/null 2>&1; then
+        echo "[${NODE_IP}] QEMU process is running"
+        tail -n 80 "${start_log}" || true
+        exit 0
+    fi
+    if ! kill -0 "${start_pid}" >/dev/null 2>&1; then
+        echo "[${NODE_IP}] ${QEMU_VM_START_SCRIPT} exited before QEMU process started" >&2
+        tail -n 120 "${start_log}" >&2 || true
+        exit 1
+    fi
+    echo "[${NODE_IP}] waiting for QEMU process, attempt ${attempt}/30"
+    sleep 2
+done
+echo "[${NODE_IP}] QEMU process is not running after ${QEMU_VM_START_SCRIPT}; startup failed before SSH wait" >&2
+tail -n 120 "${start_log}" >&2 || true
+exit 1
 HOST_START
 
     echo "[${NODE_IP}] wait 60s for QEMU VM boot"

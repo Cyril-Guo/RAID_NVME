@@ -135,6 +135,8 @@ def test_automatic_mr_moves_nvme_between_host_and_qemu():
     assert "QEMU_ALLOWED_VFIO_FILE" in source
     assert "skip QEMU vfio device not in validated list" in source
     assert "skip QEMU vfio device without vfio node" in source
+    assert ".jenkins_qemu_start_${BUILD_NUMBER}.log" in source
+    assert "waiting for QEMU process" in source
     assert "return NVMe devices to physical host" in source
     assert "unbind NVMe PCI device back to host" in source
     assert "fallback unbind vfio NVMe PCI device back to host" in source
