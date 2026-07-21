@@ -94,3 +94,55 @@ def test_junit_to_allure_keeps_qemu_and_physical_results(tmp_path, monkeypatch):
     rerun_results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
     test_results = [result for result in rerun_results if "test_basic_io" in result["name"]]
     assert len(test_results) == 2
+
+
+def test_junit_to_allure_attaches_pending_monitor_only_to_matching_target(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    qemu_result = {
+        "name": "[QEMU 192.168.22.134] FIO 测试: lawdiskstress",
+        "historyId": "qemu:192.168.22.134:test_basic_io",
+        "fullName": "qemu:192.168.22.134:test_basic_io",
+        "testCaseId": "qemu:192.168.22.134:test_basic_io",
+        "labels": [
+            {"name": "host", "value": "192.168.22.134"},
+            {"name": "target", "value": "qemu"},
+        ],
+    }
+    physical_result = {
+        "name": "[Physical 192.168.22.134] FIO 测试: lawdiskstress",
+        "historyId": "physical:192.168.22.134:test_basic_io",
+        "fullName": "physical:192.168.22.134:test_basic_io",
+        "testCaseId": "physical:192.168.22.134:test_basic_io",
+        "labels": [
+            {"name": "host", "value": "192.168.22.134"},
+            {"name": "target", "value": "physical"},
+        ],
+    }
+    (allure_dir / "qemu-result.json").write_text(json.dumps(qemu_result), encoding="utf-8")
+    (allure_dir / "physical-result.json").write_text(json.dumps(physical_result), encoding="utf-8")
+    (allure_dir / "monitor_attachments.json").write_text(
+        json.dumps(
+            [
+                {
+                    "item": "basic_io",
+                    "host": "192.168.22.134",
+                    "target": "physical",
+                    "attachment": {
+                        "name": "monitor_log_basic_io",
+                        "source": "physical_monitor_log_basic_io.tar.gz",
+                        "type": "application/gzip",
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.attach_pending_monitor_logs(str(allure_dir)) == 1
+
+    qemu = json.loads((allure_dir / "qemu-result.json").read_text(encoding="utf-8"))
+    physical = json.loads((allure_dir / "physical-result.json").read_text(encoding="utf-8"))
+    assert "attachments" not in qemu
+    assert physical["attachments"][0]["source"] == "physical_monitor_log_basic_io.tar.gz"

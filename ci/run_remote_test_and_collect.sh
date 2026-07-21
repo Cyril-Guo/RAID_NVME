@@ -34,6 +34,7 @@ mkdir -p allure-results
 rm -rf "${tmp_results}"
 eval "${REMOTE_SCP_COMMAND} -r ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/allure-results ./${tmp_results}" || true
 if [ -d "${tmp_results}" ]; then
+    python3 ci/mark_allure_target_context.py "${tmp_results}" "${NODE_IP}" "${report_suffix}" "${qemu_target}" || true
     cp -R "${tmp_results}/." ./allure-results/ || true
     rm -rf "${tmp_results}"
 fi

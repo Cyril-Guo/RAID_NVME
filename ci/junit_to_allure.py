@@ -108,6 +108,13 @@ def attach_pending_monitor_logs(allure_dir):
 
         changed = False
         for entry in pending:
+            entry_host = entry.get("host")
+            entry_target = entry.get("target")
+            labels = {label.get("name"): label.get("value") for label in result.get("labels", [])}
+            if entry_host and labels.get("host") != entry_host:
+                continue
+            if entry_target and labels.get("target") != entry_target:
+                continue
             if not result_matches_item(result, entry.get("item", "")):
                 continue
             attachment = entry.get("attachment")
