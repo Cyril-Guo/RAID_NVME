@@ -535,7 +535,11 @@ ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
 set -o pipefail
 {
 echo "[${ip}] deploy workspace"
-${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
+if [ '${qemuEnv}' = '1' ]; then
+    ${targetSsh} 'mkdir -p /root/Cyril/Jenkins && find /root/Cyril/Jenkins -maxdepth 1 -type d -name '"'"'jenkins_nvme_*'"'"' -exec rm -rf {} + && mkdir -p ${remoteDir}'
+else
+    ${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
+fi
 chmod +x ci/deploy_workspace.sh
 NODE_IP='${ip}' \\
 TARGET_USER='${env.TARGET_USER}' \\

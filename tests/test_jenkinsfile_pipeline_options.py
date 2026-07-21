@@ -108,6 +108,16 @@ def test_qemu_vm_start_forces_clean_environment_before_start():
     assert "QEMU VM SSH is ready" in source
 
 
+def test_qemu_vm_deploy_cleans_previous_remote_workspaces():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "if [ '${qemuEnv}' = '1' ]; then" in source
+    assert "find /root/Cyril/Jenkins -maxdepth 1 -type d -name" in source
+    assert "jenkins_nvme_*" in source
+    assert "-exec rm -rf {} +" in source
+    assert "${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'" in source
+
+
 def test_qemu_vm_start_fails_fast_when_qemu_process_exits():
     source = pipeline_sources()
 
