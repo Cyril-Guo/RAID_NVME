@@ -703,8 +703,10 @@ ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
     else
         for pci_path in /sys/bus/pci/devices/*; do
             [ -e "\$pci_path/class" ] || continue
-            [ "\$(cat "\$pci_path/class")" = "0x010802" ] || continue
-            driver=\$(basename "\$(readlink -f "\$pci_path/driver" 2>/dev/null || true)")
+            pci_class=\$(cat "\$pci_path/class")
+            [ "\$pci_class" = "0x010802" ] || continue
+            driver_path=\$(readlink -f "\$pci_path/driver" 2>/dev/null || true)
+            driver=\${driver_path##*/}
             [ "\$driver" = "vfio-pci" ] || continue
             dev=\$(basename "\$pci_path")
             echo "[${ip}] fallback cleanup vfio NVMe PCI device after QEMU startup failure: \$dev"
@@ -1089,8 +1091,10 @@ ${hostSsh} '
         echo "[${ip}] no recorded QEMU vfio devices to unbind"
         for pci_path in /sys/bus/pci/devices/*; do
             [ -e "\$pci_path/class" ] || continue
-            [ "\$(cat "\$pci_path/class")" = "0x010802" ] || continue
-            driver=\$(basename "\$(readlink -f "\$pci_path/driver" 2>/dev/null || true)")
+            pci_class=\$(cat "\$pci_path/class")
+            [ "\$pci_class" = "0x010802" ] || continue
+            driver_path=\$(readlink -f "\$pci_path/driver" 2>/dev/null || true)
+            driver=\${driver_path##*/}
             [ "\$driver" = "vfio-pci" ] || continue
             dev=\$(basename "\$pci_path")
             echo "[${ip}] fallback unbind vfio NVMe PCI device back to host: \$dev"
