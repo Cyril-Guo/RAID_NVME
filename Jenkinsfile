@@ -16,18 +16,8 @@ def automaticMrTriggered = false
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     sh """
-    tar \
-      --exclude='./.git' \
-      --exclude='./kernel_driver/.git' \
-      --exclude='./raid_cli' \
-      --exclude='./.pytest_cache' \
-      --exclude='./__pycache__' \
-      --exclude='./allure-results' \
-      --exclude='./report.xml' \
-      --exclude='./report_*.xml' \
-      --exclude='./test_execution_*.log' \
-      --exclude='./feishu_payload.json' \
-      -czf - . | ssh ${sshOpts} ${targetUser}@${ip} 'tar -xzf - -C ${remoteDir}'
+    chmod +x ci/deploy_workspace.sh
+    NODE_IP='${ip}' TARGET_USER='${targetUser}' SSH_OPTS='${sshOpts}' REMOTE_DIR='${remoteDir}' ci/deploy_workspace.sh
     """
 }
 
@@ -200,23 +190,7 @@ pipeline {
                                       "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests/${manualMrIid}" \\
                                       -o kernel_driver_manual_mr.json
 
-                                    python3 - <<'PY' > kernel_driver_manual_mr.properties
-import json
-
-with open('kernel_driver_manual_mr.json', encoding='utf-8') as fh:
-    mr = json.load(fh)
-
-def prop_value(value):
-    return str(value or '').replace('\\n', ' ').replace('\\r', ' ')
-
-print(f"MR_IID={prop_value(mr.get('iid'))}")
-print(f"MR_TITLE={prop_value(mr.get('title'))}")
-print(f"MR_SOURCE_BRANCH={prop_value(mr.get('source_branch'))}")
-print(f"MR_TARGET_BRANCH={prop_value(mr.get('target_branch'))}")
-print(f"MR_SHA={prop_value(mr.get('sha'))}")
-print(f"MR_UPDATED_AT={prop_value(mr.get('updated_at'))}")
-print(f"MR_WEB_URL={prop_value(mr.get('web_url'))}")
-PY
+                                    python3 ci/gitlab_mr_to_properties.py kernel_driver_manual_mr.json > kernel_driver_manual_mr.properties
                                     """
                                 }
 
@@ -274,39 +248,7 @@ PY
                                   "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page=100" \
                                   -o kernel_driver_mrs.json
 
-                                python3 - <<'PY' > kernel_driver_mr.properties
-import json
-
-with open('kernel_driver_mrs.json', encoding='utf-8') as fh:
-    merge_requests = json.load(fh)
-
-merge_requests = [
-    mr for mr in merge_requests
-    if not str(mr.get('title') or '').strip().lower().startswith('[wip]')
-]
-
-def prop_value(value):
-    return str(value or '').replace('\\n', ' ').replace('\\r', ' ')
-
-if not merge_requests:
-    print('MR_COUNT=0')
-    print('MR_SIGNATURE=none')
-else:
-    signature_parts = [
-        f"{mr.get('iid')}:{mr.get('sha')}"
-        for mr in sorted(merge_requests, key=lambda item: item.get('iid') or 0)
-    ]
-    latest = merge_requests[0]
-    print(f"MR_COUNT={len(merge_requests)}")
-    print(f"MR_SIGNATURE={prop_value('|'.join(signature_parts))}")
-    print(f"MR_IID={prop_value(latest.get('iid'))}")
-    print(f"MR_TITLE={prop_value(latest.get('title'))}")
-    print(f"MR_SOURCE_BRANCH={prop_value(latest.get('source_branch'))}")
-    print(f"MR_TARGET_BRANCH={prop_value(latest.get('target_branch'))}")
-    print(f"MR_SHA={prop_value(latest.get('sha'))}")
-    print(f"MR_UPDATED_AT={prop_value(latest.get('updated_at'))}")
-    print(f"MR_WEB_URL={prop_value(latest.get('web_url'))}")
-PY
+                                python3 ci/gitlab_mr_to_properties.py --list kernel_driver_mrs.json > kernel_driver_mr.properties
                                 '''
                             }
 
@@ -569,19 +511,12 @@ set -o pipefail
 {
 echo "[${ip}] deploy workspace"
 ${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
-tar \\
-  --exclude='./.git' \\
-  --exclude='./kernel_driver/.git' \\
-  --exclude='./raid_cli' \\
-  --exclude='./.pytest_cache' \\
-  --exclude='./__pycache__' \\
-  --exclude='./allure-results' \\
-  --exclude='./report.xml' \\
-  --exclude='./report_*.xml' \\
-  --exclude='./test_execution_*.log' \\
-  --exclude='./environment_prepare_*.log' \\
-  --exclude='./feishu_payload.json' \\
-  -czf - . | ${targetSsh} 'tar -xzf - -C ${remoteDir}'
+chmod +x ci/deploy_workspace.sh
+NODE_IP='${ip}' \\
+TARGET_USER='${env.TARGET_USER}' \\
+REMOTE_DIR='${remoteDir}' \\
+REMOTE_SSH_COMMAND="${targetSsh}" \\
+ci/deploy_workspace.sh
 } 2>&1 | tee -a ${envPrepareLog}
 """
                                 )
@@ -597,12 +532,15 @@ tar \\
 set -o pipefail
 {
 echo "[${ip}] install latest dpraid"
-                                ${targetScp} '${raidCliDpraidPathForRun}' ${env.TARGET_USER}@${ip}:/tmp/dpraid_${env.BUILD_NUMBER}
-                                ${targetSsh} '
-                                    install -m 0755 /tmp/dpraid_${env.BUILD_NUMBER} /usr/bin/dpraid
-                                    rm -f /tmp/dpraid_${env.BUILD_NUMBER}
-                                    /usr/bin/dpraid --help >/dev/null 2>&1 || true
-                                '
+chmod +x ci/install_dpraid_remote.sh
+NODE_IP='${ip}' \\
+TARGET_USER='${env.TARGET_USER}' \\
+SSH_OPTS='${env.SSH_OPTS}' \\
+DPRAID_SOURCE='${raidCliDpraidPathForRun}' \\
+BUILD_NUMBER='${env.BUILD_NUMBER}' \\
+REMOTE_SSH_COMMAND="${targetSsh}" \\
+REMOTE_SCP_COMMAND="${targetScp}" \\
+ci/install_dpraid_remote.sh
 } 2>&1 | tee -a ${envPrepareLog}
 """
                                 )
@@ -657,15 +595,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
 
                                 echo "[${ip}] collect environment metadata"
                                 sh """
-                                ${targetSsh} '
-                                    cd ${remoteDir}
-                                    mkdir -p allure-results
-                                    {
-                                        echo "Node_${ip}_Host=\$(hostname)"
-                                        echo "Node_${ip}_Kernel=\$(uname -r)"
-                                        echo "Node_${ip}_NVMe_Count=\$(ls /dev/nvme*n1 2>/dev/null | wc -l)"
-                                    } > allure-results/environment_${ip}.properties
-                                '
+                                ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && NODE_IP=${ip} REMOTE_DIR=${remoteDir} PREFIX=Node_${ip} ci/collect_environment_metadata.sh'
                                 """
 
                                 echo "[${ip}] run nvme_raid_test.py"
@@ -747,19 +677,12 @@ set -o pipefail
 {
 echo "[${ip}] deploy workspace for physical host test"
 ${hostSsh} 'rm -rf ${hostRemoteDir} && mkdir -p ${hostRemoteDir}'
-tar \\
-  --exclude='./.git' \\
-  --exclude='./kernel_driver/.git' \\
-  --exclude='./raid_cli' \\
-  --exclude='./.pytest_cache' \\
-  --exclude='./__pycache__' \\
-  --exclude='./allure-results' \\
-  --exclude='./report.xml' \\
-  --exclude='./report_*.xml' \\
-  --exclude='./test_execution_*.log' \\
-  --exclude='./environment_prepare_*.log' \\
-  --exclude='./feishu_payload.json' \\
-  -czf - . | ${hostSsh} 'tar -xzf - -C ${hostRemoteDir}'
+chmod +x ci/deploy_workspace.sh
+NODE_IP='${ip}' \\
+TARGET_USER='${env.TARGET_USER}' \\
+REMOTE_DIR='${hostRemoteDir}' \\
+REMOTE_SSH_COMMAND="${hostSsh}" \\
+ci/deploy_workspace.sh
 } 2>&1 | tee -a ${hostEnvPrepareLog}
 """
                                     )
@@ -775,12 +698,16 @@ tar \\
 set -o pipefail
 {
 echo "[${ip}] install latest dpraid on physical host"
-${hostScp} '${raidCliDpraidPathForRun}' ${env.TARGET_USER}@${ip}:/tmp/dpraid_${env.BUILD_NUMBER}_physical
-${hostSsh} '
-    install -m 0755 /tmp/dpraid_${env.BUILD_NUMBER}_physical /usr/bin/dpraid
-    rm -f /tmp/dpraid_${env.BUILD_NUMBER}_physical
-    /usr/bin/dpraid --help >/dev/null 2>&1 || true
-'
+chmod +x ci/install_dpraid_remote.sh
+NODE_IP='${ip}' \\
+TARGET_USER='${env.TARGET_USER}' \\
+SSH_OPTS='${env.SSH_OPTS}' \\
+DPRAID_SOURCE='${raidCliDpraidPathForRun}' \\
+BUILD_NUMBER='${env.BUILD_NUMBER}' \\
+TMP_SUFFIX='_physical' \\
+REMOTE_SSH_COMMAND="${hostSsh}" \\
+REMOTE_SCP_COMMAND="${hostScp}" \\
+ci/install_dpraid_remote.sh
 } 2>&1 | tee -a ${hostEnvPrepareLog}
 """
                                     )
@@ -831,15 +758,7 @@ ${hostSsh} 'cd ${hostRemoteDir} && chmod +x ci/install_test_dependencies.sh && Q
 
                                     echo "[${ip}] collect physical host environment metadata"
                                     sh """
-                                    ${hostSsh} '
-                                        cd ${hostRemoteDir}
-                                        mkdir -p allure-results
-                                        {
-                                            echo "Node_${ip}_Physical_Host=\$(hostname)"
-                                            echo "Node_${ip}_Physical_Kernel=\$(uname -r)"
-                                            echo "Node_${ip}_Physical_NVMe_Count=\$(ls /dev/nvme*n1 2>/dev/null | wc -l)"
-                                        } > allure-results/environment_${ip}_physical.properties
-                                    '
+                                    ${hostSsh} 'cd ${hostRemoteDir} && chmod +x ci/collect_environment_metadata.sh && NODE_IP=${ip} REMOTE_DIR=${hostRemoteDir} PREFIX=Node_${ip}_Physical SUFFIX=_physical ci/collect_environment_metadata.sh'
                                     """
 
                                     echo "[${ip}] run nvme_raid_test.py on physical host"

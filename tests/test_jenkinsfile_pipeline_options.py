@@ -2,7 +2,11 @@ from pathlib import Path
 
 
 def pipeline_sources():
-    paths = [Path("Jenkinsfile"), *sorted(Path("ci").glob("*.sh"))]
+    paths = [
+        Path("Jenkinsfile"),
+        *sorted(Path("ci").glob("*.sh")),
+        *sorted(Path("ci").glob("*.py")),
+    ]
     return "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
 
@@ -70,7 +74,7 @@ def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
 
 
 def test_automatic_mr_signature_only_tracks_code_sha():
-    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+    source = pipeline_sources()
 
     assert 'f"{mr.get(\'iid\')}:{mr.get(\'sha\')}"' in source
     assert 'f"{mr.get(\'iid\')}:{mr.get(\'updated_at\')}:{mr.get(\'sha\')}"' not in source
