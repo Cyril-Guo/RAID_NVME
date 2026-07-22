@@ -265,6 +265,11 @@ pipeline {
                                 script: "cat '${markerPath}' 2>/dev/null || true",
                                 returnStdout: true
                             ).trim()
+                            def markerEpochText = sh(
+                                script: "stat -c %Y '${markerPath}' 2>/dev/null || echo 0",
+                                returnStdout: true
+                            ).trim()
+                            def markerEpoch = (markerEpochText ==~ /^[0-9]+$/) ? markerEpochText.toLong() : 0L
 
                             def currentSignatures = currentMrSignature == 'none' ? [] : currentMrSignature.split('\\|') as List
                             def previousSignatures = previousMrSignature ? previousMrSignature.split('\\|') as List : []
@@ -272,10 +277,33 @@ pipeline {
                                 def parts = signature.split(':')
                                 parts.size() >= 3 ? "${parts[0]}:${parts[-1]}" : signature
                             }
-                            def previousSignatureSet = previousSignatures as Set
-                            hasNewOpenMrEvent = currentSignatures.any { !previousSignatureSet.contains(it) }
+                            def signatureByIid = { signatures ->
+                                signatures.collectEntries { signature ->
+                                    def parts = signature.split(':', 2)
+                                    parts.size() == 2 && parts[0] ? [(parts[0]): signature] : [:]
+                                }
+                            }
+                            def createdEpochByIid = (mrProps.MR_CREATED_EPOCH_SIGNATURE ?: '').split('\\|').collectEntries { item ->
+                                def parts = item.split(':', 2)
+                                parts.size() == 2 && parts[0] && parts[1] ==~ /^[0-9]+$/ ? [(parts[0]): parts[1].toLong()] : [:]
+                            }
+                            def currentByIid = signatureByIid(currentSignatures)
+                            def previousByIid = signatureByIid(previousSignatures)
+                            def existingMrShaChanged = currentByIid.any { iid, signature ->
+                                previousByIid.containsKey(iid) && previousByIid[iid] != signature
+                            }
+                            def newlyCreatedMr = currentByIid.any { iid, signature ->
+                                !previousByIid.containsKey(iid) && (createdEpochByIid[iid] ?: 0L) > markerEpoch
+                            }
+                            hasNewOpenMrEvent = existingMrShaChanged || newlyCreatedMr
 
                             if (!hasNewOpenMrEvent) {
+                                if (currentMrSignature != 'none') {
+                                    sh """
+                                    mkdir -p '${jenkinsHome}/.raid_nvme'
+                                    printf '%s\\n' '${currentMrSignature}' > '${markerPath}'
+                                    """
+                                }
                                 if (hasRaidCliUpdate) {
                                     echo "raid_cli was updated for the test environment. No kernel_driver MR event, so skip smoke tests."
                                     return

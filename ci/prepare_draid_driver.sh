@@ -57,9 +57,21 @@ for candidate in "${module_name}" draid; do
         exit 1
     fi
 done
+sync || true
+echo 3 >/proc/sys/vm/drop_caches 2>/dev/null || true
 if ! insmod ./draid.ko; then
+    sync || true
+    echo 3 >/proc/sys/vm/drop_caches 2>/dev/null || true
+    sleep 2
+fi
+if ! grep -q "^${module_name} " /proc/modules && ! insmod ./draid.ko; then
     echo "insmod ./draid.ko failed. Current related modules:" >&2
     grep -i draid /proc/modules >&2 || true
+    echo "memory status after insmod failure:" >&2
+    free -h >&2 || true
+    grep -E '^(MemTotal|MemFree|MemAvailable|Buffers|Cached|SwapTotal|SwapFree|VmallocTotal|VmallocUsed|VmallocChunk):' /proc/meminfo >&2 || true
+    echo "dmesg tail after insmod failure:" >&2
+    dmesg | tail -n 160 >&2 || true
     exit 1
 fi
 grep -q "^${module_name} " /proc/modules

@@ -80,7 +80,19 @@ def test_automatic_mr_signature_only_tracks_code_sha():
     assert 'f"{mr.get(\'iid\')}:{mr.get(\'sha\')}"' in source
     assert 'f"{mr.get(\'iid\')}:{mr.get(\'updated_at\')}:{mr.get(\'sha\')}"' not in source
     assert 'parts.size() >= 3 ? "${parts[0]}:${parts[-1]}" : signature' in source
-    assert "hasNewOpenMrEvent = currentSignatures.any" in source
+    assert "MR_CREATED_EPOCH_SIGNATURE" in source
+    assert "existingMrShaChanged || newlyCreatedMr" in source
+    assert "createdEpochByIid[iid]" in source
+    assert "stat -c %Y '${markerPath}'" in source
+
+
+def test_draid_module_reload_retries_and_reports_memory_on_insmod_failure():
+    source = pipeline_sources()
+
+    assert "echo 3 >/proc/sys/vm/drop_caches" in source
+    assert "memory status after insmod failure" in source
+    assert "dmesg tail after insmod failure" in source
+    assert "VmallocTotal" in source
 
 
 def test_qemu_vm_installs_sshpass_on_jenkins_server():

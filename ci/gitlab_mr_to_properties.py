@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 import argparse
+from datetime import datetime
 import json
 
 
 def prop_value(value):
     return str(value or "").replace("\n", " ").replace("\r", " ")
+
+
+def epoch_value(value):
+    if not value:
+        return 0
+    try:
+        return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return 0
 
 
 def emit_mr(mr):
@@ -43,9 +53,14 @@ def main():
         f"{mr.get('iid')}:{mr.get('sha')}"
         for mr in sorted(merge_requests, key=lambda item: item.get("iid") or 0)
     ]
+    created_epoch_parts = [
+        f"{mr.get('iid')}:{epoch_value(mr.get('created_at'))}"
+        for mr in sorted(merge_requests, key=lambda item: item.get("iid") or 0)
+    ]
     latest = merge_requests[0]
     print(f"MR_COUNT={len(merge_requests)}")
     print(f"MR_SIGNATURE={prop_value('|'.join(signature_parts))}")
+    print(f"MR_CREATED_EPOCH_SIGNATURE={prop_value('|'.join(created_epoch_parts))}")
     emit_mr(latest)
 
 
