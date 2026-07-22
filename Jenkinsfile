@@ -273,6 +273,15 @@ pipeline {
 
                             def currentSignatures = currentMrSignature == 'none' ? [] : currentMrSignature.split('\\|') as List
                             def previousSignatures = previousMrSignature ? previousMrSignature.split('\\|') as List : []
+                            if (!previousMrSignature && currentMrSignature != 'none') {
+                                sh """
+                                mkdir -p '${jenkinsHome}/.raid_nvme'
+                                printf '%s\\n' '${currentMrSignature}' > '${markerPath}'
+                                """
+                                currentBuild.result = 'NOT_BUILT'
+                                echo "kernel_driver MR marker bootstrap initialized. Existing open merge requests are recorded as baseline, skip tests."
+                                return
+                            }
                             previousSignatures = previousSignatures.collect { signature ->
                                 def parts = signature.split(':')
                                 parts.size() >= 3 ? "${parts[0]}:${parts[-1]}" : signature

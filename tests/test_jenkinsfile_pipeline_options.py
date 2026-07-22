@@ -84,6 +84,8 @@ def test_automatic_mr_signature_only_tracks_code_sha():
     assert "existingMrShaChanged || newlyCreatedMr" in source
     assert "createdEpochByIid[iid]" in source
     assert "stat -c %Y '${markerPath}'" in source
+    assert "kernel_driver MR marker bootstrap initialized" in source
+    assert "Existing open merge requests are recorded as baseline, skip tests." in source
 
 
 def test_draid_module_reload_retries_and_reports_memory_on_insmod_failure():
