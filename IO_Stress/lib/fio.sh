@@ -1179,42 +1179,91 @@ function result_handle_for_mix_io(){
 
 
 
-fio_timeout_for_config()
+fio_idle_timeout_seconds()
 {
-    local configuration="$1"
-    local config_runtime
-    local extra
+    local idle_seconds="${FIO_IDLE_TIMEOUT_SECONDS:-}"
+    local idle_minutes="${TEST_IDLE_TIMEOUT_MINUTES:-}"
 
-    config_runtime=$(awk -F= '$1=="runtime" {print $2; exit}' "$configuration" 2>/dev/null)
-    extra=${FIO_WATCHDOG_EXTRA_SECONDS:-600}
-    if ! echo "$config_runtime" | grep -Eq '^[0-9]+$'; then
-        config_runtime=${runtime:-3600}
+    if echo "$idle_minutes" | grep -Eq '^[0-9]+$'; then
+        echo $((idle_minutes * 60))
+        return
     fi
-    if ! echo "$extra" | grep -Eq '^[0-9]+$'; then
-        extra=600
+    if ! echo "$idle_seconds" | grep -Eq '^[0-9]+$'; then
+        idle_seconds=900
     fi
-    echo $((config_runtime + extra))
+    echo "$idle_seconds"
+}
+
+fio_io_progress_signature()
+{
+    lsblk -dn -o NAME,TYPE 2>/dev/null | awk '$2=="disk"{print $1}' | while read -r disk_name; do
+        [[ -z "$disk_name" ]] && continue
+        case "$disk_name" in
+            loop*|ram*|sr*|fd*|md*|dm-*|zram*)
+                continue
+                ;;
+        esac
+        disk_is_system "$disk_name" && continue
+        stat_file="/sys/block/${disk_name}/stat"
+        [[ -r "$stat_file" ]] || continue
+        awk -v dev="$disk_name" '{ print dev ":" $3 ":" $7 }' "$stat_file"
+    done | sort
 }
 
 run_fio_with_watchdog()
 {
     local configuration="$1"
     local output_file="$2"
-    local timeout_seconds
+    local idle_timeout_seconds
+    local watch_interval_seconds=30
+    local fio_pid
     local fio_rc
+    local last_progress_ts
+    local last_output_size
+    local last_io_signature
+    local current_output_size
+    local current_io_signature
+    local now_ts
+    local idle_timed_out=0
     shift 2
 
-    timeout_seconds=$(fio_timeout_for_config "$configuration")
-    echo "$(date '+%F %T') [FIO] start config=${configuration} watchdog=${timeout_seconds}s" >> "$output_file"
-    if command -v timeout >/dev/null 2>&1; then
-        timeout --kill-after=60s "${timeout_seconds}s" fio "$configuration" "$@" >> "$output_file" 2>&1
-        fio_rc=$?
-        if [[ $fio_rc -eq 124 || $fio_rc -eq 137 ]]; then
-            echo "$(date '+%F %T') [FIO] watchdog timeout after ${timeout_seconds}s, config=${configuration}" | tee -a "$output_file" "$Result_Dir/result.log"
+    idle_timeout_seconds=$(fio_idle_timeout_seconds)
+    echo "$(date '+%F %T') [FIO] start config=${configuration} idle_watchdog=${idle_timeout_seconds}s" >> "$output_file"
+    setsid bash -c 'fio "$@"' fio_runner "$configuration" "$@" >> "$output_file" 2>&1 &
+    fio_pid=$!
+    last_progress_ts=$(date +%s)
+    last_output_size=$(wc -c < "$output_file" 2>/dev/null || echo 0)
+    last_io_signature=$(fio_io_progress_signature | sha256sum | awk '{print $1}')
+
+    while kill -0 "$fio_pid" 2>/dev/null; do
+        sleep "$watch_interval_seconds"
+        now_ts=$(date +%s)
+        current_output_size=$(wc -c < "$output_file" 2>/dev/null || echo 0)
+        current_io_signature=$(fio_io_progress_signature | sha256sum | awk '{print $1}')
+
+        if [[ "$current_output_size" != "$last_output_size" ]]; then
+            last_progress_ts=$now_ts
+            last_output_size=$current_output_size
         fi
+        if [[ -n "$current_io_signature" && "$current_io_signature" != "$last_io_signature" ]]; then
+            last_progress_ts=$now_ts
+            last_io_signature=$current_io_signature
+        fi
+        if [[ $((now_ts - last_progress_ts)) -ge $idle_timeout_seconds ]]; then
+            idle_timed_out=1
+            echo "$(date '+%F %T') [FIO] idle watchdog timeout after ${idle_timeout_seconds}s without output or non-system disk IO progress, config=${configuration}" | tee -a "$output_file" "$Result_Dir/result.log"
+            kill -TERM "-${fio_pid}" 2>/dev/null || kill -TERM "$fio_pid" 2>/dev/null || true
+            sleep 5
+            kill -KILL "-${fio_pid}" 2>/dev/null || kill -KILL "$fio_pid" 2>/dev/null || true
+            break
+        fi
+    done
+
+    if [[ "$idle_timed_out" == "1" ]]; then
+        wait "$fio_pid" 2>/dev/null || true
+        fio_rc=124
     else
-        echo "$(date '+%F %T') [FIO] warning: timeout command not found, running without watchdog" >> "$output_file"
-        fio "$configuration" "$@" >> "$output_file" 2>&1
+        wait "$fio_pid"
         fio_rc=$?
     fi
     echo "$(date '+%F %T') [FIO] finish config=${configuration} rc=${fio_rc}" >> "$output_file"

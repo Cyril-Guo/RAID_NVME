@@ -6,13 +6,14 @@ set -euo pipefail
 : "${SSH_OPTS:?SSH_OPTS is required}"
 : "${BUILD_NUMBER:?BUILD_NUMBER is required}"
 : "${DPRAID_SOURCE:?DPRAID_SOURCE is required}"
-: "${TARGET_NODE_TIMEOUT_MINUTES:?TARGET_NODE_TIMEOUT_MINUTES is required}"
+: "${TEST_IDLE_TIMEOUT_MINUTES:?TEST_IDLE_TIMEOUT_MINUTES is required}"
 
 CONTROL_STEP_TIMEOUT_MINUTES=${CONTROL_STEP_TIMEOUT_MINUTES:-15}
 host_remote_dir="/root/Cyril/Jenkins/jenkins_nvme_${BUILD_NUMBER}_physical"
 host_log="environment_prepare_${NODE_IP}_physical.log"
 host_ssh="ssh ${SSH_OPTS} ${TARGET_USER}@${NODE_IP}"
 host_scp="scp ${SSH_OPTS}"
+export NODE_IP TARGET_USER SSH_OPTS BUILD_NUMBER DPRAID_SOURCE host_remote_dir host_ssh host_scp
 
 printf '[%s] Physical Environment_Prepare started after QEMU VM test\n' "${NODE_IP}" > "${host_log}"
 
@@ -20,6 +21,24 @@ fail_prepare() {
     printf '%s\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> "${host_log}"
     echo "[${NODE_IP}] ERROR: $*"
     exit 1
+}
+
+run_control_step() {
+    local label="$1"
+    shift
+
+    echo "[${NODE_IP}] ${label}"
+    set +e
+    timeout --kill-after=60s "${CONTROL_STEP_TIMEOUT_MINUTES}m" "$@" 2>&1 | tee -a "${host_log}"
+    local step_status=${PIPESTATUS[0]}
+    set -e
+
+    if [ "${step_status}" -eq 124 ] || [ "${step_status}" -eq 137 ]; then
+        fail_prepare "${label} timed out after ${CONTROL_STEP_TIMEOUT_MINUTES} minutes"
+    fi
+    if [ "${step_status}" -ne 0 ]; then
+        fail_prepare "${label} failed"
+    fi
 }
 
 echo "[${NODE_IP}] stop QEMU VM and return NVMe devices to physical host"
@@ -40,59 +59,47 @@ if [ "${cleanup_status}" -ne 0 ]; then
     fail_prepare "returning NVMe devices to physical host failed"
 fi
 
-echo "[${NODE_IP}] deploy workspace for physical host test"
-if ! {
+run_control_step "deploy workspace for physical host test" bash -c '
     ${host_ssh} "rm -rf ${host_remote_dir} && mkdir -p ${host_remote_dir}"
     chmod +x ci/deploy_workspace.sh
     NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" REMOTE_DIR="${host_remote_dir}" \
         REMOTE_SSH_COMMAND="${host_ssh}" ci/deploy_workspace.sh
-} 2>&1 | tee -a "${host_log}"; then
-    fail_prepare "deploy physical host workspace failed"
-fi
+'
 
-echo "[${NODE_IP}] install latest dpraid on physical host"
-if ! {
+run_control_step "install latest dpraid on physical host" bash -c '
     chmod +x ci/install_dpraid_remote.sh
     NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" SSH_OPTS="${SSH_OPTS}" DPRAID_SOURCE="${DPRAID_SOURCE}" \
-        BUILD_NUMBER="${BUILD_NUMBER}" TMP_SUFFIX='_physical' REMOTE_SSH_COMMAND="${host_ssh}" \
+        BUILD_NUMBER="${BUILD_NUMBER}" TMP_SUFFIX=_physical REMOTE_SSH_COMMAND="${host_ssh}" \
         REMOTE_SCP_COMMAND="${host_scp}" ci/install_dpraid_remote.sh
-} 2>&1 | tee -a "${host_log}"; then
-    fail_prepare "install physical host dpraid failed"
-fi
+'
 
-echo "[${NODE_IP}] build and reload draid kernel driver on physical host"
-if ! {
+run_control_step "build and reload draid kernel driver on physical host" bash -c '
     chmod +x ci/prepare_draid_driver.sh
     NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" SSH_OPTS="${SSH_OPTS}" REMOTE_DIR="${host_remote_dir}" \
         BUILD_NUMBER="${BUILD_NUMBER}" QEMU_VM_TARGET=0 ci/prepare_draid_driver.sh
-} 2>&1 | tee -a "${host_log}"; then
-    fail_prepare "build and reload physical host draid kernel driver failed"
-fi
+'
 
-echo "[${NODE_IP}] install python dependencies on physical host"
-if ! ${host_ssh} "cd ${host_remote_dir} && chmod +x ci/install_test_dependencies.sh && QEMU_VM_TARGET=0 ci/install_test_dependencies.sh" 2>&1 | tee -a "${host_log}"; then
-    fail_prepare "install physical host python dependencies failed"
-fi
+run_control_step "install python dependencies on physical host" bash -c '
+    ${host_ssh} "cd ${host_remote_dir} && chmod +x ci/install_test_dependencies.sh && QEMU_VM_TARGET=0 ci/install_test_dependencies.sh"
+'
 printf '%s\n' 'ENVIRONMENT_PREPARE_STATUS=passed' >> "${host_log}"
 
-echo "[${NODE_IP}] collect physical host environment metadata"
-${host_ssh} "cd ${host_remote_dir} && chmod +x ci/collect_environment_metadata.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${host_remote_dir} PREFIX=Node_${NODE_IP}_Physical SUFFIX=_physical ci/collect_environment_metadata.sh"
+run_control_step "collect physical host environment metadata" bash -c '
+    ${host_ssh} "cd ${host_remote_dir} && chmod +x ci/collect_environment_metadata.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${host_remote_dir} PREFIX=Node_${NODE_IP}_Physical SUFFIX=_physical ci/collect_environment_metadata.sh"
+'
 
 chmod +x ci/run_remote_test_and_collect.sh
 set +e
 NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" REMOTE_DIR="${host_remote_dir}" \
     REMOTE_SSH_COMMAND="${host_ssh}" REMOTE_SCP_COMMAND="${host_scp}" \
-    TARGET_NODE_TIMEOUT_MINUTES="${TARGET_NODE_TIMEOUT_MINUTES}" QEMU_VM_TARGET=0 \
+    TEST_IDLE_TIMEOUT_MINUTES="${TEST_IDLE_TIMEOUT_MINUTES}" QEMU_VM_TARGET=0 \
     ALLOW_DESTRUCTIVE_FIO="${ALLOW_DESTRUCTIVE_FIO:-YES}" REPORT_SUFFIX='_physical' LOG_SUFFIX='_physical' \
     TEST_LABEL='physical host nvme_raid_test.py' ci/run_remote_test_and_collect.sh
 test_status=$?
 set -e
 
-echo "[${NODE_IP}] restore physical host RAID state after physical host test"
-if ! ${host_ssh} "cd ${host_remote_dir} && chmod +x ci/restore_physical_raid_state.sh && NODE_IP=${NODE_IP} ci/restore_physical_raid_state.sh" 2>&1 | tee -a "${host_log}"; then
-    printf '%s\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> "${host_log}"
-    echo "[${NODE_IP}] ERROR: restore physical host RAID state after physical host test failed"
-    exit 1
-fi
+run_control_step "restore physical host RAID state after physical host test" bash -c '
+    ${host_ssh} "cd ${host_remote_dir} && chmod +x ci/restore_physical_raid_state.sh && NODE_IP=${NODE_IP} ci/restore_physical_raid_state.sh"
+'
 
 exit "${test_status}"

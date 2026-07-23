@@ -49,25 +49,58 @@ def test_manual_mr_iid_reruns_merge_request():
 def test_target_hang_times_out_and_keeps_pipeline_control():
     source = pipeline_sources()
 
-    assert "TARGET_NODE_TIMEOUT_MINUTES = '90'" in source
+    assert "TARGET_NODE_TIMEOUT_MINUTES" not in source
+    assert "TEST_IDLE_TIMEOUT_MINUTES = '15'" in source
     assert "ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'" in source
     assert "ServerAliveInterval=30" in source
     assert "ServerAliveCountMax=3" in source
     assert "ConnectTimeout=15" in source
-    assert 'timeout --kill-after=60s "${TARGET_NODE_TIMEOUT_MINUTES}m"' in source
-    assert "${test_label} timed out after ${TARGET_NODE_TIMEOUT_MINUTES} minutes" in source
+    assert "TEST_IDLE_TIMEOUT_MINUTES='${env.TEST_IDLE_TIMEOUT_MINUTES}'" in source
+    assert ': "${TEST_IDLE_TIMEOUT_MINUTES:?TEST_IDLE_TIMEOUT_MINUTES is required}"' in source
+    assert "ci/io_progress_signature.sh" in source
+    assert "made no log or non-system disk IO progress for ${TEST_IDLE_TIMEOUT_MINUTES} minutes" in source
+    assert "idle watchdog fired after ${TEST_IDLE_TIMEOUT_MINUTES} minutes without progress" in source
     assert 'exit "${test_rc}"' in source
 
 
 def test_environment_prepare_hang_times_out_after_15_minutes():
     source = pipeline_sources()
 
+    assert "def runTimedEnvironmentStep(" in source
     assert "timeout(time: env.ENVIRONMENT_STEP_TIMEOUT_MINUTES.toInteger(), unit: 'MINUTES')" in source
     assert "QEMU pre-test cleanup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes" in source
     assert "QEMU VM startup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes" in source
+    for label in [
+        "deploy workspace",
+        "install latest dpraid",
+        "build and reload draid kernel driver",
+        "install python dependencies",
+        "collect environment metadata",
+    ]:
+        assert f"runTimedEnvironmentStep(ip, '{label}'" in source
     assert "CONTROL_STEP_TIMEOUT_MINUTES=${CONTROL_STEP_TIMEOUT_MINUTES:-15}" in source
+    assert "run_control_step()" in source
     assert 'timeout --kill-after=60s "${CONTROL_STEP_TIMEOUT_MINUTES}m" env' in source
     assert "returning NVMe devices to physical host timed out after ${CONTROL_STEP_TIMEOUT_MINUTES} minutes" in source
+    for label in [
+        "deploy workspace for physical host test",
+        "install latest dpraid on physical host",
+        "build and reload draid kernel driver on physical host",
+        "install python dependencies on physical host",
+        "collect physical host environment metadata",
+        "restore physical host RAID state after physical host test",
+    ]:
+        assert f'run_control_step "{label}"' in source
+
+
+def test_test_idle_watchdog_tracks_non_system_disk_io_progress():
+    source = Path("ci/io_progress_signature.sh").read_text(encoding="utf-8")
+
+    assert "lsblk -nr -o NAME,PKNAME,MOUNTPOINT" in source
+    assert '"/sys/block/${dev}/stat"' in source
+    assert "loop*|ram*|sr*|fd*|md*|dm-*|zram*" in source
+    assert 'if is_protected "${dev}"; then' in source
+    assert 'awk -v dev="${dev}"' in source
 
 
 def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():

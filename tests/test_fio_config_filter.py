@@ -37,10 +37,13 @@ def test_fio_runs_under_watchdog_timeout():
     source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
 
     assert "run_fio_with_watchdog" in source
-    assert "fio_timeout_for_config" in source
-    assert "FIO_WATCHDOG_EXTRA_SECONDS" in source
-    assert 'timeout --kill-after=60s "${timeout_seconds}s" fio' in source
-    assert "watchdog timeout after" in source
+    assert "fio_idle_timeout_seconds" in source
+    assert "fio_io_progress_signature" in source
+    assert "TEST_IDLE_TIMEOUT_MINUTES" in source
+    assert "FIO_IDLE_TIMEOUT_SECONDS" in source
+    assert "idle watchdog timeout after" in source
+    assert "without output or non-system disk IO progress" in source
+    assert 'timeout --kill-after=60s "${timeout_seconds}s" fio' not in source
     assert "FIO command failed in MIX mode" in source
     assert source.count("run_fio_with_watchdog") >= 6
 

@@ -6,7 +6,7 @@ set -euo pipefail
 : "${REMOTE_DIR:?REMOTE_DIR is required}"
 : "${REMOTE_SSH_COMMAND:?REMOTE_SSH_COMMAND is required}"
 : "${REMOTE_SCP_COMMAND:?REMOTE_SCP_COMMAND is required}"
-: "${TARGET_NODE_TIMEOUT_MINUTES:?TARGET_NODE_TIMEOUT_MINUTES is required}"
+: "${TEST_IDLE_TIMEOUT_MINUTES:?TEST_IDLE_TIMEOUT_MINUTES is required}"
 
 qemu_target="${QEMU_VM_TARGET:-0}"
 allow_fio="${ALLOW_DESTRUCTIVE_FIO:-YES}"
@@ -16,17 +16,62 @@ test_label="${TEST_LABEL:-nvme_raid_test.py}"
 execution_log="test_execution_${NODE_IP}${log_suffix}.log"
 report_file="report_${NODE_IP}${report_suffix}.xml"
 tmp_results="allure-results-${NODE_IP}${report_suffix}"
+idle_timeout_seconds=$((TEST_IDLE_TIMEOUT_MINUTES * 60))
+watch_interval_seconds=30
+
+collect_io_signature() {
+    timeout --kill-after=5s 20s bash -c "
+        ${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x ci/io_progress_signature.sh && ci/io_progress_signature.sh\"
+    " 2>/dev/null | sha256sum | awk '{ print $1 }'
+}
 
 echo "[${NODE_IP}] run ${test_label}"
 set +e
-timeout --kill-after=60s "${TARGET_NODE_TIMEOUT_MINUTES}m" bash -c "
-    ${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && QEMU_VM_TARGET=${qemu_target} ALLOW_DESTRUCTIVE_FIO=${allow_fio} sudo -E python3 nvme_raid_test.py\"
-" 2>&1 | awk '{ print strftime("[%Y-%m-%d %H:%M:%S]"), $0 }' | tee "${execution_log}"
-test_rc=${PIPESTATUS[0]}
+remote_test_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && QEMU_VM_TARGET=${qemu_target} ALLOW_DESTRUCTIVE_FIO=${allow_fio} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} sudo -E python3 nvme_raid_test.py\""
+setsid bash -c "set -o pipefail; ${remote_test_command} 2>&1 | awk '{ print strftime(\"[%Y-%m-%d %H:%M:%S]\"), \$0; fflush() }' | tee '${execution_log}'" &
+test_pid=$!
+last_progress_ts=$(date +%s)
+last_log_size=0
+last_io_signature="$(collect_io_signature || true)"
+idle_timed_out=0
+
+while kill -0 "${test_pid}" 2>/dev/null; do
+    sleep "${watch_interval_seconds}"
+    now_ts=$(date +%s)
+    current_log_size=$(wc -c < "${execution_log}" 2>/dev/null || echo 0)
+    current_io_signature="$(collect_io_signature || true)"
+
+    if [ "${current_log_size}" != "${last_log_size}" ]; then
+        last_progress_ts="${now_ts}"
+        last_log_size="${current_log_size}"
+    fi
+
+    if [ -n "${current_io_signature}" ] && [ "${current_io_signature}" != "${last_io_signature}" ]; then
+        last_progress_ts="${now_ts}"
+        last_io_signature="${current_io_signature}"
+    fi
+
+    if [ $((now_ts - last_progress_ts)) -ge "${idle_timeout_seconds}" ]; then
+        idle_timed_out=1
+        echo "[${NODE_IP}] ERROR: ${test_label} made no log or non-system disk IO progress for ${TEST_IDLE_TIMEOUT_MINUTES} minutes, treat as hung." | tee -a "${execution_log}"
+        kill -TERM "-${test_pid}" 2>/dev/null || kill -TERM "${test_pid}" 2>/dev/null || true
+        sleep 5
+        kill -KILL "-${test_pid}" 2>/dev/null || kill -KILL "${test_pid}" 2>/dev/null || true
+        break
+    fi
+done
+
+if [ "${idle_timed_out}" = "1" ]; then
+    wait "${test_pid}" 2>/dev/null || true
+    test_rc=124
+else
+    wait "${test_pid}"
+    test_rc=$?
+fi
 set -e
 
 if [ "${test_rc}" = "124" ] || [ "${test_rc}" = "137" ]; then
-    echo "[${NODE_IP}] ERROR: ${test_label} timed out after ${TARGET_NODE_TIMEOUT_MINUTES} minutes, target may be hung." | tee -a "${execution_log}"
+    echo "[${NODE_IP}] ERROR: ${test_label} idle watchdog fired after ${TEST_IDLE_TIMEOUT_MINUTES} minutes without progress, target may be hung." | tee -a "${execution_log}"
 fi
 
 echo "[${NODE_IP}] copy back reports"

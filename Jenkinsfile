@@ -21,6 +21,22 @@ def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     """
 }
 
+def runTimedEnvironmentStep(ip, label, envPrepareLog, timeoutMinutes, scriptText) {
+    def stepStatus = 0
+    try {
+        timeout(time: timeoutMinutes.toInteger(), unit: 'MINUTES') {
+            stepStatus = sh(returnStatus: true, script: scriptText)
+        }
+    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+        error "[${ip}] ${label} timed out after ${timeoutMinutes} minutes"
+    }
+    if (stepStatus != 0) {
+        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+        error "[${ip}] ${label} failed with exit code ${stepStatus}"
+    }
+}
+
 pipeline {
     agent any
 
@@ -61,7 +77,7 @@ pipeline {
         FEISHU_WEBHOOK = credentials('feishu-webhook')
         TARGET_USER = 'root'
         ALLOW_DESTRUCTIVE_FIO = '1'
-        TARGET_NODE_TIMEOUT_MINUTES = '90'
+        TEST_IDLE_TIMEOUT_MINUTES = '15'
         ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
         SSH_OPTS = '-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
         QEMU_VM_SSH_PORT = '2233'
@@ -583,9 +599,7 @@ ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
                                 }
 
                                 echo "[${ip}] deploy workspace"
-                                def deployStatus = sh(
-                                    returnStatus: true,
-                                    script: """#!/bin/bash
+                                runTimedEnvironmentStep(ip, 'deploy workspace', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail
 {
 echo "[${ip}] deploy workspace"
@@ -601,17 +615,10 @@ REMOTE_DIR='${remoteDir}' \\
 REMOTE_SSH_COMMAND="${targetSsh}" \\
 ci/deploy_workspace.sh
 } 2>&1 | tee -a ${envPrepareLog}
-"""
-                                )
-                                if (deployStatus != 0) {
-                                    sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
-                                    error "[${ip}] deploy workspace failed with exit code ${deployStatus}"
-                                }
+""")
 
                                 echo "[${ip}] install latest dpraid"
-                                def dpraidStatus = sh(
-                                    returnStatus: true,
-                                    script: """#!/bin/bash
+                                runTimedEnvironmentStep(ip, 'install latest dpraid', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail
 {
 echo "[${ip}] install latest dpraid"
@@ -625,17 +632,10 @@ REMOTE_SSH_COMMAND="${targetSsh}" \\
 REMOTE_SCP_COMMAND="${targetScp}" \\
 ci/install_dpraid_remote.sh
 } 2>&1 | tee -a ${envPrepareLog}
-"""
-                                )
-                                if (dpraidStatus != 0) {
-                                    sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
-                                    error "[${ip}] install latest dpraid failed with exit code ${dpraidStatus}"
-                                }
+""")
 
                                 echo "[${ip}] build and reload draid kernel driver"
-                                def driverStatus = sh(
-                                    returnStatus: true,
-                                    script: """#!/bin/bash
+                                runTimedEnvironmentStep(ip, 'build and reload draid kernel driver', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail
 {
 echo "[${ip}] build and reload draid kernel driver"
@@ -652,34 +652,23 @@ QEMU_VM_SCP_PORT='${env.QEMU_VM_SCP_PORT}' \\
 QEMU_KERNEL_BUILD_DIR='${env.QEMU_KERNEL_BUILD_DIR}' \\
 ci/prepare_draid_driver.sh
 } 2>&1 | tee -a ${envPrepareLog}
-"""
-                                )
-                                if (driverStatus != 0) {
-                                    sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
-                                    error "[${ip}] build and reload draid kernel driver failed with exit code ${driverStatus}"
-                                }
+""")
 
                                 echo "[${ip}] install python dependencies"
-                                def pythonDepsStatus = sh(
-                                    returnStatus: true,
-                                    script: """#!/bin/bash
+                                runTimedEnvironmentStep(ip, 'install python dependencies', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail
 {
 echo "[${ip}] install python dependencies"
 ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEMU_VM_TARGET=${qemuEnv} ci/install_test_dependencies.sh'
 } 2>&1 | tee -a ${envPrepareLog}
-"""
-                                )
-                                if (pythonDepsStatus != 0) {
-                                    sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
-                                    error "[${ip}] install python dependencies failed with exit code ${pythonDepsStatus}"
-                                }
+""")
                                 sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=passed' >> ${envPrepareLog}"
 
                                 echo "[${ip}] collect environment metadata"
-                                sh """
+                                runTimedEnvironmentStep(ip, 'collect environment metadata', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
+                                set -e
                                 ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && NODE_IP=${ip} REMOTE_DIR=${remoteDir} PREFIX=Node_${ip} ci/collect_environment_metadata.sh'
-                                """
+                                """)
 
                                 echo "[${ip}] run nvme_raid_test.py and copy back reports"
                                 def testStatus = sh(
@@ -691,7 +680,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
  REMOTE_DIR='${remoteDir}' \
  REMOTE_SSH_COMMAND="${targetSsh}" \
  REMOTE_SCP_COMMAND="${targetScp}" \
- TARGET_NODE_TIMEOUT_MINUTES='${env.TARGET_NODE_TIMEOUT_MINUTES}' \
+ TEST_IDLE_TIMEOUT_MINUTES='${env.TEST_IDLE_TIMEOUT_MINUTES}' \
  QEMU_VM_TARGET='${qemuEnv}' \
  ALLOW_DESTRUCTIVE_FIO='${env.ALLOW_DESTRUCTIVE_FIO}' \
  ci/run_remote_test_and_collect.sh
@@ -716,7 +705,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
  QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \
  BUILD_NUMBER='${env.BUILD_NUMBER}' \
  DPRAID_SOURCE='${raidCliDpraidPathForRun}' \
- TARGET_NODE_TIMEOUT_MINUTES='${env.TARGET_NODE_TIMEOUT_MINUTES}' \
+ TEST_IDLE_TIMEOUT_MINUTES='${env.TEST_IDLE_TIMEOUT_MINUTES}' \
  ALLOW_DESTRUCTIVE_FIO='${env.ALLOW_DESTRUCTIVE_FIO}' \
  ci/run_physical_host_test.sh
  """
