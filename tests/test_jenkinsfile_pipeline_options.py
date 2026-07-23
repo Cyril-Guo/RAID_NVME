@@ -50,12 +50,24 @@ def test_target_hang_times_out_and_keeps_pipeline_control():
     source = pipeline_sources()
 
     assert "TARGET_NODE_TIMEOUT_MINUTES = '90'" in source
+    assert "ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'" in source
     assert "ServerAliveInterval=30" in source
     assert "ServerAliveCountMax=3" in source
     assert "ConnectTimeout=15" in source
     assert 'timeout --kill-after=60s "${TARGET_NODE_TIMEOUT_MINUTES}m"' in source
     assert "${test_label} timed out after ${TARGET_NODE_TIMEOUT_MINUTES} minutes" in source
     assert 'exit "${test_rc}"' in source
+
+
+def test_environment_prepare_hang_times_out_after_15_minutes():
+    source = pipeline_sources()
+
+    assert "timeout(time: env.ENVIRONMENT_STEP_TIMEOUT_MINUTES.toInteger(), unit: 'MINUTES')" in source
+    assert "QEMU pre-test cleanup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes" in source
+    assert "QEMU VM startup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes" in source
+    assert "CONTROL_STEP_TIMEOUT_MINUTES=${CONTROL_STEP_TIMEOUT_MINUTES:-15}" in source
+    assert 'timeout --kill-after=60s "${CONTROL_STEP_TIMEOUT_MINUTES}m" env' in source
+    assert "returning NVMe devices to physical host timed out after ${CONTROL_STEP_TIMEOUT_MINUTES} minutes" in source
 
 
 def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():

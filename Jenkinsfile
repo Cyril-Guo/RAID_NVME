@@ -62,6 +62,7 @@ pipeline {
         TARGET_USER = 'root'
         ALLOW_DESTRUCTIVE_FIO = '1'
         TARGET_NODE_TIMEOUT_MINUTES = '90'
+        ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
         SSH_OPTS = '-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
         QEMU_VM_SSH_PORT = '2233'
         QEMU_VM_SCP_PORT = '2233'
@@ -502,9 +503,12 @@ pipeline {
 
                                 if (qemuVmForNode) {
                                     echo "[${ip}] reset QEMU VM and host devices before automatic MR test"
-                                    def qemuPreCleanStatus = sh(
-                                        returnStatus: true,
-                                        script: """#!/bin/bash
+                                    def qemuPreCleanStatus = 0
+                                    try {
+                                        timeout(time: env.ENVIRONMENT_STEP_TIMEOUT_MINUTES.toInteger(), unit: 'MINUTES') {
+                                            qemuPreCleanStatus = sh(
+                                                returnStatus: true,
+                                                script: """#!/bin/bash
 set -o pipefail
 chmod +x ci/qemu_vfio_cleanup.sh
 NODE_IP='${ip}' \\
@@ -519,16 +523,24 @@ CLEANUP_REASON='pre-test cleanup: stop existing QEMU VM and return vfio devices 
 POWER_OFF_QEMU=1 \\
 ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
 """
-                                    )
+                                            )
+                                        }
+                                    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                        error "[${ip}] QEMU pre-test cleanup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes"
+                                    }
                                     if (qemuPreCleanStatus != 0) {
                                         sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
                                         error "[${ip}] QEMU pre-test cleanup failed with exit code ${qemuPreCleanStatus}"
                                     }
 
                                     echo "[${ip}] start QEMU VM for automatic MR test"
-                                    def qemuStatus = sh(
-                                        returnStatus: true,
-                                        script: """#!/bin/bash
+                                    def qemuStatus = 0
+                                    try {
+                                        timeout(time: env.ENVIRONMENT_STEP_TIMEOUT_MINUTES.toInteger(), unit: 'MINUTES') {
+                                            qemuStatus = sh(
+                                                returnStatus: true,
+                                                script: """#!/bin/bash
 set -o pipefail
 chmod +x ci/qemu_vm_prepare.sh
 NODE_IP='${ip}' \\
@@ -543,7 +555,12 @@ RAID_CLI_DPRAID_PATH_FOR_RUN='${raidCliDpraidPathForRun}' \\
 BUILD_NUMBER='${env.BUILD_NUMBER}' \\
 ci/qemu_vm_prepare.sh 2>&1 | tee -a ${envPrepareLog}
 """
-                                    )
+                                            )
+                                        }
+                                    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                        error "[${ip}] QEMU VM startup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes"
+                                    }
                                     if (qemuStatus != 0) {
                                         sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
                                         sh(

@@ -8,6 +8,7 @@ set -euo pipefail
 : "${DPRAID_SOURCE:?DPRAID_SOURCE is required}"
 : "${TARGET_NODE_TIMEOUT_MINUTES:?TARGET_NODE_TIMEOUT_MINUTES is required}"
 
+CONTROL_STEP_TIMEOUT_MINUTES=${CONTROL_STEP_TIMEOUT_MINUTES:-15}
 host_remote_dir="/root/Cyril/Jenkins/jenkins_nvme_${BUILD_NUMBER}_physical"
 host_log="environment_prepare_${NODE_IP}_physical.log"
 host_ssh="ssh ${SSH_OPTS} ${TARGET_USER}@${NODE_IP}"
@@ -23,11 +24,19 @@ fail_prepare() {
 
 echo "[${NODE_IP}] stop QEMU VM and return NVMe devices to physical host"
 chmod +x ci/qemu_vfio_cleanup.sh
-if ! NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" SSH_OPTS="${SSH_OPTS}" \
+set +e
+timeout --kill-after=60s "${CONTROL_STEP_TIMEOUT_MINUTES}m" env \
+    NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" SSH_OPTS="${SSH_OPTS}" \
     QEMU_VM_PASSWORD="${QEMU_VM_PASSWORD:-}" QEMU_VM_SSH_PORT="${QEMU_VM_SSH_PORT:-2233}" \
     QEMU_VM_WORKDIR="${QEMU_VM_WORKDIR:-/root/gr/qemu}" QEMU_VFIO_BIND_SCRIPT="${QEMU_VFIO_BIND_SCRIPT:-./vfio-bind.sh}" \
     BUILD_NUMBER="${BUILD_NUMBER}" CLEANUP_REASON='stop QEMU VM and return NVMe devices to physical host' \
-    POWER_OFF_QEMU=1 ci/qemu_vfio_cleanup.sh 2>&1 | tee -a "${host_log}"; then
+    POWER_OFF_QEMU=1 ci/qemu_vfio_cleanup.sh 2>&1 | tee -a "${host_log}"
+cleanup_status=${PIPESTATUS[0]}
+set -e
+if [ "${cleanup_status}" -eq 124 ] || [ "${cleanup_status}" -eq 137 ]; then
+    fail_prepare "returning NVMe devices to physical host timed out after ${CONTROL_STEP_TIMEOUT_MINUTES} minutes"
+fi
+if [ "${cleanup_status}" -ne 0 ]; then
     fail_prepare "returning NVMe devices to physical host failed"
 fi
 
