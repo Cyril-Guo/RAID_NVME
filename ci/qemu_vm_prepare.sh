@@ -144,6 +144,35 @@ test -x "${QEMU_VFIO_BIND_SCRIPT}" || {
     exit 1
 }
 
+VFIO_BIND_TIMEOUT_SECONDS=${VFIO_BIND_TIMEOUT_SECONDS:-30}
+
+run_vfio_bind_action() {
+    local action="$1"
+    local dev="$2"
+    local rc=0
+
+    if command -v timeout >/dev/null 2>&1; then
+        set +e
+        timeout --kill-after=5s "${VFIO_BIND_TIMEOUT_SECONDS}s" env DEV="$dev" "${QEMU_VFIO_BIND_SCRIPT}" "$action"
+        rc=$?
+        set -e
+    else
+        set +e
+        DEV="$dev" "${QEMU_VFIO_BIND_SCRIPT}" "$action"
+        rc=$?
+        set -e
+    fi
+
+    if [ "$rc" -ne 0 ]; then
+        if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            echo "[${NODE_IP}] vfio ${action} timed out after ${VFIO_BIND_TIMEOUT_SECONDS}s: ${dev}" >&2
+        else
+            echo "[${NODE_IP}] vfio ${action} failed rc=${rc}: ${dev}" >&2
+        fi
+        return "$rc"
+    fi
+}
+
 protected_names=$(
     {
         findmnt -nvo SOURCE / /boot /boot/efi 2>/dev/null || true
@@ -198,7 +227,7 @@ else
     : > ".jenkins_nvme_${BUILD_NUMBER}_vfio_devices"
     for dev in $vfio_candidates; do
         echo "[${NODE_IP}] bind NVMe PCI device to QEMU vfio: ${dev}"
-        DEV="$dev" "${QEMU_VFIO_BIND_SCRIPT}" bind
+        run_vfio_bind_action bind "$dev"
         pci_path="/sys/bus/pci/devices/${dev}"
         driver_path=$(readlink -f "${pci_path}/driver" 2>/dev/null || true)
         driver=${driver_path##*/}
@@ -206,7 +235,7 @@ else
         group=${group_path##*/}
         if [ "$driver" != "vfio-pci" ] || [ -z "$group" ] || [ ! -e "/dev/vfio/${group}" ]; then
             echo "[${NODE_IP}] skip invalid QEMU vfio device: ${dev}, driver=${driver:-none}, group=${group:-none}, node=/dev/vfio/${group:-none}"
-            DEV="$dev" "${QEMU_VFIO_BIND_SCRIPT}" unbind || true
+            run_vfio_bind_action unbind "$dev" || true
             continue
         fi
         printf "%s\n" "$dev" >> ".jenkins_nvme_${BUILD_NUMBER}_vfio_devices"

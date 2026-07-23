@@ -158,6 +158,9 @@ def test_automatic_mr_moves_nvme_between_host_and_qemu():
     source = pipeline_sources()
 
     assert "QEMU_VFIO_BIND_SCRIPT = './vfio-bind.sh'" in source
+    assert "VFIO_BIND_TIMEOUT_SECONDS=${VFIO_BIND_TIMEOUT_SECONDS:-30}" in source
+    assert 'timeout --kill-after=5s "${VFIO_BIND_TIMEOUT_SECONDS}s"' in source
+    assert "vfio ${action} timed out after ${VFIO_BIND_TIMEOUT_SECONDS}s" in source
     assert "bind NVMe PCI device to QEMU vfio" in source
     assert "skip invalid QEMU vfio device" in source
     assert '[ ! -e "/dev/vfio/${group}" ]' in source

@@ -44,6 +44,35 @@ test -x "${QEMU_VFIO_BIND_SCRIPT}" || {
     exit 1
 }
 
+VFIO_BIND_TIMEOUT_SECONDS=${VFIO_BIND_TIMEOUT_SECONDS:-30}
+
+run_vfio_bind_action() {
+    local action="$1"
+    local dev="$2"
+    local rc=0
+
+    if command -v timeout >/dev/null 2>&1; then
+        set +e
+        timeout --kill-after=5s "${VFIO_BIND_TIMEOUT_SECONDS}s" env DEV="$dev" "${QEMU_VFIO_BIND_SCRIPT}" "$action"
+        rc=$?
+        set -e
+    else
+        set +e
+        DEV="$dev" "${QEMU_VFIO_BIND_SCRIPT}" "$action"
+        rc=$?
+        set -e
+    fi
+
+    if [ "$rc" -ne 0 ]; then
+        if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+            echo "[${NODE_IP}] vfio ${action} timed out after ${VFIO_BIND_TIMEOUT_SECONDS}s: ${dev}" >&2
+        else
+            echo "[${NODE_IP}] vfio ${action} failed rc=${rc}: ${dev}" >&2
+        fi
+        return "$rc"
+    fi
+}
+
 if [ "${POWER_OFF_QEMU}" = "1" ]; then
     qemu_pids=$(pgrep -f "qemu-system-x86_64.*vm-serial.log" || true)
     if [ -n "${qemu_pids}" ]; then
@@ -76,13 +105,13 @@ if [ ! -s "$device_file" ]; then
         [ "$driver" = "vfio-pci" ] || continue
         dev=$(basename "$pci_path")
         echo "[${NODE_IP}] fallback unbind vfio NVMe PCI device back to host: ${dev}"
-        DEV="$dev" "${QEMU_VFIO_BIND_SCRIPT}" unbind || true
+        run_vfio_bind_action unbind "$dev" || true
     done
 else
     while read -r dev; do
         [ -n "$dev" ] || continue
         echo "[${NODE_IP}] unbind NVMe PCI device back to host: ${dev}"
-        DEV="$dev" "${QEMU_VFIO_BIND_SCRIPT}" unbind || true
+        run_vfio_bind_action unbind "$dev" || true
     done < "$device_file"
 fi
 
