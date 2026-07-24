@@ -268,9 +268,12 @@ fi
 {
     replacing=0
     replaced=0
+    passthrough_var=""
     while IFS= read -r line; do
-        if [ "${replacing}" = "0" ] && printf '%s\n' "${line}" | grep -Eq '^[[:space:]]*PASSTHROUGH_HOSTS=\('; then
-            printf '%s\n' 'PASSTHROUGH_HOSTS=('
+        if [ "${replacing}" = "0" ] && printf '%s\n' "${line}" | grep -Eq '^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*PASSTHROUGH_HOSTS=\('; then
+            passthrough_var=$(printf '%s\n' "${line}" | sed -E 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*PASSTHROUGH_HOSTS)=\(.*/\1/')
+            echo "[${NODE_IP}] replace ${passthrough_var} in ${QEMU_VM_START_SCRIPT} with current validated BDF list" >&2
+            printf '%s\n' "${passthrough_var}=("
             while IFS= read -r bdf; do
                 [ -n "${bdf}" ] || continue
                 printf '  "%s"\n' "${bdf}"
@@ -287,7 +290,7 @@ fi
         printf '%s\n' "${line}"
     done < "${QEMU_VM_START_SCRIPT}"
     [ "${replaced}" = "1" ] || {
-        echo "[${NODE_IP}] PASSTHROUGH_HOSTS block not found in ${QEMU_VM_START_SCRIPT}; use original script and rely on QEMU vfio wrapper filtering" >&2
+        echo "[${NODE_IP}] *PASSTHROUGH_HOSTS block not found in ${QEMU_VM_START_SCRIPT}; use original script and rely on QEMU vfio wrapper filtering" >&2
         cat "${QEMU_VM_START_SCRIPT}"
     }
 } > "${patched_start_script}"
