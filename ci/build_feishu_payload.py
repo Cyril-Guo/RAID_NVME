@@ -15,7 +15,9 @@ def main():
     passed = total - failed - errors - skipped
     exec_rate = f"{((total - skipped) / total * 100):.2f}%" if total > 0 else "0%"
     pass_rate = f"{(passed / total * 100):.1f}%" if total > 0 else "0%"
-    status_color = "blue" if failed + errors == 0 and total > 0 else "red"
+    build_result = env("BUILD_RESULT", "SUCCESS").upper()
+    build_failed = build_result not in ("", "SUCCESS")
+    status_color = "blue" if not build_failed and failed + errors == 0 and total > 0 else "red"
     font_color = "green" if status_color == "blue" else "red"
 
     driver_lines = []
@@ -57,6 +59,7 @@ def main():
                     "fields": [
                         {"is_short": True, "text": {"tag": "lark_md", "content": "**用户名:** dapustor"}},
                         {"is_short": True, "text": {"tag": "lark_md", "content": "**密码:** Admin@9000"}},
+                        {"is_short": False, "text": {"tag": "lark_md", "content": f"**构建状态:**\n<font color=\"{font_color}\">{build_result or 'UNKNOWN'}</font>"}},
                         {"is_short": False, "text": {"tag": "lark_md", "content": f"**触发来源:**\n{env('TRIGGER_SOURCE', 'unknown')}"}},
                         {"is_short": False, "text": {"tag": "lark_md", "content": f"**被测驱动:**\n" + "\n".join(driver_lines)}},
                         {"is_short": False, "text": {"tag": "lark_md", "content": f"**时间周期:**\n{env('START_STR')} ~ {env('END_STR')}"}},

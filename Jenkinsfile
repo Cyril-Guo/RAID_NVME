@@ -769,6 +769,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                 def startStr = new Date(currentBuild.startTimeInMillis).format('yyyy-MM-dd HH:mm:ss')
                 def endStr = new Date().format('yyyy-MM-dd HH:mm:ss')
                 def ipListStr = targetIPs.join(', ')
+                def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'
                 if (!raidCliCommit || raidCliCommit == 'unknown') {
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
                     def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
@@ -787,6 +788,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                     "FAILED=${failed}",
                     "ERRORS=${errors}",
                     "SKIPPED=${skipped}",
+                    "BUILD_RESULT=${buildResult}",
                     "START_STR=${startStr}",
                     "END_STR=${endStr}",
                     "IP_LIST=${ipListStr}",
