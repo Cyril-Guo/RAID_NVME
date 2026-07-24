@@ -112,7 +112,8 @@ def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
     assert "triggerSource = 'kernel_driver Merge Request'" in source
     assert "QEMU_VM_SSH_PORT = '2233'" in source
     assert "QEMU_VM_SCP_PORT = '2233'" in source
-    assert "QEMU_KERNEL_BUILD_DIR = '/root/gr/qemu/general_kernel'" in source
+    assert "QEMU_VM_WORKDIR = '/root/Cyril/qemu'" in source
+    assert "QEMU_KERNEL_BUILD_DIR = '/root/Cyril/qemu/general_kernel'" in source
     assert "cd \"${QEMU_VM_WORKDIR}\"" in source
     assert "\"${QEMU_VM_START_SCRIPT}\"" in source
     assert "QEMU_VM_TARGET=${qemuEnv}" in source

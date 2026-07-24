@@ -47,7 +47,7 @@ set +e
 timeout --kill-after=60s "${CONTROL_STEP_TIMEOUT_MINUTES}m" env \
     NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" SSH_OPTS="${SSH_OPTS}" \
     QEMU_VM_PASSWORD="${QEMU_VM_PASSWORD:-}" QEMU_VM_SSH_PORT="${QEMU_VM_SSH_PORT:-2233}" \
-    QEMU_VM_WORKDIR="${QEMU_VM_WORKDIR:-/root/gr/qemu}" QEMU_VFIO_BIND_SCRIPT="${QEMU_VFIO_BIND_SCRIPT:-./vfio-bind.sh}" \
+    QEMU_VM_WORKDIR="${QEMU_VM_WORKDIR:-/root/Cyril/qemu}" QEMU_VFIO_BIND_SCRIPT="${QEMU_VFIO_BIND_SCRIPT:-./vfio-bind.sh}" \
     BUILD_NUMBER="${BUILD_NUMBER}" CLEANUP_REASON='stop QEMU VM and return NVMe devices to physical host' \
     POWER_OFF_QEMU=1 ci/qemu_vfio_cleanup.sh 2>&1 | tee -a "${host_log}"
 cleanup_status=${PIPESTATUS[0]}

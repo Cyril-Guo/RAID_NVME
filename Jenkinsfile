@@ -83,9 +83,9 @@ pipeline {
         QEMU_VM_SSH_PORT = '2233'
         QEMU_VM_SCP_PORT = '2233'
         QEMU_VM_PASSWORD = '1'
-        QEMU_VM_WORKDIR = '/root/gr/qemu'
+        QEMU_VM_WORKDIR = '/root/Cyril/qemu'
         QEMU_VM_START_SCRIPT = './start_vm.sh'
-        QEMU_KERNEL_BUILD_DIR = '/root/gr/qemu/general_kernel'
+        QEMU_KERNEL_BUILD_DIR = '/root/Cyril/qemu/general_kernel'
         QEMU_VFIO_BIND_SCRIPT = './vfio-bind.sh'
 
         KERNEL_DRIVER_REPO = 'git@192.168.21.185:raid_max/kernel_driver.git'
