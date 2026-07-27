@@ -18,50 +18,11 @@ report_file="report_${NODE_IP}${report_suffix}.xml"
 tmp_results="allure-results-${NODE_IP}${report_suffix}"
 idle_timeout_seconds=$((TEST_IDLE_TIMEOUT_MINUTES * 60))
 watch_interval_seconds=30
-watchdog_heartbeat_seconds="${TEST_WATCHDOG_HEARTBEAT_SECONDS:-60}"
 
 collect_io_signature() {
     timeout --kill-after=5s 20s bash -c "
         ${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x ci/io_progress_signature.sh && ci/io_progress_signature.sh\"
     " 2>/dev/null | sha256sum | awk '{ print $1 }'
-}
-
-collect_hang_diagnostics() {
-    local diag_script=".hang_diagnostics_${NODE_IP}${log_suffix}.sh"
-
-    cat > "${diag_script}" <<'DIAG'
-#!/usr/bin/env bash
-set +e
-echo "===== idle watchdog diagnostics begin ====="
-date
-uptime || true
-echo "--- process snapshot ---"
-ps -eo pid,ppid,stat,etime,comm,args | grep -E 'fio|pytest|nvme_raid_test|python3|fio-test' | grep -v grep || true
-echo "--- fio-test service status ---"
-systemctl status fio-test.service --no-pager -l || true
-echo "--- fio-test journal tail ---"
-journalctl -u fio-test.service --no-pager -n 200 || true
-echo "--- iostat non-system disk snapshot ---"
-if command -v iostat >/dev/null 2>&1; then
-    iostat -dx 1 3 || true
-else
-    echo "iostat not found"
-fi
-echo "--- block devices ---"
-lsblk -o NAME,SIZE,TYPE,MOUNTPOINTS || true
-echo "--- dmesg tail ---"
-dmesg | tail -n 200 || true
-echo "===== idle watchdog diagnostics end ====="
-DIAG
-
-    {
-        echo "[${NODE_IP}] collect idle watchdog diagnostics before killing ${test_label}"
-        timeout --kill-after=5s 30s bash -c "${REMOTE_SCP_COMMAND} '${diag_script}' ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/${diag_script}" || echo "[${NODE_IP}] WARN: failed to upload watchdog diagnostics script"
-        timeout --kill-after=5s 90s bash -c "${REMOTE_SSH_COMMAND} 'cd ${REMOTE_DIR} && chmod +x ${diag_script} && ./${diag_script}'" || echo "[${NODE_IP}] WARN: failed to collect watchdog diagnostics"
-    } 2>&1 | tee -a "${execution_log}"
-
-    rm -f "${diag_script}"
-    last_log_size=$(wc -c < "${execution_log}" 2>/dev/null || echo 0)
 }
 
 echo "[${NODE_IP}] run ${test_label}"
@@ -73,39 +34,26 @@ last_progress_ts=$(date +%s)
 last_log_size=0
 last_io_signature="$(collect_io_signature || true)"
 idle_timed_out=0
-last_watchdog_log_ts=0
 
 while kill -0 "${test_pid}" 2>/dev/null; do
     sleep "${watch_interval_seconds}"
     now_ts=$(date +%s)
     current_log_size=$(wc -c < "${execution_log}" 2>/dev/null || echo 0)
     current_io_signature="$(collect_io_signature || true)"
-    log_progress=0
-    io_progress=0
 
     if [ "${current_log_size}" != "${last_log_size}" ]; then
         last_progress_ts="${now_ts}"
         last_log_size="${current_log_size}"
-        log_progress=1
     fi
 
     if [ -n "${current_io_signature}" ] && [ "${current_io_signature}" != "${last_io_signature}" ]; then
         last_progress_ts="${now_ts}"
         last_io_signature="${current_io_signature}"
-        io_progress=1
     fi
 
-    idle_seconds=$((now_ts - last_progress_ts))
-    if [ $((now_ts - last_watchdog_log_ts)) -ge "${watchdog_heartbeat_seconds}" ]; then
-        echo "[${NODE_IP}] watchdog: ${test_label} running, idle=${idle_seconds}s, log_bytes=${current_log_size}, log_progress=${log_progress}, io_progress=${io_progress}" | tee -a "${execution_log}"
-        last_watchdog_log_ts="${now_ts}"
-        last_log_size=$(wc -c < "${execution_log}" 2>/dev/null || echo 0)
-    fi
-
-    if [ "${idle_seconds}" -ge "${idle_timeout_seconds}" ]; then
+    if [ $((now_ts - last_progress_ts)) -ge "${idle_timeout_seconds}" ]; then
         idle_timed_out=1
         echo "[${NODE_IP}] ERROR: ${test_label} made no log or non-system disk IO progress for ${TEST_IDLE_TIMEOUT_MINUTES} minutes, treat as hung." | tee -a "${execution_log}"
-        collect_hang_diagnostics
         kill -TERM "-${test_pid}" 2>/dev/null || kill -TERM "${test_pid}" 2>/dev/null || true
         sleep 5
         kill -KILL "-${test_pid}" 2>/dev/null || kill -KILL "${test_pid}" 2>/dev/null || true
