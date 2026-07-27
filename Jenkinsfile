@@ -771,7 +771,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                 def ipListStr = targetIPs.join(', ')
                 def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'
                 def hasEnvironmentPrepareFailure = sh(
-                    script: "grep -Rqs '^ENVIRONMENT_PREPARE_STATUS=failed$' environment_prepare_*.log 2>/dev/null",
+                    script: '''grep -Rqs '^ENVIRONMENT_PREPARE_STATUS=failed$' environment_prepare_*.log 2>/dev/null''',
                     returnStatus: true
                 ) == 0
                 if (total == 0 && !hasEnvironmentPrepareFailure) {

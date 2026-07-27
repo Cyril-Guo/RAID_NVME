@@ -41,7 +41,7 @@ def test_feishu_skips_empty_reports_without_environment_prepare_failure():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
     assert "hasEnvironmentPrepareFailure" in source
-    assert "grep -Rqs '^ENVIRONMENT_PREPARE_STATUS=failed$' environment_prepare_*.log" in source
+    assert "script: '''grep -Rqs '^ENVIRONMENT_PREPARE_STATUS=failed$' environment_prepare_*.log" in source
     assert "if (total == 0 && !hasEnvironmentPrepareFailure)" in source
     assert "Skip Feishu notification: no test results and no environment prepare failure were generated." in source
 
