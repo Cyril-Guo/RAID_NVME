@@ -60,7 +60,19 @@ def test_target_hang_times_out_and_keeps_pipeline_control():
     assert "TEST_IDLE_TIMEOUT_MINUTES='${env.TEST_IDLE_TIMEOUT_MINUTES}'" in source
     assert ': "${TEST_IDLE_TIMEOUT_MINUTES:?TEST_IDLE_TIMEOUT_MINUTES is required}"' in source
     assert "ci/io_progress_signature.sh" in source
+    assert "TEST_WATCHDOG_HEARTBEAT_SECONDS" in source
+    assert "watchdog: ${test_label} running" in source
+    assert "idle=${idle_seconds}s" in source
+    assert "log_progress=${log_progress}" in source
+    assert "io_progress=${io_progress}" in source
+    assert 'last_log_size=$(wc -c < "${execution_log}"' in source
     assert "made no log or non-system disk IO progress for ${TEST_IDLE_TIMEOUT_MINUTES} minutes" in source
+    assert "idle watchdog diagnostics begin" in source
+    assert "systemctl status fio-test.service" in source
+    assert "journalctl -u fio-test.service" in source
+    assert "iostat -dx 1 3" in source
+    assert "dmesg | tail -n 200" in source
+    assert "collect idle watchdog diagnostics before killing ${test_label}" in source
     assert "idle watchdog fired after ${TEST_IDLE_TIMEOUT_MINUTES} minutes without progress" in source
     assert 'exit "${test_rc}"' in source
 
