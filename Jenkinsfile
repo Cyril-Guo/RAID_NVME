@@ -770,6 +770,14 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                 def endStr = new Date().format('yyyy-MM-dd HH:mm:ss')
                 def ipListStr = targetIPs.join(', ')
                 def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'
+                def hasEnvironmentPrepareFailure = sh(
+                    script: "grep -Rqs '^ENVIRONMENT_PREPARE_STATUS=failed$' environment_prepare_*.log 2>/dev/null",
+                    returnStatus: true
+                ) == 0
+                if (total == 0 && !hasEnvironmentPrepareFailure) {
+                    echo "Skip Feishu notification: no test results and no environment prepare failure were generated. result=${buildResult}"
+                    return
+                }
                 if (!raidCliCommit || raidCliCommit == 'unknown') {
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
                     def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')

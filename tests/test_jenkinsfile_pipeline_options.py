@@ -37,6 +37,15 @@ def test_feishu_webhook_uses_jenkins_credential():
     assert "https://open.feishu.cn/open-apis/bot/v2/hook/" not in source
 
 
+def test_feishu_skips_empty_reports_without_environment_prepare_failure():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "hasEnvironmentPrepareFailure" in source
+    assert "grep -Rqs '^ENVIRONMENT_PREPARE_STATUS=failed$' environment_prepare_*.log" in source
+    assert "if (total == 0 && !hasEnvironmentPrepareFailure)" in source
+    assert "Skip Feishu notification: no test results and no environment prepare failure were generated." in source
+
+
 def test_manual_mr_iid_reruns_merge_request():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
