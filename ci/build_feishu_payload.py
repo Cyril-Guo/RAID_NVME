@@ -7,8 +7,20 @@ def env(name, default=""):
     return os.environ.get(name, default)
 
 
+def remove_stale_payload(path="feishu_payload.json"):
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
 def main():
     total = int(env("TOTAL", "0"))
+    if total <= 0:
+        remove_stale_payload()
+        print("NO_FEISHU_PAYLOAD=empty_metrics")
+        return
+
     failed = int(env("FAILED", "0"))
     errors = int(env("ERRORS", "0"))
     skipped = int(env("SKIPPED", "0"))

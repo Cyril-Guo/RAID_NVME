@@ -3,6 +3,21 @@ import json
 from ci import build_feishu_payload
 
 
+def test_zero_total_does_not_generate_feishu_payload(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    stale_payload = tmp_path / "feishu_payload.json"
+    stale_payload.write_text('{"stale": true}', encoding="utf-8")
+    monkeypatch.setenv("TOTAL", "0")
+    monkeypatch.setenv("FAILED", "0")
+    monkeypatch.setenv("ERRORS", "0")
+    monkeypatch.setenv("SKIPPED", "0")
+
+    build_feishu_payload.main()
+
+    assert not stale_payload.exists()
+    assert "NO_FEISHU_PAYLOAD=empty_metrics" in capsys.readouterr().out
+
+
 def test_failed_build_result_marks_feishu_card_failed(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     for key, value in {

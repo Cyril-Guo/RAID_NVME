@@ -45,6 +45,8 @@ def test_feishu_skips_empty_reports_when_no_reportable_result_exists():
     assert "def testAttempted = (env.TEST_EXECUTION_ATTEMPTED == 'true')" in source
     assert "if (total == 0)" in source
     assert "Skip Feishu notification: no reportable test or environment prepare result was generated in this build." in source
+    assert "fileExists('feishu_payload.json')" in source
+    assert "Skip Feishu notification: feishu_payload.json was not generated." in source
     assert "hasEnvironmentPrepareFailure" not in source
 
 

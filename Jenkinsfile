@@ -813,6 +813,10 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                 ]) {
                     sh 'python3 ci/build_feishu_payload.py'
                 }
+                if (!fileExists('feishu_payload.json')) {
+                    echo 'Skip Feishu notification: feishu_payload.json was not generated.'
+                    return
+                }
                 if (params.DEBUG_NO_FEISHU) {
                     echo 'DEBUG_NO_FEISHU=true, skip Feishu notification.'
                 } else {
