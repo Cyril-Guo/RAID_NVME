@@ -75,6 +75,103 @@ if ! grep -q "^${module_name} " /proc/modules && ! insmod ./draid.ko; then
     exit 1
 fi
 grep -q "^${module_name} " /proc/modules
+
+DRAID_READY_MAX_ATTEMPTS=${DRAID_READY_MAX_ATTEMPTS:-120}
+DRAID_READY_RETRY_SECONDS=${DRAID_READY_RETRY_SECONDS:-2}
+
+parse_controller_states() {
+    awk '
+        $1 ~ /^[0-9]+$/ {
+            state = "unknown"
+            for (i = 2; i <= NF; i++) {
+                value = tolower($i)
+                if (value == "online") {
+                    state = "online"
+                    break
+                }
+                if (value == "offline" || value == "offl") {
+                    state = "offline"
+                    break
+                }
+            }
+            print $1, state
+        }
+    '
+}
+
+wait_for_draid_initialization() {
+    attempt=1
+    while [ "${attempt}" -le "${DRAID_READY_MAX_ATTEMPTS}" ]; do
+        if DRAID_SHOW_OUTPUT=$(dpraid show 2>&1); then
+            DRAID_CONTROLLER_STATES=$(printf '%s\n' "${DRAID_SHOW_OUTPUT}" | parse_controller_states)
+            controller_count=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk 'NF == 2 { count++ } END { print count + 0 }')
+            unknown_count=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk '$2 == "unknown" { count++ } END { print count + 0 }')
+            if [ "${controller_count}" -gt 0 ] && [ "${unknown_count}" -eq 0 ]; then
+                printf '%s\n' "${DRAID_SHOW_OUTPUT}"
+                return 0
+            fi
+        fi
+        echo "Waiting for draid controller initialization (${attempt}/${DRAID_READY_MAX_ATTEMPTS})..."
+        sleep "${DRAID_READY_RETRY_SECONDS}"
+        attempt=$((attempt + 1))
+    done
+
+    echo "draid controllers did not finish initialization in time. Last dpraid show output:" >&2
+    printf '%s\n' "${DRAID_SHOW_OUTPUT:-<no output>}" >&2
+    return 1
+}
+
+wait_for_all_draid_controllers_online() {
+    expected_ids="$1"
+    expected_count=$(printf '%s\n' "${expected_ids}" | awk 'NF == 1 { count++ } END { print count + 0 }')
+    attempt=1
+
+    while [ "${attempt}" -le "${DRAID_READY_MAX_ATTEMPTS}" ]; do
+        if DRAID_SHOW_OUTPUT=$(dpraid show 2>&1); then
+            DRAID_CONTROLLER_STATES=$(printf '%s\n' "${DRAID_SHOW_OUTPUT}" | parse_controller_states)
+            current_count=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk 'NF == 2 { count++ } END { print count + 0 }')
+            non_online_count=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk '$2 != "online" { count++ } END { print count + 0 }')
+            missing_count=0
+            for controller_id in ${expected_ids}; do
+                if ! printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk -v id="${controller_id}" '$1 == id && $2 == "online" { found = 1 } END { exit !found }'; then
+                    missing_count=$((missing_count + 1))
+                fi
+            done
+
+            if [ "${expected_count}" -gt 0 ] &&
+               [ "${current_count}" -eq "${expected_count}" ] &&
+               [ "${non_online_count}" -eq 0 ] &&
+               [ "${missing_count}" -eq 0 ]; then
+                echo "All draid controllers are Online:"
+                printf '%s\n' "${DRAID_SHOW_OUTPUT}"
+                return 0
+            fi
+        fi
+        echo "Waiting for all draid controllers to become Online (${attempt}/${DRAID_READY_MAX_ATTEMPTS})..."
+        sleep "${DRAID_READY_RETRY_SECONDS}"
+        attempt=$((attempt + 1))
+    done
+
+    echo "Not all draid controllers became Online in time. Last dpraid show output:" >&2
+    printf '%s\n' "${DRAID_SHOW_OUTPUT:-<no output>}" >&2
+    return 1
+}
+
+command -v dpraid >/dev/null 2>&1 || {
+    echo "dpraid is required to verify draid controller state" >&2
+    exit 1
+}
+
+wait_for_draid_initialization
+expected_controller_ids=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk '{ print $1 }')
+offline_controller_ids=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk '$2 == "offline" { print $1 }')
+
+for controller_id in ${offline_controller_ids}; do
+    echo "Controller ${controller_id} is Offline; run reset-and-online."
+    dpraid "/c${controller_id}" reset-and-online --force
+done
+
+wait_for_all_draid_controllers_online "${expected_controller_ids}"
 REMOTE_RELOAD
 }
 
