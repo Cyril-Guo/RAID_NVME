@@ -79,6 +79,7 @@ pipeline {
         ALLOW_DESTRUCTIVE_FIO = '1'
         TEST_IDLE_TIMEOUT_MINUTES = '15'
         ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
+        TEST_EXECUTION_ATTEMPTED = 'false'
         SSH_OPTS = '-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
         QEMU_VM_SSH_PORT = '2233'
         QEMU_VM_SCP_PORT = '2233'
@@ -479,6 +480,7 @@ pipeline {
             when { expression { return !params.RESTORE && shouldRunTests } }
             steps {
                 script {
+                    env.TEST_EXECUTION_ATTEMPTED = 'true'
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
                     def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
                     def raidCliRepoPathForRun = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo"
@@ -770,12 +772,9 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                 def endStr = new Date().format('yyyy-MM-dd HH:mm:ss')
                 def ipListStr = targetIPs.join(', ')
                 def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'
-                def hasEnvironmentPrepareFailure = sh(
-                    script: '''grep -Rqs '^ENVIRONMENT_PREPARE_STATUS=failed$' environment_prepare_*.log 2>/dev/null''',
-                    returnStatus: true
-                ) == 0
-                if (total == 0 && !hasEnvironmentPrepareFailure) {
-                    echo "Skip Feishu notification: no test results and no environment prepare failure were generated. result=${buildResult}"
+                def testAttempted = (env.TEST_EXECUTION_ATTEMPTED == 'true')
+                if (total == 0) {
+                    echo "Skip Feishu notification: no reportable test or environment prepare result was generated in this build. testAttempted=${testAttempted}, result=${buildResult}"
                     return
                 }
                 if (!raidCliCommit || raidCliCommit == 'unknown') {
