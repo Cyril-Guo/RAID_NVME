@@ -28,11 +28,11 @@ def runTimedEnvironmentStep(ip, label, envPrepareLog, timeoutMinutes, scriptText
             stepStatus = sh(returnStatus: true, script: scriptText)
         }
     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
-        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+        sh "printf '%s\\n%s\\n' '[${ip}] ERROR: ${label} timed out after ${timeoutMinutes} minutes' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
         error "[${ip}] ${label} timed out after ${timeoutMinutes} minutes"
     }
     if (stepStatus != 0) {
-        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+        sh "printf '%s\\n%s\\n' '[${ip}] ERROR: ${label} failed with exit code ${stepStatus}' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
         error "[${ip}] ${label} failed with exit code ${stepStatus}"
     }
 }
@@ -544,11 +544,11 @@ ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
                                             )
                                         }
                                     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
-                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                        sh "printf '%s\\n%s\\n' '[${ip}] ERROR: QEMU pre-test cleanup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
                                         error "[${ip}] QEMU pre-test cleanup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes"
                                     }
                                     if (qemuPreCleanStatus != 0) {
-                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                        sh "printf '%s\\n%s\\n' '[${ip}] ERROR: QEMU pre-test cleanup failed with exit code ${qemuPreCleanStatus}' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
                                         error "[${ip}] QEMU pre-test cleanup failed with exit code ${qemuPreCleanStatus}"
                                     }
 
@@ -576,11 +576,11 @@ ci/qemu_vm_prepare.sh 2>&1 | tee -a ${envPrepareLog}
                                             )
                                         }
                                     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
-                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                        sh "printf '%s\\n%s\\n' '[${ip}] ERROR: QEMU VM startup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
                                         error "[${ip}] QEMU VM startup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes"
                                     }
                                     if (qemuStatus != 0) {
-                                        sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                        sh "printf '%s\\n%s\\n' '[${ip}] ERROR: QEMU VM startup failed with exit code ${qemuStatus}' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
                                         sh(
                                             returnStatus: true,
                                             script: """#!/bin/bash
@@ -746,7 +746,9 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                 mkdir -p allure-results
                 cat allure-results/environment_*.properties > allure-results/environment.properties 2>/dev/null || true
                 rm -f allure-results/environment_*.properties
+                python3 ci/collect_console_output.py
                 python3 ci/junit_to_allure.py
+                python3 ci/extract_failure_summary.py
                 '''
 
                 junit testResults: 'report_*.xml', allowEmptyResults: true
@@ -758,7 +760,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                     results: [[path: 'allure-results']]
                 )
 
-                archiveArtifacts artifacts: 'test_execution_*.log, environment_prepare_*.log, allure-results/monitor_log_*.tar.gz', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, failure_summary.txt, allure-results/monitor_log_*.tar.gz', allowEmptyArchive: true
 
                 def metricsOutput = sh(script: "python3 ci/report_metrics.py", returnStdout: true).trim()
 

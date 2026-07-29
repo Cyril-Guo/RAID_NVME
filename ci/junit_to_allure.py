@@ -5,6 +5,11 @@ import re
 import uuid
 import xml.etree.ElementTree as ET
 
+try:
+    from ci.extract_failure_summary import extract_failure_lines
+except ModuleNotFoundError:
+    from extract_failure_summary import extract_failure_lines
+
 
 def normalize_root(root):
     if root.tag == "testsuite":
@@ -172,31 +177,37 @@ def write_result(allure_dir, suite_name, case, target_node="", target_kind=""):
         json.dump(result, handle, ensure_ascii=False)
 
 
-def write_environment_prepare_results(allure_dir):
+def write_environment_prepare_results(allure_dir, existing_ids):
     generated = 0
     for path in glob.glob("environment_prepare_*.log"):
         log_name = os.path.basename(path)
         node = log_name.removeprefix("environment_prepare_").removesuffix(".log")
-        source = f"{uuid.uuid4()}-environment-prepare.log"
-        target = os.path.join(allure_dir, source)
-        with open(path, "rb") as src, open(target, "wb") as dst:
-            dst.write(src.read())
-
+        key = f"Environment_Prepare::{node}"
+        if key in existing_ids:
+            continue
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as handle:
                 text = handle.read()
         except OSError:
             text = ""
 
-        status = "broken" if "ENVIRONMENT_PREPARE_STATUS=failed" in text else "passed"
+        if "ENVIRONMENT_PREPARE_STATUS=failed" not in text:
+            continue
+
+        source = f"{uuid.uuid4()}-environment-prepare.log"
+        target = os.path.join(allure_dir, source)
+        with open(path, "rb") as src, open(target, "wb") as dst:
+            dst.write(src.read())
+
+        summary = extract_failure_lines(text)
         test_uuid = str(uuid.uuid4())
         result = {
             "uuid": test_uuid,
-            "historyId": f"Environment_Prepare::{node}",
-            "testCaseId": f"Environment_Prepare::{node}",
+            "historyId": key,
+            "testCaseId": key,
             "fullName": f"Environment_Prepare#{node}",
             "name": f"Environment_Prepare_{node}",
-            "status": status,
+            "status": "broken",
             "stage": "finished",
             "labels": [
                 {"name": "suite", "value": "Environment_Prepare"},
@@ -213,17 +224,141 @@ def write_environment_prepare_results(allure_dir):
                     "type": "text/plain",
                 }
             ],
+            "statusDetails": {
+                "message": summary[0] if summary else "Environment prepare failed",
+                "trace": "\n".join(summary or text.splitlines()[-120:]),
+            },
         }
-        if status != "passed":
-            result["statusDetails"] = {
-                "message": "Environment prepare failed",
-                "trace": "\n".join(text.splitlines()[-120:]),
-            }
 
         with open(os.path.join(allure_dir, f"{test_uuid}-result.json"), "w", encoding="utf-8") as handle:
             json.dump(result, handle, ensure_ascii=False)
+        existing_ids.add(key)
         generated += 1
     return generated
+
+
+def execution_log_context(path):
+    stem = os.path.basename(path).removeprefix("test_execution_").removesuffix(".log")
+    target_kind = "physical" if stem.endswith("_physical") else "qemu"
+    target_node = stem.removesuffix("_physical")
+    return target_node, target_kind
+
+
+def report_has_testcases(target_node, target_kind):
+    suffix = "_physical" if target_kind == "physical" else ""
+    path = f"report_{target_node}{suffix}.xml"
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError):
+        return False
+    return root.find(".//testcase") is not None or root.tag == "testcase"
+
+
+def write_failed_execution_results(allure_dir, existing_ids):
+    generated = 0
+    for path in sorted(glob.glob("test_execution_*.log")):
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                text = handle.read()
+        except OSError:
+            continue
+
+        if "TEST_EXECUTION_STATUS=failed" not in text:
+            continue
+
+        target_node, target_kind = execution_log_context(path)
+        if report_has_testcases(target_node, target_kind):
+            continue
+
+        key = f"Test_Execution::{target_node}::{target_kind}"
+        if key in existing_ids:
+            continue
+
+        source = f"{uuid.uuid4()}-test-execution.log"
+        with open(path, "rb") as src, open(os.path.join(allure_dir, source), "wb") as dst:
+            dst.write(src.read())
+
+        summary = extract_failure_lines(text)
+        label = context_label(target_kind)
+        test_uuid = str(uuid.uuid4())
+        result = {
+            "uuid": test_uuid,
+            "historyId": key,
+            "testCaseId": key,
+            "fullName": f"Test_Execution#{target_node}#{target_kind}",
+            "name": f"Test_Execution_{label}_{target_node}",
+            "status": "broken",
+            "stage": "finished",
+            "labels": [
+                {"name": "suite", "value": "Test_Execution"},
+                {"name": "package", "value": "Test_Execution"},
+                {"name": "testClass", "value": "Test_Execution"},
+                {"name": "host", "value": target_node},
+                {"name": "target", "value": target_kind},
+                {"name": "framework", "value": "jenkins"},
+                {"name": "language", "value": "shell"},
+            ],
+            "attachments": [
+                {
+                    "name": os.path.basename(path),
+                    "source": source,
+                    "type": "text/plain",
+                }
+            ],
+            "statusDetails": {
+                "message": summary[0] if summary else "Remote test execution failed",
+                "trace": "\n".join(summary or text.splitlines()[-120:]),
+            },
+        }
+        with open(os.path.join(allure_dir, f"{test_uuid}-result.json"), "w", encoding="utf-8") as handle:
+            json.dump(result, handle, ensure_ascii=False)
+        existing_ids.add(key)
+        generated += 1
+    return generated
+
+
+def attach_jenkins_console(allure_dir, console_path="jenkins_console.log"):
+    if not os.path.isfile(console_path):
+        return 0
+
+    result_paths = sorted(glob.glob(os.path.join(allure_dir, "*-result.json")))
+    if not result_paths:
+        return 0
+
+    source = f"{uuid.uuid4()}-jenkins-console.log"
+    with open(console_path, "rb") as src, open(os.path.join(allure_dir, source), "wb") as dst:
+        dst.write(src.read())
+
+    build_url = os.environ.get("BUILD_URL", "").rstrip("/")
+    attached = 0
+    for path in result_paths:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                result = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        attachments = result.setdefault("attachments", [])
+        if not any(item.get("name") == "Jenkins Console Output" for item in attachments):
+            attachments.append({
+                "name": "Jenkins Console Output",
+                "source": source,
+                "type": "text/plain",
+            })
+        if build_url:
+            links = result.setdefault("links", [])
+            console_url = f"{build_url}/console"
+            if not any(item.get("url") == console_url for item in links):
+                links.append({
+                    "name": "Jenkins Console (Live)",
+                    "url": console_url,
+                    "type": "custom",
+                })
+
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(result, handle, ensure_ascii=False)
+        attached += 1
+    return attached
 
 
 def main():
@@ -252,11 +387,15 @@ def main():
                 existing_ids.add(key)
                 generated += 1
 
-    env_generated = write_environment_prepare_results(allure_dir)
+    env_generated = write_environment_prepare_results(allure_dir, existing_ids)
+    execution_generated = write_failed_execution_results(allure_dir, existing_ids)
     attached = attach_pending_monitor_logs(allure_dir)
+    console_attached = attach_jenkins_console(allure_dir)
     print(
         f"generated allure result files from junit: {generated}, "
-        f"environment prepare results: {env_generated}, attached monitor logs: {attached}"
+        f"environment prepare results: {env_generated}, "
+        f"failed execution results: {execution_generated}, attached monitor logs: {attached}, "
+        f"attached Jenkins console to results: {console_attached}"
     )
     return 0
 

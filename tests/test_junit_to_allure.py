@@ -43,6 +43,38 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
     assert len(list(allure_dir.glob("*-result.json"))) == 1
 
 
+def test_junit_to_allure_attaches_console_snapshot_and_live_link(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BUILD_URL", "http://jenkins/job/SMOKE/12/")
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="test_items.test_smoke" name="test_basic_io" />
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "jenkins_console.log").write_text(
+        "[Pipeline] stage\nall console output\n",
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+
+    result_path = next(allure_dir.glob("*-result.json"))
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    console_attachment = next(
+        item for item in result["attachments"] if item["name"] == "Jenkins Console Output"
+    )
+    assert "all console output" in (allure_dir / console_attachment["source"]).read_text(encoding="utf-8")
+    assert {
+        "name": "Jenkins Console (Live)",
+        "url": "http://jenkins/job/SMOKE/12/console",
+        "type": "custom",
+    } in result["links"]
+
+
 def test_junit_to_allure_generates_environment_prepare_result(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
@@ -62,6 +94,46 @@ def test_junit_to_allure_generates_environment_prepare_result(tmp_path, monkeypa
     assert env_result["labels"][0] == {"name": "suite", "value": "Environment_Prepare"}
     attachment = allure_dir / env_result["attachments"][0]["source"]
     assert "insmod ./draid.ko failed" in attachment.read_text(encoding="utf-8")
+
+
+def test_junit_to_allure_does_not_count_successful_environment_prepare_as_test(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "environment_prepare_192.168.22.134.log").write_text(
+        "driver loaded\nENVIRONMENT_PREPARE_STATUS=passed\n",
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+    assert list(allure_dir.glob("*-result.json")) == []
+
+
+def test_junit_to_allure_generates_broken_result_for_hung_test_without_junit(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    execution_log = tmp_path / "test_execution_192.168.22.134.log"
+    execution_log.write_text(
+        "[192.168.22.134] ERROR: idle watchdog fired after 15 minutes, target may be hung.\n"
+        "TEST_EXECUTION_STATUS=failed\n"
+        "TEST_EXECUTION_EXIT_CODE=124\n",
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+
+    results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    assert len(results) == 1
+    result = results[0]
+    assert result["name"] == "Test_Execution_QEMU_192.168.22.134"
+    assert result["status"] == "broken"
+    assert "idle watchdog fired" in result["statusDetails"]["message"]
+    attachment = allure_dir / result["attachments"][0]["source"]
+    assert attachment.read_text(encoding="utf-8") == execution_log.read_text(encoding="utf-8")
+
+    assert junit_to_allure.main() == 0
+    assert len(list(allure_dir.glob("*-result.json"))) == 1
 
 
 def test_junit_to_allure_keeps_qemu_and_physical_results(tmp_path, monkeypatch):

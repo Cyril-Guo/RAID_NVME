@@ -50,6 +50,19 @@ def test_feishu_skips_empty_reports_when_no_reportable_result_exists():
     assert "hasEnvironmentPrepareFailure" not in source
 
 
+def test_failure_logs_are_added_to_allure_and_feishu_report():
+    source = pipeline_sources()
+
+    assert "TEST_EXECUTION_STATUS=failed" in source
+    assert "TEST_EXECUTION_EXIT_CODE=${test_rc}" in source
+    assert "python3 ci/collect_console_output.py" in source
+    assert "jenkins_console.log" in source
+    assert "Jenkins Console Output" in source
+    assert "python3 ci/extract_failure_summary.py" in source
+    assert "failure_summary.txt" in source
+    assert "write_failed_execution_results" in source
+
+
 def test_manual_mr_iid_reruns_merge_request():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 

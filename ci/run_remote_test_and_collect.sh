@@ -86,11 +86,21 @@ fi
 eval "${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report.xml ./${report_file}" || true
 
 if [ "${test_rc}" != "0" ]; then
-    echo "[${NODE_IP}] ERROR: ${test_label} failed with exit code ${test_rc}"
+    {
+        echo "[${NODE_IP}] ERROR: ${test_label} failed with exit code ${test_rc}"
+        echo "TEST_EXECUTION_STATUS=failed"
+        echo "TEST_EXECUTION_EXIT_CODE=${test_rc}"
+    } | tee -a "${execution_log}"
     exit "${test_rc}"
 fi
 
 if [ ! -f "${report_file}" ]; then
-    echo "[${NODE_IP}] ERROR: Missing ${report_file}. ${test_label} did not produce a JUnit report."
+    {
+        echo "[${NODE_IP}] ERROR: Missing ${report_file}. ${test_label} did not produce a JUnit report."
+        echo "TEST_EXECUTION_STATUS=failed"
+        echo "TEST_EXECUTION_EXIT_CODE=2"
+    } | tee -a "${execution_log}"
     exit 2
 fi
+
+echo "TEST_EXECUTION_STATUS=passed" >> "${execution_log}"

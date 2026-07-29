@@ -44,3 +44,37 @@ def test_failed_build_result_marks_feishu_card_failed(tmp_path, monkeypatch):
     assert any("构建状态" in field["text"]["content"] for field in fields)
     assert any("FAILURE" in field["text"]["content"] for field in fields)
     assert "通过 **2**  失败 **0**  错误 **0**  Total: **2**" in payload["card"]["elements"][1]["text"]["content"]
+    actions = payload["card"]["elements"][-1]["actions"]
+    assert {
+        "tag": "button",
+        "text": {"tag": "plain_text", "content": "实时日志"},
+        "url": "http://jenkins/job/SMOKE/1/console",
+        "type": "default",
+    } in actions
+
+
+def test_failed_card_contains_failure_summary(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "failure_summary.txt").write_text(
+        "- test_execution_192.168.22.134.log: idle watchdog fired after 15 minutes\n",
+        encoding="utf-8",
+    )
+    for key, value in {
+        "TOTAL": "1",
+        "FAILED": "0",
+        "ERRORS": "1",
+        "SKIPPED": "0",
+        "BUILD_RESULT": "FAILURE",
+        "BUILD_URL": "http://jenkins/job/SMOKE/1/",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    build_feishu_payload.main()
+
+    payload = json.loads((tmp_path / "feishu_payload.json").read_text(encoding="utf-8"))
+    contents = [
+        element.get("text", {}).get("content", "")
+        for element in payload["card"]["elements"]
+    ]
+    assert any("失败摘要" in content for content in contents)
+    assert any("idle watchdog fired after 15 minutes" in content for content in contents)
