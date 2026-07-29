@@ -134,6 +134,9 @@ pipeline {
             script {
                 sh 'sudo chown -R jenkins:jenkins . || true'
 
+                // 将当前 Jenkins Console Output 和远端测试执行日志附加到 Allure 测试详情
+                sh 'python3 attach_console_output.py'
+
                 // 聚合 JUnit XML 报告
                 junit testResults: 'report_*.xml', allowEmptyResults: true
 
@@ -146,7 +149,7 @@ pipeline {
                 )
 
                 // 归档各节点的完整执行日志
-                archiveArtifacts artifacts: 'test_execution_*.log', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log', allowEmptyArchive: true
 
                 // ===== 数据汇总统计 (Python) =====
                 // 使用一次 Python 执行获取所有统计数据，避免重复启动环境和解析
@@ -159,11 +162,17 @@ stats = {'tests': 0, 'failures': 0, 'errors': 0, 'skipped': 0}
 files = glob.glob('report_*.xml')
 for f in files:
     try:
-        t = ET.parse(f).getroot()
-        for attr in stats.keys():
-            val = int(t.attrib.get(attr) or sum(int(s.get(attr, 0)) for s in t.findall('.//testsuite')))
-            stats[attr] += val
-    except: pass
+        root = ET.parse(f).getroot()
+        for case in root.findall('.//testcase'):
+            stats['tests'] += 1
+            if case.find('failure') is not None:
+                stats['failures'] += 1
+            elif case.find('error') is not None:
+                stats['errors'] += 1
+            elif case.find('skipped') is not None:
+                stats['skipped'] += 1
+    except (ET.ParseError, OSError):
+        pass
 print(f"{stats['tests']} {stats['failures']} {stats['errors']} {stats['skipped']}")
 EOF
                 """, returnStdout: true).trim()
@@ -173,6 +182,13 @@ EOF
                 def failed  = metrics[1].toInteger()
                 def errors  = metrics[2].toInteger()
                 def skipped = metrics[3].toInteger()
+
+                // 没有任何真实 testcase 时，不生成 payload，也绝不调用飞书 Webhook
+                if (total == 0) {
+                    sh 'rm -f feishu_payload.json'
+                    echo 'Skip Feishu notification: no actual test case was executed in this build.'
+                    return
+                }
 
                 def passed   = total - failed - errors - skipped
                 def execRate = total > 0 ? String.format("%.2f%%", ((total - skipped) / (double) total) * 100) : "0%"
