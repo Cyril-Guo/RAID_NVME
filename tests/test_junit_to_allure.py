@@ -43,7 +43,7 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
     assert len(list(allure_dir.glob("*-result.json"))) == 1
 
 
-def test_junit_to_allure_attaches_console_snapshot_and_live_link(tmp_path, monkeypatch):
+def test_junit_to_allure_attaches_console_snapshot(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BUILD_URL", "http://jenkins/job/SMOKE/12/")
     allure_dir = tmp_path / "allure-results"
@@ -68,11 +68,7 @@ def test_junit_to_allure_attaches_console_snapshot_and_live_link(tmp_path, monke
         item for item in result["attachments"] if item["name"] == "Jenkins Console Output"
     )
     assert "all console output" in (allure_dir / console_attachment["source"]).read_text(encoding="utf-8")
-    assert {
-        "name": "Jenkins Console (Live)",
-        "url": "http://jenkins/job/SMOKE/12/console",
-        "type": "custom",
-    } in result["links"]
+    assert "links" not in result
 
 
 def test_junit_to_allure_generates_environment_prepare_result(tmp_path, monkeypatch):

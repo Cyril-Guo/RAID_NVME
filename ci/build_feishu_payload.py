@@ -14,17 +14,6 @@ def remove_stale_payload(path="feishu_payload.json"):
         pass
 
 
-def load_failure_summary(path="failure_summary.txt", max_length=1800):
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as handle:
-            summary = handle.read().strip()
-    except OSError:
-        return ""
-    if len(summary) > max_length:
-        return summary[: max_length - 3] + "..."
-    return summary
-
-
 def main():
     total = int(env("TOTAL", "0"))
     if total <= 0:
@@ -59,11 +48,6 @@ def main():
         "text": {"tag": "plain_text", "content": "查看报告"},
         "url": f"{env('BUILD_URL')}allure/",
         "type": "primary",
-    }, {
-        "tag": "button",
-        "text": {"tag": "plain_text", "content": "实时日志"},
-        "url": f"{env('BUILD_URL')}console",
-        "type": "default",
     }]
     if env("KERNEL_DRIVER_MR_URL"):
         actions.append({
@@ -97,15 +81,6 @@ def main():
             },
         },
     ]
-    failure_summary = load_failure_summary()
-    if failure_summary and (build_failed or failed + errors > 0):
-        elements.append({
-            "tag": "div",
-            "text": {
-                "tag": "lark_md",
-                "content": f"**失败摘要:**\n{failure_summary}",
-            },
-        })
     elements.append({"tag": "action", "actions": actions})
 
     payload = {

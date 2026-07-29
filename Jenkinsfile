@@ -748,7 +748,6 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                 rm -f allure-results/environment_*.properties
                 python3 ci/collect_console_output.py
                 python3 ci/junit_to_allure.py
-                python3 ci/extract_failure_summary.py
                 '''
 
                 junit testResults: 'report_*.xml', allowEmptyResults: true
@@ -760,7 +759,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                     results: [[path: 'allure-results']]
                 )
 
-                archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, failure_summary.txt, allure-results/monitor_log_*.tar.gz', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, allure-results/monitor_log_*.tar.gz', allowEmptyArchive: true
 
                 def metricsOutput = sh(script: "python3 ci/report_metrics.py", returnStdout: true).trim()
 

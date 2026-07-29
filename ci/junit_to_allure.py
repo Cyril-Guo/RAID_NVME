@@ -329,7 +329,6 @@ def attach_jenkins_console(allure_dir, console_path="jenkins_console.log"):
     with open(console_path, "rb") as src, open(os.path.join(allure_dir, source), "wb") as dst:
         dst.write(src.read())
 
-    build_url = os.environ.get("BUILD_URL", "").rstrip("/")
     attached = 0
     for path in result_paths:
         try:
@@ -345,15 +344,6 @@ def attach_jenkins_console(allure_dir, console_path="jenkins_console.log"):
                 "source": source,
                 "type": "text/plain",
             })
-        if build_url:
-            links = result.setdefault("links", [])
-            console_url = f"{build_url}/console"
-            if not any(item.get("url") == console_url for item in links):
-                links.append({
-                    "name": "Jenkins Console (Live)",
-                    "url": console_url,
-                    "type": "custom",
-                })
 
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(result, handle, ensure_ascii=False)
