@@ -164,10 +164,10 @@ command -v dpraid >/dev/null 2>&1 || {
 
 wait_for_draid_initialization
 expected_controller_ids=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk '{ print $1 }')
-offline_controller_ids=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk '$2 == "offline" { print $1 }')
 
-for controller_id in ${offline_controller_ids}; do
-    echo "Controller ${controller_id} is Offline; run reset-and-online."
+for controller_id in ${expected_controller_ids}; do
+    controller_state=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk -v id="${controller_id}" '$1 == id { print $2 }')
+    echo "Controller ${controller_id} state is ${controller_state}; force reset-and-online after draid load."
     dpraid "/c${controller_id}" reset-and-online --force
 done
 
