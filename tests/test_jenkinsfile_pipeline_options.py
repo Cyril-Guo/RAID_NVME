@@ -68,11 +68,24 @@ def test_manual_mr_iid_reruns_merge_request():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
     assert "name: 'MANUAL_MR_IID'" in source
+    assert "Takes priority over MANUAL_KERNEL_DRIVER_REF" in source
     assert "MANUAL_MR_IID must be a numeric GitLab merge request IID" in source
     assert "merge_requests/${manualMrIid}" in source
     assert "kernel_driver_manual_mr.properties" in source
     assert "'Manual MR Build (Simulate Auto MR)' : 'Manual MR Build'" in source
+    assert "ignore MANUAL_KERNEL_DRIVER_REF=${manualKernelDriverRef}" in source
     assert "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}." in source
+
+
+def test_manual_build_can_select_kernel_driver_branch():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "name: 'MANUAL_KERNEL_DRIVER_REF'" in source
+    assert "def manualKernelDriverRef = (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()" in source
+    assert "MANUAL_KERNEL_DRIVER_REF is not a safe branch name" in source
+    assert "kernelDriverRef = manualKernelDriverRef" in source
+    assert "'Manual Branch Build (Simulate Auto MR)' : 'Manual Branch Build'" in source
+    assert "kernelDriverRef = env.KERNEL_DRIVER_BRANCH" in source
 
 
 def test_target_hang_times_out_and_keeps_pipeline_control():

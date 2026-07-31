@@ -69,7 +69,13 @@ pipeline {
             name: 'MANUAL_MR_IID',
             defaultValue: '',
             trim: true,
-            description: 'Manual rerun: set a kernel_driver merge request IID, for example 141. Empty means run main branch.'
+            description: 'Manual rerun: set a kernel_driver merge request IID, for example 141. Takes priority over MANUAL_KERNEL_DRIVER_REF.'
+        )
+        string(
+            name: 'MANUAL_KERNEL_DRIVER_REF',
+            defaultValue: '',
+            trim: true,
+            description: 'Manual build: kernel_driver branch to test. Empty means main; ignored when MANUAL_MR_IID is set.'
         )
     }
 
@@ -184,6 +190,7 @@ pipeline {
 
                         if (manuallyTriggered) {
                             def manualMrIid = (params.MANUAL_MR_IID ?: '').trim()
+                            def manualKernelDriverRef = (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()
                             shouldRunTests = true
                             useQemuVmTarget = params.SIMULATE_AUTO_MR_TRIGGER
                             automaticMrTriggered = params.SIMULATE_AUTO_MR_TRIGGER
@@ -196,6 +203,9 @@ pipeline {
                             }
 
                             if (manualMrIid) {
+                                if (manualKernelDriverRef) {
+                                    echo "MANUAL_MR_IID is set; ignore MANUAL_KERNEL_DRIVER_REF=${manualKernelDriverRef}."
+                                }
                                 if (!(manualMrIid ==~ /^[0-9]+$/)) {
                                     error "MANUAL_MR_IID must be a numeric GitLab merge request IID, got: ${manualMrIid}"
                                 }
@@ -227,8 +237,18 @@ pipeline {
                                 triggerSource = params.SIMULATE_AUTO_MR_TRIGGER ? 'Manual MR Build (Simulate Auto MR)' : 'Manual MR Build'
                                 echo "Manual MR build requested. Run smoke tests on kernel_driver !${kernelDriverMrIid} ${kernelDriverRef}."
                             } else {
-                                kernelDriverRef = env.KERNEL_DRIVER_BRANCH
-                                triggerSource = params.SIMULATE_AUTO_MR_TRIGGER ? 'Manual Build (Simulate Auto MR)' : 'Manual Build'
+                                if (manualKernelDriverRef) {
+                                    if (!(manualKernelDriverRef ==~ '[A-Za-z0-9][A-Za-z0-9._/-]*') ||
+                                        manualKernelDriverRef.contains('..') ||
+                                        manualKernelDriverRef.endsWith('/')) {
+                                        error "MANUAL_KERNEL_DRIVER_REF is not a safe branch name: ${manualKernelDriverRef}"
+                                    }
+                                    kernelDriverRef = manualKernelDriverRef
+                                    triggerSource = params.SIMULATE_AUTO_MR_TRIGGER ? 'Manual Branch Build (Simulate Auto MR)' : 'Manual Branch Build'
+                                } else {
+                                    kernelDriverRef = env.KERNEL_DRIVER_BRANCH
+                                    triggerSource = params.SIMULATE_AUTO_MR_TRIGGER ? 'Manual Build (Simulate Auto MR)' : 'Manual Build'
+                                }
                                 echo "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}."
                             }
                             if (params.SIMULATE_AUTO_MR_TRIGGER) {
