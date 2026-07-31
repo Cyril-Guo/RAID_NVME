@@ -172,19 +172,17 @@ def test_draid_module_reload_retries_and_reports_memory_on_insmod_failure():
     assert "VmallocTotal" in source
 
 
-def test_all_draid_controllers_are_reset_and_online_before_tests_start():
+def test_draid_controllers_are_online_before_tests_start():
     source = Path("ci/prepare_draid_driver.sh").read_text(encoding="utf-8")
 
     module_loaded = source.index('grep -q "^${module_name} " /proc/modules')
     show_controller_state = source.index("wait_for_draid_initialization", module_loaded)
-    reset_every_controller = source.index('for controller_id in ${expected_controller_ids}; do')
-    reset_command = source.index('dpraid "/c${controller_id}" reset-and-online --force')
+    reset_offline_controller = source.index('dpraid "/c${controller_id}" reset-and-online --force')
     verify_all_online = source.index('wait_for_all_draid_controllers_online "${expected_controller_ids}"')
 
-    assert module_loaded < show_controller_state < reset_every_controller < reset_command < verify_all_online
+    assert module_loaded < show_controller_state < reset_offline_controller < verify_all_online
     assert "DRAID_READY_MAX_ATTEMPTS" in source
-    assert "offline_controller_ids" not in source
-    assert "force reset-and-online after draid load" in source
+    assert '$2 == "offline"' in source
     assert '$2 != "online"' in source
     assert "Not all draid controllers became Online in time" in source
 
