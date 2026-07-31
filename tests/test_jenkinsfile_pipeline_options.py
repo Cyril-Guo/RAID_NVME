@@ -303,6 +303,11 @@ def test_qemu_vm_auto_installs_required_test_tools():
 
     assert 'if [ "$qemu_env" = "1" ]; then' in source
     assert "need_test_deps=0" in source
+    assert "fix_arm_ubuntu_sources" in source
+    assert "dpkg --print-architecture" in source
+    assert "arm64|armhf" in source
+    assert "mirrors\\.aliyun\\.com/ubuntu" in source
+    assert "ubuntu-ports" in source
     assert "apt_retry apt-get -o DPkg::Lock::Timeout=600 update" in source
     assert "fio nvme-cli pciutils util-linux smartmontools sdparm" in source
     assert "sysstat gawk nmap bc psmisc numactl lsscsi unzip" in source

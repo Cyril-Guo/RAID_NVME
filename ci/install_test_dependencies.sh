@@ -4,6 +4,28 @@ set -euo pipefail
 qemu_env=${QEMU_VM_TARGET:-0}
 need_test_deps=0
 
+fix_arm_ubuntu_sources() {
+    command -v dpkg >/dev/null 2>&1 || return 0
+    architecture=$(dpkg --print-architecture 2>/dev/null || true)
+    case "${architecture}" in
+        arm64|armhf) ;;
+        *) return 0 ;;
+    esac
+
+    for source_file in \
+        /etc/apt/sources.list \
+        /etc/apt/sources.list.d/*.list \
+        /etc/apt/sources.list.d/*.sources; do
+        [ -f "${source_file}" ] || continue
+        if grep -qE 'mirrors\.aliyun\.com/ubuntu([ /]|$)' "${source_file}"; then
+            echo "Fix ARM Ubuntu mirror in ${source_file}: /ubuntu -> /ubuntu-ports"
+            sed -i -E \
+                's#(mirrors\.aliyun\.com)/ubuntu([ /]|$)#\1/ubuntu-ports\2#g' \
+                "${source_file}"
+        fi
+    done
+}
+
 python3 -c "import pytest" >/dev/null 2>&1 || need_test_deps=1
 if [ "$qemu_env" = "1" ]; then
     for tool in fio nvme lspci findmnt lsblk; do
@@ -14,6 +36,7 @@ fi
 if [ "$need_test_deps" = "1" ]; then
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
+        fix_arm_ubuntu_sources
         apt_retry() {
             for attempt in 1 2 3; do
                 "$@" && return 0
