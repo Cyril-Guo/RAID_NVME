@@ -4,9 +4,26 @@ set -euo pipefail
 qemu_env=${QEMU_VM_TARGET:-0}
 need_test_deps=0
 
-fix_arm_ubuntu_sources() {
+fix_ubuntu_package_architectures() {
     command -v dpkg >/dev/null 2>&1 || return 0
     architecture=$(dpkg --print-architecture 2>/dev/null || true)
+
+    if [ "${architecture}" = "amd64" ]; then
+        foreign_architectures=$(dpkg --print-foreign-architectures 2>/dev/null || true)
+        for foreign_architecture in ${foreign_architectures}; do
+            case "${foreign_architecture}" in
+                arm64|armhf)
+                    echo "Remove unused foreign architecture ${foreign_architecture} from amd64 test host"
+                    if ! dpkg --remove-architecture "${foreign_architecture}"; then
+                        echo "Cannot remove ${foreign_architecture}; uninstall foreign-architecture packages first" >&2
+                        return 1
+                    fi
+                    ;;
+            esac
+        done
+        return 0
+    fi
+
     case "${architecture}" in
         arm64|armhf) ;;
         *) return 0 ;;
@@ -36,7 +53,7 @@ fi
 if [ "$need_test_deps" = "1" ]; then
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
-        fix_arm_ubuntu_sources
+        fix_ubuntu_package_architectures
         apt_retry() {
             for attempt in 1 2 3; do
                 "$@" && return 0

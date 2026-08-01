@@ -315,8 +315,12 @@ def test_qemu_vm_auto_installs_required_test_tools():
 
     assert 'if [ "$qemu_env" = "1" ]; then' in source
     assert "need_test_deps=0" in source
-    assert "fix_arm_ubuntu_sources" in source
+    assert "fix_ubuntu_package_architectures" in source
     assert "dpkg --print-architecture" in source
+    assert 'if [ "${architecture}" = "amd64" ]; then' in source
+    assert "dpkg --print-foreign-architectures" in source
+    assert 'dpkg --remove-architecture "${foreign_architecture}"' in source
+    assert "Remove unused foreign architecture" in source
     assert "arm64|armhf" in source
     assert "mirrors\\.aliyun\\.com/ubuntu" in source
     assert "ubuntu-ports" in source
