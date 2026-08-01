@@ -157,21 +157,23 @@ wait_for_all_draid_controllers_online() {
     return 1
 }
 
-command -v dpraid >/dev/null 2>&1 || {
-    echo "dpraid is required to verify draid controller state" >&2
-    exit 1
-}
-
-wait_for_draid_initialization
-expected_controller_ids=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk '{ print $1 }')
-offline_controller_ids=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk '$2 == "offline" { print $1 }')
-
-for controller_id in ${offline_controller_ids}; do
-    echo "Controller ${controller_id} is Offline; run reset-and-online."
-    dpraid "/c${controller_id}" reset-and-online --force
-done
-
-wait_for_all_draid_controllers_online "${expected_controller_ids}"
+# Controller state check/reset is intentionally disabled. Loading draid no longer
+# runs `dpraid show`, `reset-and-online`, or waits for all controllers to become Online.
+# command -v dpraid >/dev/null 2>&1 || {
+#     echo "dpraid is required to verify draid controller state" >&2
+#     exit 1
+# }
+#
+# wait_for_draid_initialization
+# expected_controller_ids=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk '{ print $1 }')
+# offline_controller_ids=$(printf '%s\n' "${DRAID_CONTROLLER_STATES}" | awk '$2 == "offline" { print $1 }')
+#
+# for controller_id in ${offline_controller_ids}; do
+#     echo "Controller ${controller_id} is Offline; run reset-and-online."
+#     dpraid "/c${controller_id}" reset-and-online --force
+# done
+#
+# wait_for_all_draid_controllers_online "${expected_controller_ids}"
 REMOTE_RELOAD
 }
 

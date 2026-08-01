@@ -185,19 +185,18 @@ def test_draid_module_reload_retries_and_reports_memory_on_insmod_failure():
     assert "VmallocTotal" in source
 
 
-def test_draid_controllers_are_online_before_tests_start():
+def test_draid_controller_state_check_and_reset_are_disabled():
     source = Path("ci/prepare_draid_driver.sh").read_text(encoding="utf-8")
+    active_lines = {
+        line.strip()
+        for line in source.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
 
-    module_loaded = source.index('grep -q "^${module_name} " /proc/modules')
-    show_controller_state = source.index("wait_for_draid_initialization", module_loaded)
-    reset_offline_controller = source.index('dpraid "/c${controller_id}" reset-and-online --force')
-    verify_all_online = source.index('wait_for_all_draid_controllers_online "${expected_controller_ids}"')
-
-    assert module_loaded < show_controller_state < reset_offline_controller < verify_all_online
-    assert "DRAID_READY_MAX_ATTEMPTS" in source
-    assert '$2 == "offline"' in source
-    assert '$2 != "online"' in source
-    assert "Not all draid controllers became Online in time" in source
+    assert "Controller state check/reset is intentionally disabled" in source
+    assert "wait_for_draid_initialization" not in active_lines
+    assert 'dpraid "/c${controller_id}" reset-and-online --force' not in active_lines
+    assert 'wait_for_all_draid_controllers_online "${expected_controller_ids}"' not in active_lines
 
 
 def test_qemu_vm_installs_sshpass_on_jenkins_server():
