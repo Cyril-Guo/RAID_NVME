@@ -318,9 +318,11 @@ def test_qemu_vm_auto_installs_required_test_tools():
     assert "fix_ubuntu_package_architectures" in source
     assert "dpkg --print-architecture" in source
     assert 'if [ "${architecture}" = "amd64" ]; then' in source
-    assert "dpkg --print-foreign-architectures" in source
-    assert 'dpkg --remove-architecture "${foreign_architecture}"' in source
-    assert "Remove unused foreign architecture" in source
+    assert "99raid-nvme-native-architecture" in source
+    assert 'APT::Architecture "amd64";' in source
+    assert 'APT::Architectures { "amd64"; };' in source
+    assert "dpkg --remove-architecture" not in source
+    assert "keep registered foreign architectures unchanged" in source
     assert "arm64|armhf" in source
     assert "mirrors\\.aliyun\\.com/ubuntu" in source
     assert "ubuntu-ports" in source

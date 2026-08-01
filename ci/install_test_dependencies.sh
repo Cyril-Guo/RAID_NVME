@@ -9,18 +9,11 @@ fix_ubuntu_package_architectures() {
     architecture=$(dpkg --print-architecture 2>/dev/null || true)
 
     if [ "${architecture}" = "amd64" ]; then
-        foreign_architectures=$(dpkg --print-foreign-architectures 2>/dev/null || true)
-        for foreign_architecture in ${foreign_architectures}; do
-            case "${foreign_architecture}" in
-                arm64|armhf)
-                    echo "Remove unused foreign architecture ${foreign_architecture} from amd64 test host"
-                    if ! dpkg --remove-architecture "${foreign_architecture}"; then
-                        echo "Cannot remove ${foreign_architecture}; uninstall foreign-architecture packages first" >&2
-                        return 1
-                    fi
-                    ;;
-            esac
-        done
+        echo "Restrict APT package indexes to native amd64; keep registered foreign architectures unchanged"
+        cat > /etc/apt/apt.conf.d/99raid-nvme-native-architecture <<'APT_NATIVE_ARCH'
+APT::Architecture "amd64";
+APT::Architectures { "amd64"; };
+APT_NATIVE_ARCH
         return 0
     fi
 
