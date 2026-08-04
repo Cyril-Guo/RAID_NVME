@@ -43,12 +43,24 @@ def main():
     driver_lines.append(f"Commit: {env('KERNEL_DRIVER_COMMIT', 'unknown')}")
     driver_lines.append(f"raid_cli({env('RAID_CLI_BRANCH', 'hostraid_cli')}): {env('RAID_CLI_COMMIT', 'unknown')}")
 
+    job_name = env("JOB_NAME", "SMOKE")
+    build_number = env("BUILD_NUMBER", "unknown")
+    build_url = env("BUILD_URL", "").rstrip("/") + ("/" if env("BUILD_URL") else "")
+    build_label = f"{job_name} #{build_number}"
+
     actions = [{
         "tag": "button",
         "text": {"tag": "plain_text", "content": "查看报告"},
-        "url": f"{env('BUILD_URL')}allure/",
+        "url": f"{build_url}allure/" if build_url else "about:blank",
         "type": "primary",
     }]
+    if build_url:
+        actions.append({
+            "tag": "button",
+            "text": {"tag": "plain_text", "content": "查看构建"},
+            "url": build_url,
+            "type": "default",
+        })
     if env("KERNEL_DRIVER_MR_URL"):
         actions.append({
             "tag": "button",
@@ -63,6 +75,8 @@ def main():
             "fields": [
                 {"is_short": True, "text": {"tag": "lark_md", "content": "**用户名:** dapustor"}},
                 {"is_short": True, "text": {"tag": "lark_md", "content": "**密码:** Admin@9000"}},
+                {"is_short": False, "text": {"tag": "lark_md", "content": f"**Jenkins构建:**\n{build_label}"}},
+                {"is_short": False, "text": {"tag": "lark_md", "content": f"**构建链接:**\n{build_url or 'unknown'}"}},
                 {"is_short": False, "text": {"tag": "lark_md", "content": f"**构建状态:**\n<font color=\"{font_color}\">{build_result or 'UNKNOWN'}</font>"}},
                 {"is_short": False, "text": {"tag": "lark_md", "content": f"**触发来源:**\n{env('TRIGGER_SOURCE', 'unknown')}"}},
                 {"is_short": False, "text": {"tag": "lark_md", "content": f"**被测驱动:**\n" + "\n".join(driver_lines)}},
@@ -88,7 +102,7 @@ def main():
         "card": {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {"tag": "plain_text", "content": "NVMe_RAID(F6501) Test Report"},
+                "title": {"tag": "plain_text", "content": f"NVMe_RAID(F6501) {build_label}"},
                 "template": status_color,
             },
             "elements": elements,

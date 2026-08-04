@@ -830,6 +830,8 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                     "KERNEL_DRIVER_MR_URL=${kernelDriverMrUrl ?: ''}",
                     "RAID_CLI_BRANCH=${env.RAID_CLI_BRANCH}",
                     "RAID_CLI_COMMIT=${raidCliCommit ?: 'unknown'}",
+                    "JOB_NAME=${env.JOB_NAME}",
+                    "BUILD_NUMBER=${env.BUILD_NUMBER}",
                     "BUILD_URL=${env.BUILD_URL}"
                 ]) {
                     sh 'python3 ci/build_feishu_payload.py'

@@ -32,7 +32,9 @@ def test_failed_build_result_marks_feishu_card_failed(tmp_path, monkeypatch):
         "TRIGGER_SOURCE": "Manual MR Build (Simulate Auto MR)",
         "KERNEL_DRIVER_COMMIT": "86245fc34",
         "RAID_CLI_COMMIT": "cb0cdc7",
-        "BUILD_URL": "http://jenkins/job/SMOKE/1/",
+        "JOB_NAME": "SMOKE",
+        "BUILD_NUMBER": "17010",
+        "BUILD_URL": "http://jenkins/job/SMOKE/17010/",
     }.items():
         monkeypatch.setenv(key, value)
 
@@ -40,10 +42,18 @@ def test_failed_build_result_marks_feishu_card_failed(tmp_path, monkeypatch):
 
     payload = json.loads((tmp_path / "feishu_payload.json").read_text(encoding="utf-8"))
     assert payload["card"]["header"]["template"] == "red"
+    assert payload["card"]["header"]["title"]["content"] == "NVMe_RAID(F6501) SMOKE #17010"
     fields = payload["card"]["elements"][0]["fields"]
+    field_text = "\n".join(field["text"]["content"] for field in fields)
+    assert "Jenkins构建" in field_text
+    assert "SMOKE #17010" in field_text
+    assert "构建链接" in field_text
+    assert "http://jenkins/job/SMOKE/17010/" in field_text
     assert any("构建状态" in field["text"]["content"] for field in fields)
     assert any("FAILURE" in field["text"]["content"] for field in fields)
     assert "通过 **2**  失败 **0**  错误 **0**  Total: **2**" in payload["card"]["elements"][1]["text"]["content"]
     actions = payload["card"]["elements"][-1]["actions"]
-    assert [action["text"]["content"] for action in actions] == ["查看报告"]
+    assert [action["text"]["content"] for action in actions] == ["查看报告", "查看构建"]
+    assert actions[0]["url"] == "http://jenkins/job/SMOKE/17010/allure/"
+    assert actions[1]["url"] == "http://jenkins/job/SMOKE/17010/"
     assert all("失败摘要" not in str(element) for element in payload["card"]["elements"])

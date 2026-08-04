@@ -28,6 +28,9 @@ def test_debug_no_feishu_only_skips_notification():
     assert "feishu_payload.json" in source
     assert "def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'" in source
     assert '"BUILD_RESULT=${buildResult}"' in source
+    assert '"JOB_NAME=${env.JOB_NAME}"' in source
+    assert '"BUILD_NUMBER=${env.BUILD_NUMBER}"' in source
+    assert '"BUILD_URL=${env.BUILD_URL}"' in source
 
 
 def test_feishu_webhook_uses_jenkins_credential():
