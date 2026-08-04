@@ -29,7 +29,7 @@ def test_clear_8p_maps_namespaces_and_feeds_clear(tmp_path):
         fake_lsblk,
         """#!/usr/bin/env bash
 printf '%s\\n' 'nvme0n1 8P disk'
-printf '%s\\n' 'nvme1n1 8.0P disk'
+printf '%s\\n' 'nvme1n1 9.0P disk'
 printf '%s\\n' 'nvme2n1 5.8T disk'
 printf '%s\\n' 'nvme0n1 8P disk'
 """,
@@ -64,7 +64,47 @@ printf 'devices=%s\\n' "$*"
     assert result.returncode == 0, result.stderr + result.stdout
     assert "confirm=CLEAR" in result.stdout
     assert "devices=/dev/nvme0 /dev/nvme1" in result.stdout
-    assert "no 8P disks found" not in result.stdout
+    assert "no dirty-CSD" not in result.stdout
+
+
+def test_clear_9p_variant_is_detected(tmp_path):
+    bash = _bash()
+    fake_lsblk = tmp_path / "lsblk"
+    _write_executable(
+        fake_lsblk,
+        """#!/usr/bin/env bash
+printf '%s\\n' 'nvme3n1 9.01P disk'
+""",
+    )
+    fake_flash_clear = tmp_path / "flash-clear.sh"
+    _write_executable(
+        fake_flash_clear,
+        """#!/usr/bin/env bash
+read -r confirm
+printf 'confirm=%s\\n' "$confirm"
+printf 'devices=%s\\n' "$*"
+""",
+    )
+    _write_executable(tmp_path / "nvme", "#!/usr/bin/env bash\nexit 0\n")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{tmp_path}{os.pathsep}{env.get('PATH', '')}"
+    env["LSBLK_BIN"] = str(fake_lsblk).replace("\\", "/")
+    env["FLASH_CLEAR_SCRIPT"] = str(fake_flash_clear).replace("\\", "/")
+    env["NODE_IP"] = "192.168.22.134"
+
+    result = subprocess.run(
+        [bash, str(CLEAR_SCRIPT).replace("\\", "/")],
+        cwd=str(REPO_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "devices=/dev/nvme3" in result.stdout
+    assert "size=9.01P" in result.stdout
 
 
 def test_clear_8p_skips_when_no_matching_disks(tmp_path):
@@ -90,4 +130,4 @@ printf '%s\\n' 'nvme2n1 5.8T disk'
     )
 
     assert result.returncode == 0, result.stderr + result.stdout
-    assert "no 8P disks found; skip CSD flash clear" in result.stdout
+    assert "no dirty-CSD (8P/9P) disks found; skip CSD flash clear" in result.stdout

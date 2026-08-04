@@ -59,15 +59,20 @@ if [ "${cleanup_status}" -ne 0 ]; then
     fail_prepare "returning NVMe devices to physical host failed"
 fi
 
+# Dirty CSD flash is visible on the physical host right after reclaim.
+run_control_step "clear dirty CSD flash on physical host after reclaim" bash -c '
+    remote_clear_dir="/tmp/jenkins_nvme_${BUILD_NUMBER}_flash_clear"
+    ${host_ssh} "rm -rf ${remote_clear_dir} && mkdir -p ${remote_clear_dir}"
+    chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh
+    ${host_scp} ci/clear_8p_csd_flash.sh ci/flash-clear.sh ${TARGET_USER}@${NODE_IP}:${remote_clear_dir}/
+    ${host_ssh} "cd ${remote_clear_dir} && chmod +x clear_8p_csd_flash.sh flash-clear.sh && NODE_IP=${NODE_IP} ./clear_8p_csd_flash.sh"
+'
+
 run_control_step "deploy workspace for physical host test" bash -c '
     ${host_ssh} "rm -rf ${host_remote_dir} && mkdir -p ${host_remote_dir}"
     chmod +x ci/deploy_workspace.sh
     NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" REMOTE_DIR="${host_remote_dir}" \
         REMOTE_SSH_COMMAND="${host_ssh}" ci/deploy_workspace.sh
-'
-
-run_control_step "clear 8P CSD flash before loading draid on physical host" bash -c '
-    ${host_ssh} "cd ${host_remote_dir} && chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh && NODE_IP=${NODE_IP} ci/clear_8p_csd_flash.sh"
 '
 
 run_control_step "install latest dpraid on physical host" bash -c '

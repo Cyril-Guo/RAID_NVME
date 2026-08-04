@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# After env cleanup / workspace deploy and before loading draid: find disks whose
-# lsblk SIZE is 8P (dirty CSD flash presentation), map to NVMe controllers, and
-# non-interactively clear CSD flash via flash-clear.sh.
+# Find disks whose lsblk SIZE looks like dirty CSD flash (PB-scale, typically
+# shown as 8P/9P), map namespaces to NVMe controllers, and non-interactively
+# clear CSD flash via flash-clear.sh.
 
 NODE_IP=${NODE_IP:-unknown}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 FLASH_CLEAR_SCRIPT=${FLASH_CLEAR_SCRIPT:-"${SCRIPT_DIR}/flash-clear.sh"}
 LSBLK_BIN=${LSBLK_BIN:-lsblk}
 
-is_8p_size() {
+is_dirty_csd_size() {
+    # Dirty CSD flash commonly appears as 8P/9P in lsblk (nvme list may show ~9 PB).
+    # Real test drives are TB-scale and must not match.
     case "$1" in
-        8P|8.0P|8.00P) return 0 ;;
-        *) return 1 ;;
+        8P|8.0P|8.00P|9P|9.0P|9.00P|9.01P) return 0 ;;
     esac
+    if [[ "$1" =~ ^[89](\.[0-9]+)?P$ ]]; then
+        return 0
+    fi
+    return 1
 }
 
 namespace_to_controller() {
@@ -41,33 +46,35 @@ controller_seen() {
     return 1
 }
 
-discover_8p_controllers() {
+discover_dirty_csd_controllers() {
     CONTROLLERS=()
     local name size type ctrl
     while read -r name size type; do
         [ -n "${name:-}" ] || continue
         [ "${type:-}" = "disk" ] || continue
-        is_8p_size "${size:-}" || continue
+        is_dirty_csd_size "${size:-}" || continue
         if ! ctrl="$(namespace_to_controller "$name")"; then
-            echo "[${NODE_IP}] skip non-nvme 8P disk: ${name} (${size})"
+            echo "[${NODE_IP}] skip non-nvme dirty-CSD disk: ${name} (${size})"
             continue
         fi
         if controller_seen "$ctrl"; then
             continue
         fi
+        echo "[${NODE_IP}] found dirty-CSD size disk: ${name} size=${size} -> ${ctrl}"
         CONTROLLERS+=("$ctrl")
     done < <("${LSBLK_BIN}" -dn -o NAME,SIZE,TYPE 2>/dev/null || true)
 }
 
-echo "[${NODE_IP}] scan lsblk for 8P disks before loading draid"
-discover_8p_controllers
+echo "[${NODE_IP}] scan lsblk for dirty CSD flash disks (8P/9P)"
+"${LSBLK_BIN}" -dn -o NAME,SIZE,TYPE 2>/dev/null | sed "s/^/[${NODE_IP}] lsblk: /" || true
+discover_dirty_csd_controllers
 
 if [ "${#CONTROLLERS[@]}" -eq 0 ]; then
-    echo "[${NODE_IP}] no 8P disks found; skip CSD flash clear"
+    echo "[${NODE_IP}] no dirty-CSD (8P/9P) disks found; skip CSD flash clear"
     exit 0
 fi
 
-echo "[${NODE_IP}] 8P disks mapped to controllers: ${CONTROLLERS[*]}"
+echo "[${NODE_IP}] dirty-CSD disks mapped to controllers: ${CONTROLLERS[*]}"
 
 if [ ! -x "${FLASH_CLEAR_SCRIPT}" ] && [ -f "${FLASH_CLEAR_SCRIPT}" ]; then
     chmod +x "${FLASH_CLEAR_SCRIPT}" || true

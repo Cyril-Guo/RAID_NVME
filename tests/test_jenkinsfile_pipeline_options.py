@@ -123,8 +123,9 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
     assert "QEMU pre-test cleanup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes" in source
     assert "QEMU VM startup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes" in source
     for label in [
+        "clear dirty CSD flash on physical host before QEMU start",
         "deploy workspace",
-        "clear 8P CSD flash before loading draid",
+        "clear dirty CSD flash before loading draid",
         "install latest dpraid",
         "build and reload draid kernel driver",
         "restore RAID state before test",
@@ -132,15 +133,17 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
         "collect environment metadata",
     ]:
         assert f"runTimedEnvironmentStep(ip, '{label}'" in source
+    assert "if (!qemuVmForNode)" in source
     assert "ci/clear_8p_csd_flash.sh" in source
     assert "printf 'CLEAR\\n'" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
+    assert "is_dirty_csd_size()" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
     assert "CONTROL_STEP_TIMEOUT_MINUTES=${CONTROL_STEP_TIMEOUT_MINUTES:-15}" in source
     assert "run_control_step()" in source
     assert 'timeout --kill-after=60s "${CONTROL_STEP_TIMEOUT_MINUTES}m" env' in source
     assert "returning NVMe devices to physical host timed out after ${CONTROL_STEP_TIMEOUT_MINUTES} minutes" in source
     for label in [
+        "clear dirty CSD flash on physical host after reclaim",
         "deploy workspace for physical host test",
-        "clear 8P CSD flash before loading draid on physical host",
         "install latest dpraid on physical host",
         "build and reload draid kernel driver on physical host",
         "restore RAID state before physical host test",
