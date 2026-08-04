@@ -75,6 +75,9 @@ def main():
     skipped = int(env("SKIPPED", "0"))
     if total == 1 and failed == 0 and errors == 0 and report_kind == "infra":
         errors = 1
+    passed = max(0, total - failed - errors - skipped)
+    exec_rate = f"{((total - skipped) / total * 100):.2f}%" if total > 0 else "0%"
+    pass_rate = f"{(passed / total * 100):.1f}%" if total > 0 else "0%"
     build_result = env("BUILD_RESULT", "SUCCESS").upper()
     build_failed = build_result not in ("", "SUCCESS")
     infra_report = report_kind == "infra"
@@ -113,6 +116,12 @@ def main():
             "type": "default",
         })
 
+    # Keep pass/fail stats (including env/execution items). Detail logs stay in Allure.
+    stats_text = (
+        f"通过 **{passed}**  失败 **{failed}**  错误 **{errors}**  Total: **{total}**\n"
+        f"执行率: {exec_rate}   通过率: <font color=\"{font_color}\">{pass_rate}</font>"
+    )
+
     elements = [
         {
             "tag": "div",
@@ -127,6 +136,10 @@ def main():
                 {"is_short": False, "text": {"tag": "lark_md", "content": f"**时间周期:**\n{env('START_STR')} ~ {env('END_STR')}"}},
                 {"is_short": False, "text": {"tag": "lark_md", "content": f"**并发节点:**\n{env('IP_LIST')}"}},
             ],
+        },
+        {
+            "tag": "div",
+            "text": {"tag": "lark_md", "content": stats_text},
         },
         {"tag": "action", "actions": actions},
     ]

@@ -148,3 +148,46 @@ def test_report_metrics_includes_infra_allure_alongside_junit(tmp_path, monkeypa
         "skipped": 0,
         "kind": "tests",
     }
+
+
+def test_report_metrics_counts_each_failed_env_log_as_one_item(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "environment_prepare_192.168.22.125.log").write_text(
+        "ERROR: QEMU VM startup failed\nENVIRONMENT_PREPARE_STATUS=failed\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "environment_prepare_192.168.22.134.log").write_text(
+        "ERROR: build and reload draid kernel driver failed\nENVIRONMENT_PREPARE_STATUS=failed\n",
+        encoding="utf-8",
+    )
+
+    assert report_metrics.report_metrics() == {
+        "tests": 2,
+        "failures": 0,
+        "errors": 2,
+        "skipped": 0,
+        "kind": "infra",
+    }
+
+
+def test_report_metrics_does_not_double_count_execution_when_junit_exists(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="x" name="a"><failure message="fio">trace</failure></testcase>
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "test_execution_192.168.22.134.log").write_text(
+        "TEST_EXECUTION_STATUS=failed\nTEST_EXECUTION_EXIT_CODE=1\n",
+        encoding="utf-8",
+    )
+
+    assert report_metrics.report_metrics() == {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "kind": "tests",
+    }

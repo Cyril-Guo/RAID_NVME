@@ -116,23 +116,78 @@ def allure_metrics(paths=None, infra_only=False):
     return stats
 
 
+def _read_text(path):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            return handle.read()
+    except OSError:
+        return ""
+
+
+def report_has_testcases(target_node, target_kind):
+    suffix = "_physical" if target_kind == "physical" else ""
+    path = f"report_{target_node}{suffix}.xml"
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError):
+        return False
+    return root.find(".//testcase") is not None or root.tag == "testcase"
+
+
+def status_log_infra_metrics():
+    """Count each failed env/execution/restore log as one execution item."""
+    stats = empty_stats()
+
+    for path in sorted(glob.glob("environment_prepare_*.log")):
+        text = _read_text(path)
+        if "ENVIRONMENT_PREPARE_STATUS=failed" in text:
+            stats["tests"] += 1
+            stats["errors"] += 1
+        if "PHYSICAL_RESTORE_STATUS=failed" in text:
+            stats["tests"] += 1
+            stats["errors"] += 1
+
+    for path in sorted(glob.glob("test_execution_*.log")):
+        text = _read_text(path)
+        if "TEST_EXECUTION_STATUS=failed" not in text:
+            continue
+        stem = os.path.basename(path).removeprefix("test_execution_").removesuffix(".log")
+        target_kind = "physical" if stem.endswith("_physical") else "qemu"
+        target_node = stem.removesuffix("_physical")
+        # When junit already has cases, that node is counted via tests, not as infra.
+        if report_has_testcases(target_node, target_kind):
+            continue
+        stats["tests"] += 1
+        stats["errors"] += 1
+
+    return stats
+
+
+def infra_metrics():
+    """Prefer Allure infra results; fall back to status logs so each node/step counts."""
+    infra_allure = allure_metrics(infra_only=True)
+    if infra_allure["tests"] > 0:
+        return infra_allure
+    return status_log_infra_metrics()
+
+
 def report_metrics():
     junit_stats = junit_metrics()
-    infra_allure = allure_metrics(infra_only=True)
+    infra_stats = infra_metrics()
     test_allure = allure_metrics(infra_only=False)
 
     if junit_stats["tests"] > 0:
         stats = dict(junit_stats)
-        add_stats(stats, infra_allure)
+        add_stats(stats, infra_stats)
         return {**stats, "kind": "tests"}
 
     if test_allure["tests"] > 0:
         stats = dict(test_allure)
-        add_stats(stats, infra_allure)
+        add_stats(stats, infra_stats)
         return {**stats, "kind": "tests"}
 
-    if infra_allure["tests"] > 0:
-        return {**infra_allure, "kind": "infra"}
+    if infra_stats["tests"] > 0:
+        return {**infra_stats, "kind": "infra"}
 
     return {**empty_stats(), "kind": "empty"}
 

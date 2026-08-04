@@ -33,7 +33,7 @@ def test_debug_no_feishu_only_skips_notification():
     assert '"JOB_NAME=${env.JOB_NAME}"' in source
     assert '"BUILD_NUMBER=${env.BUILD_NUMBER}"' in source
     assert '"BUILD_URL=${env.BUILD_URL}"' in source
-    assert "Feishu notification will use infra failure summary" in source
+    assert "Feishu notification will use a fallback infra count" in source
 
 
 def test_feishu_webhook_uses_jenkins_credential():

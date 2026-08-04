@@ -827,10 +827,12 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                     return
                 }
                 if (total == 0 && hasFailureSummary) {
+                    // Prefer countable env/execution items from report_metrics; only force a
+                    // single infra error when logs could not be turned into metrics.
                     reportKind = 'infra'
                     total = 1
                     errors = Math.max(errors, 1)
-                    echo "Feishu notification will use infra failure summary because no countable test results were generated."
+                    echo "Feishu notification will use a fallback infra count because no countable results were generated."
                 }
                 if (!raidCliCommit || raidCliCommit == 'unknown') {
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
