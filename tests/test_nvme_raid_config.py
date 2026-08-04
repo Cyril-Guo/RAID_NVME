@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 import nvme_raid_test
 from nvme_raid_test import parse_items_file
 
@@ -108,3 +110,31 @@ def test_run_single_item_supports_basic_io(monkeypatch):
 
     assert "--junitxml=report_basic_io.xml" in captured["args"]
     assert "test_items/test_smoke_06_basic_io.py" in captured["args"]
+
+
+def test_main_stops_after_first_failed_item(monkeypatch):
+    executed = []
+    merged = {}
+
+    monkeypatch.setattr(
+        nvme_raid_test,
+        "parse_items_file",
+        lambda path: (["basic_io", "basic_rebuild_io"], {"basic_io": {}, "basic_rebuild_io": {}}),
+    )
+    monkeypatch.setattr(
+        nvme_raid_test,
+        "run_single_item",
+        lambda item, params, clean_allure: executed.append(item) or 1,
+    )
+    monkeypatch.setattr(
+        nvme_raid_test,
+        "merge_junit_reports",
+        lambda items, out_path: merged.update(items=list(items), out_path=out_path),
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        nvme_raid_test.main()
+
+    assert exc.value.code == 1
+    assert executed == ["basic_io"]
+    assert merged["items"] == ["basic_io"]

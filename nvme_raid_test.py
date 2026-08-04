@@ -266,6 +266,7 @@ def main():
     print(f"Selected test items: {run_order}")
 
     exit_codes = []
+    executed_items = []
     for index, item in enumerate(run_order):
         params = params_map.get(item, {})
         print(f"[ITEM_START] {item}")
@@ -277,8 +278,12 @@ def main():
             stop_monitor_for_item(base_dir)
             add_allure_monitor_archive(item, base_dir)
         exit_codes.append(exit_code)
+        executed_items.append(item)
+        if exit_code != 0:
+            print(f"[FAIL_FAST] Stop after {item} failed with exit_code={exit_code}")
+            break
 
-    merge_junit_reports(run_order, os.path.join(base_dir, JUNIT_FINAL))
+    merge_junit_reports(executed_items, os.path.join(base_dir, JUNIT_FINAL))
     sys.exit(max(exit_codes) if exit_codes else 0)
 
 
