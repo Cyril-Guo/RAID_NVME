@@ -597,6 +597,24 @@ ci/qemu_vm_prepare.sh 2>&1 | tee -a ${envPrepareLog}
                                         }
                                     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
                                         sh "printf '%s\\n%s\\n' '[${ip}] ERROR: QEMU VM startup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
+                                        sh(
+                                            returnStatus: true,
+                                            script: """#!/bin/bash
+set -o pipefail
+chmod +x ci/qemu_vfio_cleanup.sh
+NODE_IP='${ip}' \\
+TARGET_USER='${env.TARGET_USER}' \\
+SSH_OPTS='${env.SSH_OPTS}' \\
+QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
+QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
+QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
+QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
+BUILD_NUMBER='${env.BUILD_NUMBER}' \\
+CLEANUP_REASON='QEMU startup timed out before usable VM scene, return vfio devices to physical host' \\
+POWER_OFF_QEMU=1 \\
+ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
+"""
+                                        )
                                         error "[${ip}] QEMU VM startup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes"
                                     }
                                     if (qemuStatus != 0) {
@@ -609,10 +627,13 @@ chmod +x ci/qemu_vfio_cleanup.sh
 NODE_IP='${ip}' \\
 TARGET_USER='${env.TARGET_USER}' \\
 SSH_OPTS='${env.SSH_OPTS}' \\
+QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
+QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
 QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
 QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
 BUILD_NUMBER='${env.BUILD_NUMBER}' \\
-CLEANUP_REASON='QEMU startup failed, return vfio devices to physical host' \\
+CLEANUP_REASON='QEMU startup failed before usable VM scene, return vfio devices to physical host' \\
+POWER_OFF_QEMU=1 \\
 ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
 """
                                         )
@@ -709,11 +730,14 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
  """
                                 )
                                 if (testStatus != 0) {
+                                    if (qemuVmForNode) {
+                                        echo "[${ip}] QEMU test failed; keep VM/vfio devices for failure analysis. Next triggered run will reclaim them in pre-test cleanup."
+                                    }
                                     error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"
                                 }
 
                                 if (qemuVmForNode && automaticMrTriggered) {
-                                    echo "[${ip}] run physical host test after QEMU VM test"
+                                    echo "[${ip}] QEMU test passed; stop QEMU VM, return NVMe devices, then run physical host test"
                                     def hostStatus = sh(
                                         returnStatus: true,
                                         script: """#!/bin/bash

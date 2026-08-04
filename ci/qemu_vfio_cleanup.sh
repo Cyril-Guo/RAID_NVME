@@ -38,13 +38,9 @@ fi
 
 host_ssh "NODE_IP='${NODE_IP}' BUILD_NUMBER='${BUILD_NUMBER}' QEMU_VM_WORKDIR='${QEMU_VM_WORKDIR}' QEMU_VFIO_BIND_SCRIPT='${QEMU_VFIO_BIND_SCRIPT}' POWER_OFF_QEMU='${POWER_OFF_QEMU}' bash -s" <<'HOST_CLEANUP'
 set -euo pipefail
-cd "${QEMU_VM_WORKDIR}" || exit 0
-test -x "${QEMU_VFIO_BIND_SCRIPT}" || {
-    echo "QEMU vfio bind script not found or not executable: ${QEMU_VM_WORKDIR}/${QEMU_VFIO_BIND_SCRIPT}" >&2
-    exit 1
-}
 
 VFIO_BIND_TIMEOUT_SECONDS=${VFIO_BIND_TIMEOUT_SECONDS:-30}
+unbind_failed=0
 
 run_vfio_bind_action() {
     local action="$1"
@@ -73,6 +69,18 @@ run_vfio_bind_action() {
     fi
 }
 
+list_vfio_nvme_devices() {
+    for pci_path in /sys/bus/pci/devices/*; do
+        [ -e "$pci_path/class" ] || continue
+        pci_class=$(cat "$pci_path/class")
+        [ "$pci_class" = "0x010802" ] || continue
+        driver_path=$(readlink -f "$pci_path/driver" 2>/dev/null || true)
+        driver=${driver_path##*/}
+        [ "$driver" = "vfio-pci" ] || continue
+        basename "$pci_path"
+    done
+}
+
 if [ "${POWER_OFF_QEMU}" = "1" ]; then
     qemu_pids=$(pgrep -f "qemu-system-x86_64.*vm-serial.log" || true)
     if [ -n "${qemu_pids}" ]; then
@@ -93,29 +101,81 @@ if [ "${POWER_OFF_QEMU}" = "1" ]; then
     fi
 fi
 
-device_file=".jenkins_nvme_${BUILD_NUMBER}_vfio_devices"
-if [ ! -s "$device_file" ]; then
-    echo "[${NODE_IP}] no recorded QEMU vfio devices to unbind"
-    for pci_path in /sys/bus/pci/devices/*; do
-        [ -e "$pci_path/class" ] || continue
-        pci_class=$(cat "$pci_path/class")
-        [ "$pci_class" = "0x010802" ] || continue
-        driver_path=$(readlink -f "$pci_path/driver" 2>/dev/null || true)
-        driver=${driver_path##*/}
-        [ "$driver" = "vfio-pci" ] || continue
-        dev=$(basename "$pci_path")
-        echo "[${NODE_IP}] fallback unbind vfio NVMe PCI device back to host: ${dev}"
-        run_vfio_bind_action unbind "$dev" || true
-    done
-else
-    while read -r dev; do
-        [ -n "$dev" ] || continue
-        echo "[${NODE_IP}] unbind NVMe PCI device back to host: ${dev}"
-        run_vfio_bind_action unbind "$dev" || true
-    done < "$device_file"
+if [ ! -d "${QEMU_VM_WORKDIR}" ]; then
+    echo "[${NODE_IP}] QEMU workdir not found: ${QEMU_VM_WORKDIR}" >&2
+    remaining=$(list_vfio_nvme_devices | tr '\n' ' ')
+    if [ -n "$(printf '%s' "${remaining}" | tr -d ' ')" ]; then
+        echo "[${NODE_IP}] ERROR: vfio NVMe devices still bound without workdir/bind script:${remaining}" >&2
+        exit 1
+    fi
+    echo "[${NODE_IP}] no vfio NVMe devices remain; treat cleanup as done despite missing workdir"
+    exit 0
 fi
+
+cd "${QEMU_VM_WORKDIR}"
+test -x "${QEMU_VFIO_BIND_SCRIPT}" || {
+    echo "QEMU vfio bind script not found or not executable: ${QEMU_VM_WORKDIR}/${QEMU_VFIO_BIND_SCRIPT}" >&2
+    exit 1
+}
+
+# Prefer this build's device list; also reclaim any leftover lists from prior builds,
+# then fall back to scanning currently bound vfio NVMe devices.
+device_files=( )
+for candidate in .jenkins_nvme_${BUILD_NUMBER}_vfio_devices .jenkins_nvme_*_vfio_devices; do
+    [ -e "${candidate}" ] || continue
+    device_files+=( "${candidate}" )
+done
+
+unbind_targets=""
+if [ "${#device_files[@]}" -gt 0 ]; then
+    while IFS= read -r dev; do
+        [ -n "$dev" ] || continue
+        case " ${unbind_targets} " in
+            *" ${dev} "*) ;;
+            *) unbind_targets="${unbind_targets} ${dev}" ;;
+        esac
+    done < <(cat "${device_files[@]}" 2>/dev/null || true)
+fi
+
+used_fallback_scan=0
+if [ -z "$(printf '%s' "${unbind_targets}" | tr -d ' ')" ]; then
+    echo "[${NODE_IP}] no recorded QEMU vfio devices; scan currently bound vfio NVMe"
+    used_fallback_scan=1
+    while IFS= read -r dev; do
+        [ -n "$dev" ] || continue
+        unbind_targets="${unbind_targets} ${dev}"
+    done < <(list_vfio_nvme_devices)
+fi
+
+if [ -z "$(printf '%s' "${unbind_targets}" | tr -d ' ')" ]; then
+    echo "[${NODE_IP}] no QEMU vfio NVMe devices to unbind"
+else
+    for dev in ${unbind_targets}; do
+        if [ "${used_fallback_scan}" = "1" ]; then
+            echo "[${NODE_IP}] fallback unbind vfio NVMe PCI device back to host: ${dev}"
+        else
+            echo "[${NODE_IP}] unbind NVMe PCI device back to host: ${dev}"
+        fi
+        if ! run_vfio_bind_action unbind "$dev"; then
+            unbind_failed=1
+        fi
+    done
+fi
+
+# Clear stale device lists after reclaim attempts so the next run starts clean.
+rm -f .jenkins_nvme_*_vfio_devices || true
 
 echo 1 > /sys/bus/pci/rescan || true
 sleep 5
 nvme list || true
+
+remaining=$(list_vfio_nvme_devices | tr '\n' ' ')
+if [ -n "$(printf '%s' "${remaining}" | tr -d ' ')" ]; then
+    echo "[${NODE_IP}] ERROR: vfio NVMe devices still bound after cleanup:${remaining}" >&2
+    exit 1
+fi
+
+if [ "${unbind_failed}" -ne 0 ]; then
+    echo "[${NODE_IP}] some vfio unbind commands failed, but no vfio NVMe devices remain bound"
+fi
 HOST_CLEANUP

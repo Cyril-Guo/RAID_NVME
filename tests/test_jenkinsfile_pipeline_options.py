@@ -245,8 +245,13 @@ def test_qemu_vm_start_fails_fast_when_qemu_process_exits():
     assert "qemu-system-x86_64.*vm-serial.log" in source
     assert "QEMU process is not running after ${QEMU_VM_START_SCRIPT}; startup failed before SSH wait" in source
     assert "QEMU process exited before SSH became ready; stop waiting and fail startup" in source
-    assert "QEMU startup failed, return vfio devices to physical host" in source
+    assert "QEMU startup failed before usable VM scene, return vfio devices to physical host" in source
+    assert "QEMU startup timed out before usable VM scene, return vfio devices to physical host" in source
+    assert "POWER_OFF_QEMU=1" in source
+    assert "keep VM/vfio devices for failure analysis" in source
+    assert "Next triggered run will reclaim them in pre-test cleanup" in source
     assert "fallback unbind vfio NVMe PCI device back to host" in source
+    assert "vfio NVMe devices still bound after cleanup" in source
 
 
 def test_automatic_mr_runs_qemu_then_physical_host():
