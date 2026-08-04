@@ -660,6 +660,15 @@ ci/deploy_workspace.sh
 } 2>&1 | tee -a ${envPrepareLog}
 """)
 
+                                echo "[${ip}] clear 8P CSD flash before loading draid"
+                                runTimedEnvironmentStep(ip, 'clear 8P CSD flash before loading draid', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] clear 8P CSD flash before loading draid"
+${targetSsh} 'cd ${remoteDir} && chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh && NODE_IP=${ip} ci/clear_8p_csd_flash.sh'
+} 2>&1 | tee -a ${envPrepareLog}
+""")
+
                                 echo "[${ip}] install latest dpraid"
                                 runTimedEnvironmentStep(ip, 'install latest dpraid', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail

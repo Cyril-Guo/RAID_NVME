@@ -66,6 +66,10 @@ run_control_step "deploy workspace for physical host test" bash -c '
         REMOTE_SSH_COMMAND="${host_ssh}" ci/deploy_workspace.sh
 '
 
+run_control_step "clear 8P CSD flash before loading draid on physical host" bash -c '
+    ${host_ssh} "cd ${host_remote_dir} && chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh && NODE_IP=${NODE_IP} ci/clear_8p_csd_flash.sh"
+'
+
 run_control_step "install latest dpraid on physical host" bash -c '
     chmod +x ci/install_dpraid_remote.sh
     NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" SSH_OPTS="${SSH_OPTS}" DPRAID_SOURCE="${DPRAID_SOURCE}" \
