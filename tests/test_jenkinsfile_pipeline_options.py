@@ -126,6 +126,7 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
         "deploy workspace",
         "install latest dpraid",
         "build and reload draid kernel driver",
+        "restore RAID state before test",
         "install python dependencies",
         "collect environment metadata",
     ]:
@@ -138,13 +139,13 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
         "deploy workspace for physical host test",
         "install latest dpraid on physical host",
         "build and reload draid kernel driver on physical host",
+        "restore RAID state before physical host test",
         "install python dependencies on physical host",
         "collect physical host environment metadata",
     ]:
         assert f'run_control_step "{label}"' in source
-    assert 'run_control_step "restore physical host RAID state after physical host test"' not in source
-    assert "restore physical host RAID state after physical host test" in source
-    assert "PHYSICAL_RESTORE_STATUS=failed" in source
+    assert "restore physical host RAID state after physical host test" not in source
+    assert "PHYSICAL_RESTORE_STATUS=failed" not in Path("ci/run_physical_host_test.sh").read_text(encoding="utf-8")
 
 
 def test_test_idle_watchdog_tracks_non_system_disk_io_progress():
@@ -303,19 +304,19 @@ def test_automatic_mr_moves_nvme_between_host_and_qemu():
     assert ".jenkins_nvme_${BUILD_NUMBER}_vfio_devices" in source
 
 
-def test_automatic_mr_restores_physical_host_raid_state_before_and_after_tests():
+def test_automatic_mr_restores_raid_state_before_tests_after_driver_load():
     source = pipeline_sources()
 
     assert "restore physical host RAID state before QEMU handoff" in source
-    assert "restore physical host RAID state after physical host test" in source
-    assert "PHYSICAL_RESTORE_STATUS=failed" in source
-    assert "PHYSICAL_RESTORE_STATUS=passed" in source
+    assert "restore RAID state before test" in source
+    assert "restore RAID state before physical host test" in source
+    assert "restore physical host RAID state after physical host test" not in source
     assert "ENVIRONMENT_PREPARE_STATUS=failed" in source
     assert "ci/salvage_junit_reports.py" in source
     assert "merged junit items" in source or "no per-item junit reports found to merge" in source
     assert "report_*.*.*.*.xml,report_*_physical.xml" in source
     assert "unload draid module before QEMU handoff if loaded" in source
-    assert "unload draid module before restoring physical RAID state if loaded" in source
+    assert "unload draid module before restoring physical RAID state if loaded" not in source
     assert "dpraid /c0/vall show" in source
     assert "dpraid /c0/eall/sall show" in source
     assert 'dpraid "/c0/v${vd}" delete' in source

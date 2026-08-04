@@ -3,16 +3,9 @@ set -euo pipefail
 
 NODE_IP=${NODE_IP:-unknown}
 
-echo "[${NODE_IP}] restore physical host RAID state after physical host test"
-echo "[${NODE_IP}] unload draid module before restoring physical RAID state if loaded"
-if grep -q "^draid " /proc/modules; then
-    rmmod draid || modprobe -r draid
-fi
-if grep -q "^draid " /proc/modules; then
-    echo "[${NODE_IP}] draid module is still loaded before restoring physical RAID state" >&2
-    grep -i draid /proc/modules >&2 || true
-    exit 1
-fi
+# Pre-test cleanup: clear leftover VDs/slots after dpraid/draid are ready.
+# Keep draid loaded so the upcoming smoke test can use it immediately.
+echo "[${NODE_IP}] restore RAID state before test (clear leftover VD/PD)"
 
 vd_ids=$(
     dpraid /c0/vall show 2>/dev/null |
@@ -29,7 +22,7 @@ vd_ids=$(
     done | sort -n -u || true
 )
 for vd in $vd_ids; do
-    echo "[${NODE_IP}] delete existing VD after physical host test: v${vd}"
+    echo "[${NODE_IP}] delete existing VD before test: v${vd}"
     dpraid "/c0/v${vd}" delete || true
 done
 
@@ -48,7 +41,7 @@ slot_ids=$(
     done | sort -n -u || true
 )
 for slot in $slot_ids; do
-    echo "[${NODE_IP}] release physical disk after physical host test: s${slot}"
+    echo "[${NODE_IP}] release physical disk before test: s${slot}"
     dpraid "/c0/eall/s${slot}" delete || true
 done
 

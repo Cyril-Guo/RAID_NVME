@@ -697,6 +697,15 @@ ci/prepare_draid_driver.sh
 } 2>&1 | tee -a ${envPrepareLog}
 """)
 
+                                echo "[${ip}] restore RAID state before test"
+                                runTimedEnvironmentStep(ip, 'restore RAID state before test', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] restore RAID state before test"
+${targetSsh} 'cd ${remoteDir} && chmod +x ci/restore_physical_raid_state.sh && NODE_IP=${ip} ci/restore_physical_raid_state.sh'
+} 2>&1 | tee -a ${envPrepareLog}
+""")
+
                                 echo "[${ip}] install python dependencies"
                                 runTimedEnvironmentStep(ip, 'install python dependencies', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail

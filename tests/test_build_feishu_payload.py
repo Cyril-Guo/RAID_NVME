@@ -47,8 +47,7 @@ def test_failed_build_result_marks_feishu_card_failed(tmp_path, monkeypatch):
     assert payload["card"]["header"]["title"]["content"] == "NVMe_RAID(F6501) SMOKE #17010"
     fields = payload["card"]["elements"][0]["fields"]
     field_text = "\n".join(field["text"]["content"] for field in fields)
-    assert "Jenkins构建" in field_text
-    assert "SMOKE #17010" in field_text
+    assert "Jenkins构建" not in field_text
     assert "构建链接" in field_text
     assert "http://jenkins/job/SMOKE/17010/" in field_text
     assert "并发节点" in field_text

@@ -79,6 +79,11 @@ run_control_step "build and reload draid kernel driver on physical host" bash -c
         BUILD_NUMBER="${BUILD_NUMBER}" QEMU_VM_TARGET=0 ci/prepare_draid_driver.sh
 '
 
+# Clear leftover RAID objects after dpraid/draid are ready, before metadata/tests.
+run_control_step "restore RAID state before physical host test" bash -c '
+    ${host_ssh} "cd ${host_remote_dir} && chmod +x ci/restore_physical_raid_state.sh && NODE_IP=${NODE_IP} ci/restore_physical_raid_state.sh"
+'
+
 run_control_step "install python dependencies on physical host" bash -c '
     ${host_ssh} "cd ${host_remote_dir} && chmod +x ci/install_test_dependencies.sh && QEMU_VM_TARGET=0 ci/install_test_dependencies.sh"
 '
@@ -89,38 +94,8 @@ run_control_step "collect physical host environment metadata" bash -c '
 '
 
 chmod +x ci/run_remote_test_and_collect.sh
-set +e
 NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" REMOTE_DIR="${host_remote_dir}" \
     REMOTE_SSH_COMMAND="${host_ssh}" REMOTE_SCP_COMMAND="${host_scp}" \
     TEST_IDLE_TIMEOUT_MINUTES="${TEST_IDLE_TIMEOUT_MINUTES}" QEMU_VM_TARGET=0 \
     ALLOW_DESTRUCTIVE_FIO="${ALLOW_DESTRUCTIVE_FIO:-YES}" REPORT_SUFFIX='_physical' LOG_SUFFIX='_physical' \
     TEST_LABEL='physical host nvme_raid_test.py' ci/run_remote_test_and_collect.sh
-test_status=$?
-set -e
-
-echo "[${NODE_IP}] restore physical host RAID state after physical host test"
-set +e
-timeout --kill-after=60s "${CONTROL_STEP_TIMEOUT_MINUTES}m" \
-    ${host_ssh} "cd ${host_remote_dir} && chmod +x ci/restore_physical_raid_state.sh && NODE_IP=${NODE_IP} ci/restore_physical_raid_state.sh" \
-    2>&1 | tee -a "${host_log}"
-restore_status=${PIPESTATUS[0]}
-set -e
-if [ "${restore_status}" -eq 124 ] || [ "${restore_status}" -eq 137 ]; then
-    printf '%s\n' 'PHYSICAL_RESTORE_STATUS=failed' >> "${host_log}"
-    echo "[${NODE_IP}] ERROR: restore physical host RAID state timed out after ${CONTROL_STEP_TIMEOUT_MINUTES} minutes"
-    if [ "${test_status}" -eq 0 ]; then
-        exit 124
-    fi
-    exit "${test_status}"
-fi
-if [ "${restore_status}" -ne 0 ]; then
-    printf '%s\n' 'PHYSICAL_RESTORE_STATUS=failed' >> "${host_log}"
-    echo "[${NODE_IP}] ERROR: restore physical host RAID state failed"
-    if [ "${test_status}" -eq 0 ]; then
-        exit "${restore_status}"
-    fi
-    exit "${test_status}"
-fi
-printf '%s\n' 'PHYSICAL_RESTORE_STATUS=passed' >> "${host_log}"
-
-exit "${test_status}"

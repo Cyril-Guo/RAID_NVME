@@ -128,7 +128,6 @@ def main():
             "fields": [
                 {"is_short": True, "text": {"tag": "lark_md", "content": "**用户名:** dapustor"}},
                 {"is_short": True, "text": {"tag": "lark_md", "content": "**密码:** Admin@9000"}},
-                {"is_short": False, "text": {"tag": "lark_md", "content": f"**Jenkins构建:**\n{build_label}"}},
                 {"is_short": False, "text": {"tag": "lark_md", "content": f"**构建链接:**\n{build_url or 'unknown'}"}},
                 {"is_short": False, "text": {"tag": "lark_md", "content": f"**构建状态:**\n<font color=\"{font_color}\">{build_result or 'UNKNOWN'}</font>"}},
                 {"is_short": False, "text": {"tag": "lark_md", "content": f"**触发来源:**\n{env('TRIGGER_SOURCE', 'unknown')}"}},
