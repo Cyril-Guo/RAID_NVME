@@ -150,7 +150,17 @@ def clean_monitor_log(base_dir):
         shutil.rmtree(monitor_log, ignore_errors=True)
 
 
-def stop_monitor_for_item(base_dir):
+def monitor_running(monitor_main):
+    result = subprocess.run(
+        ["pgrep", "-f", monitor_main],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def stop_monitor_for_item(base_dir, wait_seconds=30):
     monitor_main, _ = monitor_paths(base_dir)
     subprocess.run(
         ["pkill", "-TERM", "-f", monitor_main],
@@ -158,14 +168,20 @@ def stop_monitor_for_item(base_dir):
         stderr=subprocess.DEVNULL,
         check=False,
     )
-    for _ in range(30):
-        result = subprocess.run(
-            ["pgrep", "-f", monitor_main],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        if result.returncode != 0:
+    for _ in range(wait_seconds):
+        if not monitor_running(monitor_main):
+            return
+        time.sleep(1)
+
+    print(f"[WARN] Stress monitor still running after TERM; sending KILL: {monitor_main}")
+    subprocess.run(
+        ["pkill", "-KILL", "-f", monitor_main],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    for _ in range(5):
+        if not monitor_running(monitor_main):
             return
         time.sleep(1)
 
@@ -267,23 +283,33 @@ def main():
 
     exit_codes = []
     executed_items = []
+    junit_final = os.path.join(base_dir, JUNIT_FINAL)
     for index, item in enumerate(run_order):
         params = params_map.get(item, {})
+        monitor_enabled = stress_monitor_enabled(params)
         print(f"[ITEM_START] {item}")
-        if stress_monitor_enabled(params):
-            clean_monitor_log(base_dir)
-        exit_code = run_single_item(item, params, clean_allure=(index == 0))
-        print(f"[ITEM_END] {item} exit_code={exit_code}")
-        if stress_monitor_enabled(params):
-            stop_monitor_for_item(base_dir)
-            add_allure_monitor_archive(item, base_dir)
-        exit_codes.append(exit_code)
-        executed_items.append(item)
+        exit_code = 2
+        try:
+            if monitor_enabled:
+                clean_monitor_log(base_dir)
+            exit_code = run_single_item(item, params, clean_allure=(index == 0))
+            print(f"[ITEM_END] {item} exit_code={exit_code}")
+        finally:
+            if monitor_enabled:
+                stop_monitor_for_item(base_dir)
+                try:
+                    add_allure_monitor_archive(item, base_dir)
+                except Exception as exc:
+                    print(f"[WARN] Failed to archive monitor log for {item}: {exc}")
+            executed_items.append(item)
+            exit_codes.append(exit_code)
+            # Merge after every item so idle/external kills still keep completed reports.
+            merge_junit_reports(executed_items, junit_final)
+
         if exit_code != 0:
             print(f"[FAIL_FAST] Stop after {item} failed with exit_code={exit_code}")
             break
 
-    merge_junit_reports(executed_items, os.path.join(base_dir, JUNIT_FINAL))
     sys.exit(max(exit_codes) if exit_codes else 0)
 
 

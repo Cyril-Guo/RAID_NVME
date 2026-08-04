@@ -14,22 +14,44 @@ def remove_stale_payload(path="feishu_payload.json"):
         pass
 
 
+def load_failure_summary(path="failure_summary.txt", max_length=1800):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            summary = handle.read().strip()
+    except OSError:
+        return ""
+    if len(summary) > max_length:
+        return summary[: max_length - 3] + "..."
+    return summary
+
+
 def main():
     total = int(env("TOTAL", "0"))
-    if total <= 0:
+    report_kind = env("REPORT_KIND", "tests").strip().lower() or "tests"
+    failure_summary = load_failure_summary()
+
+    if total <= 0 and not failure_summary:
         remove_stale_payload()
         print("NO_FEISHU_PAYLOAD=empty_metrics")
         return
 
+    # Infra-only failures may still notify when summary exists even if counters are empty.
+    if total <= 0 and failure_summary:
+        total = 1
+        report_kind = "infra"
+
     failed = int(env("FAILED", "0"))
     errors = int(env("ERRORS", "0"))
     skipped = int(env("SKIPPED", "0"))
-    passed = total - failed - errors - skipped
+    if total == 1 and failed == 0 and errors == 0 and report_kind == "infra":
+        errors = 1
+    passed = max(0, total - failed - errors - skipped)
     exec_rate = f"{((total - skipped) / total * 100):.2f}%" if total > 0 else "0%"
     pass_rate = f"{(passed / total * 100):.1f}%" if total > 0 else "0%"
     build_result = env("BUILD_RESULT", "SUCCESS").upper()
     build_failed = build_result not in ("", "SUCCESS")
-    status_color = "blue" if not build_failed and failed + errors == 0 and total > 0 else "red"
+    infra_report = report_kind == "infra"
+    status_color = "blue" if not build_failed and failed + errors == 0 and total > 0 and not infra_report else "red"
     font_color = "green" if status_color == "blue" else "red"
 
     driver_lines = []
@@ -47,6 +69,7 @@ def main():
     build_number = env("BUILD_NUMBER", "unknown")
     build_url = env("BUILD_URL", "").rstrip("/") + ("/" if env("BUILD_URL") else "")
     build_label = f"{job_name} #{build_number}"
+    title_suffix = " [环境/执行失败]" if infra_report else ""
 
     actions = [{
         "tag": "button",
@@ -69,6 +92,19 @@ def main():
             "type": "default",
         })
 
+    report_type = (
+        "环境准备/远端执行失败（无测试用例结果，附失败日志）"
+        if infra_report
+        else "测试用例结果"
+    )
+    stats_text = (
+        f"报告类型: **{report_type}**\n"
+        f"通过 **{passed}**  失败 **{failed}**  错误 **{errors}**  Total: **{total}**\n"
+        f"执行率: {exec_rate}   通过率: <font color=\"{font_color}\">{pass_rate}</font>"
+    )
+    if infra_report:
+        stats_text += "\n说明: 本次未产生有效 pytest 用例结果，以下为环境准备或远端执行失败摘要。"
+
     elements = [
         {
             "tag": "div",
@@ -88,13 +124,26 @@ def main():
             "tag": "div",
             "text": {
                 "tag": "lark_md",
-                "content": (
-                    f"通过 **{passed}**  失败 **{failed}**  错误 **{errors}**  Total: **{total}**\n"
-                    f"执行率: {exec_rate}   通过率: <font color=\"{font_color}\">{pass_rate}</font>"
-                ),
+                "content": stats_text,
             },
         },
     ]
+    if failure_summary:
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"**失败摘要:**\n{failure_summary}",
+            },
+        })
+    elif infra_report:
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": "**失败摘要:**\n- 未提取到明细，请打开构建日志 / Allure 附件查看 environment_prepare 或 test_execution 日志",
+            },
+        })
     elements.append({"tag": "action", "actions": actions})
 
     payload = {
@@ -102,7 +151,7 @@ def main():
         "card": {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {"tag": "plain_text", "content": f"NVMe_RAID(F6501) {build_label}"},
+                "title": {"tag": "plain_text", "content": f"NVMe_RAID(F6501) {build_label}{title_suffix}"},
                 "template": status_color,
             },
             "elements": elements,

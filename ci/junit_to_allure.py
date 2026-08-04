@@ -7,8 +7,10 @@ import xml.etree.ElementTree as ET
 
 try:
     from ci.extract_failure_summary import extract_failure_lines
+    from ci.report_metrics import is_node_junit_report
 except ModuleNotFoundError:
     from extract_failure_summary import extract_failure_lines
+    from report_metrics import is_node_junit_report
 
 
 def normalize_root(root):
@@ -177,12 +179,20 @@ def write_result(allure_dir, suite_name, case, target_node="", target_kind=""):
         json.dump(result, handle, ensure_ascii=False)
 
 
-def write_environment_prepare_results(allure_dir, existing_ids):
+def write_status_log_results(
+    allure_dir,
+    existing_ids,
+    *,
+    status_token,
+    suite_name,
+    default_message,
+    attachment_prefix,
+):
     generated = 0
     for path in glob.glob("environment_prepare_*.log"):
         log_name = os.path.basename(path)
         node = log_name.removeprefix("environment_prepare_").removesuffix(".log")
-        key = f"Environment_Prepare::{node}"
+        key = f"{suite_name}::{node}"
         if key in existing_ids:
             continue
         try:
@@ -191,41 +201,42 @@ def write_environment_prepare_results(allure_dir, existing_ids):
         except OSError:
             text = ""
 
-        if "ENVIRONMENT_PREPARE_STATUS=failed" not in text:
+        if status_token not in text:
             continue
 
-        source = f"{uuid.uuid4()}-environment-prepare.log"
+        source = f"{uuid.uuid4()}-{attachment_prefix}.log"
         target = os.path.join(allure_dir, source)
         with open(path, "rb") as src, open(target, "wb") as dst:
             dst.write(src.read())
 
         summary = extract_failure_lines(text)
+        host = node.removesuffix("_physical")
         test_uuid = str(uuid.uuid4())
         result = {
             "uuid": test_uuid,
             "historyId": key,
             "testCaseId": key,
-            "fullName": f"Environment_Prepare#{node}",
-            "name": f"Environment_Prepare_{node}",
+            "fullName": f"{suite_name}#{node}",
+            "name": f"{suite_name}_{node}",
             "status": "broken",
             "stage": "finished",
             "labels": [
-                {"name": "suite", "value": "Environment_Prepare"},
-                {"name": "package", "value": "Environment_Prepare"},
-                {"name": "testClass", "value": "Environment_Prepare"},
-                {"name": "host", "value": node},
+                {"name": "suite", "value": suite_name},
+                {"name": "package", "value": suite_name},
+                {"name": "testClass", "value": suite_name},
+                {"name": "host", "value": host},
                 {"name": "framework", "value": "jenkins"},
                 {"name": "language", "value": "shell"},
             ],
             "attachments": [
                 {
-                    "name": f"Environment_Prepare_{node}",
+                    "name": f"{suite_name}_{node}",
                     "source": source,
                     "type": "text/plain",
                 }
             ],
             "statusDetails": {
-                "message": summary[0] if summary else "Environment prepare failed",
+                "message": summary[0] if summary else default_message,
                 "trace": "\n".join(summary or text.splitlines()[-120:]),
             },
         }
@@ -235,6 +246,28 @@ def write_environment_prepare_results(allure_dir, existing_ids):
         existing_ids.add(key)
         generated += 1
     return generated
+
+
+def write_environment_prepare_results(allure_dir, existing_ids):
+    return write_status_log_results(
+        allure_dir,
+        existing_ids,
+        status_token="ENVIRONMENT_PREPARE_STATUS=failed",
+        suite_name="Environment_Prepare",
+        default_message="Environment prepare failed",
+        attachment_prefix="environment-prepare",
+    )
+
+
+def write_physical_restore_results(allure_dir, existing_ids):
+    return write_status_log_results(
+        allure_dir,
+        existing_ids,
+        status_token="PHYSICAL_RESTORE_STATUS=failed",
+        suite_name="Physical_Restore",
+        default_message="Physical host RAID restore failed",
+        attachment_prefix="physical-restore",
+    )
 
 
 def execution_log_context(path):
@@ -356,7 +389,9 @@ def main():
     ensure_dir(allure_dir)
 
     existing_ids = existing_history_ids(allure_dir)
-    junit_files = sorted(glob.glob("report_*.xml"))
+    junit_files = sorted(
+        path for path in glob.glob("report_*.xml") if is_node_junit_report(path)
+    )
     generated = 0
     for junit_file in junit_files:
         try:
@@ -378,12 +413,14 @@ def main():
                 generated += 1
 
     env_generated = write_environment_prepare_results(allure_dir, existing_ids)
+    restore_generated = write_physical_restore_results(allure_dir, existing_ids)
     execution_generated = write_failed_execution_results(allure_dir, existing_ids)
     attached = attach_pending_monitor_logs(allure_dir)
     console_attached = attach_jenkins_console(allure_dir)
     print(
         f"generated allure result files from junit: {generated}, "
         f"environment prepare results: {env_generated}, "
+        f"physical restore results: {restore_generated}, "
         f"failed execution results: {execution_generated}, attached monitor logs: {attached}, "
         f"attached Jenkins console to results: {console_attached}"
     )

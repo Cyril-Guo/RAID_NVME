@@ -74,6 +74,10 @@ if [ "${test_rc}" = "124" ] || [ "${test_rc}" = "137" ]; then
     echo "[${NODE_IP}] ERROR: ${test_label} idle watchdog fired after ${TEST_IDLE_TIMEOUT_MINUTES} minutes without progress, target may be hung." | tee -a "${execution_log}"
 fi
 
+# Best-effort remote cleanup/report salvage after kill or normal exit.
+# Keep the monitor pattern out of this SSH cmdline; salvage script uses a self-safe pkill pattern.
+eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && python3 ci/salvage_junit_reports.py --stop-monitor --output report.xml\"" || true
+
 echo "[${NODE_IP}] copy back reports"
 mkdir -p allure-results
 rm -rf "${tmp_results}"
@@ -84,6 +88,18 @@ if [ -d "${tmp_results}" ]; then
     rm -rf "${tmp_results}"
 fi
 eval "${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report.xml ./${report_file}" || true
+if [ ! -f "${report_file}" ]; then
+    # Fallback: pull known per-item reports into a temp dir, merge, then delete temp files.
+    item_dir="item-junit-${NODE_IP}${report_suffix}"
+    rm -rf "${item_dir}"
+    mkdir -p "${item_dir}"
+    item_list="$(python3 -c 'import nvme_raid_test; print(" ".join(nvme_raid_test.TEST_ITEMS))')"
+    for item in ${item_list}; do
+        eval "${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report_${item}.xml ${item_dir}/" 2>/dev/null || true
+    done
+    python3 ci/salvage_junit_reports.py --from-dir "${item_dir}" --output "${report_file}" || true
+    rm -rf "${item_dir}"
+fi
 
 if [ "${test_rc}" != "0" ]; then
     {

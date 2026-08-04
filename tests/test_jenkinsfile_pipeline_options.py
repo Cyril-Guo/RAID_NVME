@@ -25,12 +25,15 @@ def test_debug_no_feishu_only_skips_notification():
     assert "name: 'DEBUG_NO_FEISHU'" in source
     assert "DEBUG_NO_FEISHU=true, skip Feishu notification." in source
     assert "python3 ci/build_feishu_payload.py" in source
+    assert "python3 ci/extract_failure_summary.py --output failure_summary.txt" in source
     assert "feishu_payload.json" in source
     assert "def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'" in source
     assert '"BUILD_RESULT=${buildResult}"' in source
+    assert '"REPORT_KIND=${reportKind}"' in source
     assert '"JOB_NAME=${env.JOB_NAME}"' in source
     assert '"BUILD_NUMBER=${env.BUILD_NUMBER}"' in source
     assert '"BUILD_URL=${env.BUILD_URL}"' in source
+    assert "Feishu notification will use infra failure summary" in source
 
 
 def test_feishu_webhook_uses_jenkins_credential():
@@ -46,7 +49,7 @@ def test_feishu_skips_empty_reports_when_no_reportable_result_exists():
     assert "TEST_EXECUTION_ATTEMPTED = 'false'" in source
     assert "env.TEST_EXECUTION_ATTEMPTED = 'true'" in source
     assert "def testAttempted = (env.TEST_EXECUTION_ATTEMPTED == 'true')" in source
-    assert "if (total == 0)" in source
+    assert "if (total == 0 && !hasFailureSummary)" in source
     assert "Skip Feishu notification: no reportable test or environment prepare result was generated in this build." in source
     assert "fileExists('feishu_payload.json')" in source
     assert "Skip Feishu notification: feishu_payload.json was not generated." in source
@@ -63,8 +66,9 @@ def test_failure_logs_are_added_to_allure_and_feishu_report():
     assert "jenkins_console.log" in source
     assert "Jenkins Console Output" in source
     assert "write_failed_execution_results" in source
-    assert "python3 ci/extract_failure_summary.py" not in jenkinsfile
-    assert "failure_summary.txt" not in jenkinsfile
+    assert "python3 ci/extract_failure_summary.py --output failure_summary.txt" in jenkinsfile
+    assert "failure_summary.txt" in jenkinsfile
+    assert "失败摘要" in Path("ci/build_feishu_payload.py").read_text(encoding="utf-8")
 
 
 def test_manual_mr_iid_reruns_merge_request():
@@ -133,9 +137,11 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
         "build and reload draid kernel driver on physical host",
         "install python dependencies on physical host",
         "collect physical host environment metadata",
-        "restore physical host RAID state after physical host test",
     ]:
         assert f'run_control_step "{label}"' in source
+    assert 'run_control_step "restore physical host RAID state after physical host test"' not in source
+    assert "restore physical host RAID state after physical host test" in source
+    assert "PHYSICAL_RESTORE_STATUS=failed" in source
 
 
 def test_test_idle_watchdog_tracks_non_system_disk_io_progress():
@@ -299,6 +305,12 @@ def test_automatic_mr_restores_physical_host_raid_state_before_and_after_tests()
 
     assert "restore physical host RAID state before QEMU handoff" in source
     assert "restore physical host RAID state after physical host test" in source
+    assert "PHYSICAL_RESTORE_STATUS=failed" in source
+    assert "PHYSICAL_RESTORE_STATUS=passed" in source
+    assert "ENVIRONMENT_PREPARE_STATUS=failed" in source
+    assert "ci/salvage_junit_reports.py" in source
+    assert "merged junit items" in source or "no per-item junit reports found to merge" in source
+    assert "report_*.*.*.*.xml,report_*_physical.xml" in source
     assert "unload draid module before QEMU handoff if loaded" in source
     assert "unload draid module before restoring physical RAID state if loaded" in source
     assert "dpraid /c0/vall show" in source

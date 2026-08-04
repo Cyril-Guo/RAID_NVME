@@ -114,7 +114,7 @@ def test_run_single_item_supports_basic_io(monkeypatch):
 
 def test_main_stops_after_first_failed_item(monkeypatch):
     executed = []
-    merged = {}
+    merged_calls = []
 
     monkeypatch.setattr(
         nvme_raid_test,
@@ -129,7 +129,7 @@ def test_main_stops_after_first_failed_item(monkeypatch):
     monkeypatch.setattr(
         nvme_raid_test,
         "merge_junit_reports",
-        lambda items, out_path: merged.update(items=list(items), out_path=out_path),
+        lambda items, out_path: merged_calls.append(list(items)),
     )
 
     with pytest.raises(SystemExit) as exc:
@@ -137,4 +137,30 @@ def test_main_stops_after_first_failed_item(monkeypatch):
 
     assert exc.value.code == 1
     assert executed == ["basic_io"]
-    assert merged["items"] == ["basic_io"]
+    assert merged_calls == [["basic_io"]]
+
+
+def test_stop_monitor_escalates_to_kill(monkeypatch):
+    calls = []
+    checks = {"count": 0}
+    monitor_main = nvme_raid_test.monitor_paths("/tmp/project")[0]
+
+    def fake_run(cmd, stdout=None, stderr=None, check=False):
+        calls.append(cmd)
+
+        class Result:
+            returncode = 0
+
+        if cmd[:2] == ["pgrep", "-f"]:
+            checks["count"] += 1
+            # Stay alive through TERM wait, then disappear after KILL.
+            Result.returncode = 1 if checks["count"] > 32 else 0
+        return Result()
+
+    monkeypatch.setattr(nvme_raid_test.subprocess, "run", fake_run)
+    monkeypatch.setattr(nvme_raid_test.time, "sleep", lambda seconds: None)
+
+    nvme_raid_test.stop_monitor_for_item("/tmp/project", wait_seconds=30)
+
+    assert ["pkill", "-TERM", "-f", monitor_main] in calls
+    assert ["pkill", "-KILL", "-f", monitor_main] in calls

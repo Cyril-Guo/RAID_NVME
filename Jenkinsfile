@@ -794,7 +794,8 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                 python3 ci/junit_to_allure.py
                 '''
 
-                junit testResults: 'report_*.xml', allowEmptyResults: true
+                // Node-level reports only; skip leftover per-item report_<case>.xml files.
+                junit testResults: 'report_*.*.*.*.xml,report_*_physical.xml', allowEmptyResults: true
 
                 allure(
                     includeProperties: true,
@@ -806,21 +807,30 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                 archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, allure-results/monitor_log_*.tar.gz', allowEmptyArchive: true
 
                 def metricsOutput = sh(script: "python3 ci/report_metrics.py", returnStdout: true).trim()
+                sh 'python3 ci/extract_failure_summary.py --output failure_summary.txt || true'
 
                 def metrics = metricsOutput.split(' ')
                 def total = metrics[0].toInteger()
                 def failed = metrics[1].toInteger()
                 def errors = metrics[2].toInteger()
                 def skipped = metrics[3].toInteger()
+                def reportKind = metrics.size() > 4 ? metrics[4] : 'tests'
+                def hasFailureSummary = fileExists('failure_summary.txt') && readFile('failure_summary.txt').trim()
 
                 def startStr = new Date(currentBuild.startTimeInMillis).format('yyyy-MM-dd HH:mm:ss')
                 def endStr = new Date().format('yyyy-MM-dd HH:mm:ss')
                 def ipListStr = targetIPs.join(', ')
                 def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'
                 def testAttempted = (env.TEST_EXECUTION_ATTEMPTED == 'true')
-                if (total == 0) {
+                if (total == 0 && !hasFailureSummary) {
                     echo "Skip Feishu notification: no reportable test or environment prepare result was generated in this build. testAttempted=${testAttempted}, result=${buildResult}"
                     return
+                }
+                if (total == 0 && hasFailureSummary) {
+                    reportKind = 'infra'
+                    total = 1
+                    errors = Math.max(errors, 1)
+                    echo "Feishu notification will use infra failure summary because no countable test results were generated."
                 }
                 if (!raidCliCommit || raidCliCommit == 'unknown') {
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
@@ -840,6 +850,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                     "FAILED=${failed}",
                     "ERRORS=${errors}",
                     "SKIPPED=${skipped}",
+                    "REPORT_KIND=${reportKind}",
                     "BUILD_RESULT=${buildResult}",
                     "START_STR=${startStr}",
                     "END_STR=${endStr}",

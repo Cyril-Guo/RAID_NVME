@@ -268,6 +268,36 @@ def test_create_raid5_vds_retries_with_smaller_size_after_allocation_failure(mon
     ] * 4
 
 
+def test_create_raid5_vds_stops_when_retry_size_would_become_non_positive(monkeypatch):
+    group = [
+        NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("1"), did=i)
+        for i in range(6)
+    ]
+
+    def fake_run_cmd(cmd, log, check=True, shell=False):
+        class Result:
+            stdout = ""
+            returncode = 0
+
+        result = Result()
+        if cmd == ["dpraid", "/c0/vall", "show"]:
+            result.stdout = ""
+        elif cmd[:4] == ["dpraid", "/c0", "add", "vd"]:
+            result.stdout = "DriveGroup: Cannot allocate memory\n"
+            result.returncode = 255
+        return result
+
+    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(basic_io_common, "VD_SIZE_RESERVE_PERCENT", Decimal("0"))
+    monkeypatch.setattr(basic_io_common, "VD_SIZE_RETRY_STEP_PERCENT", Decimal("100"))
+
+    try:
+        create_raid5_vds([group], CommandLog())
+        raise AssertionError("expected non-positive retry size to fail")
+    except AssertionError as exc:
+        assert "next Size would be" in str(exc)
+
+
 def test_parse_dpraid_show_for_existing_vds_and_pds():
     vd_output = """
 DG/VD  State  Consist TYPE

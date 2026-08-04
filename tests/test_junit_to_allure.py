@@ -7,7 +7,7 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
-    (tmp_path / "report_lawdisk.xml").write_text(
+    (tmp_path / "report_192.168.22.134.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
   <testcase classname="test_items.test_smoke_03_lawdisk" name="test_lawdiskstress" />
@@ -36,7 +36,7 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
     results = list(allure_dir.glob("*-result.json"))
     assert len(results) == 1
     result = json.loads(results[0].read_text(encoding="utf-8"))
-    assert result["name"] == "test_lawdiskstress"
+    assert result["name"] == "[QEMU 192.168.22.134] test_lawdiskstress"
     assert result["attachments"][0]["source"] == "monitor_log_lawdisk.tar.gz"
 
     assert junit_to_allure.main() == 0
@@ -98,6 +98,42 @@ def test_junit_to_allure_does_not_count_successful_environment_prepare_as_test(t
     allure_dir.mkdir()
     (tmp_path / "environment_prepare_192.168.22.134.log").write_text(
         "driver loaded\nENVIRONMENT_PREPARE_STATUS=passed\n",
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+    assert list(allure_dir.glob("*-result.json")) == []
+
+
+def test_junit_to_allure_generates_physical_restore_result(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "environment_prepare_192.168.22.134_physical.log").write_text(
+        "ENVIRONMENT_PREPARE_STATUS=passed\n"
+        "restore physical host RAID state failed\n"
+        "PHYSICAL_RESTORE_STATUS=failed\n",
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+
+    results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    restore = next(result for result in results if result["name"] == "Physical_Restore_192.168.22.134_physical")
+    assert restore["status"] == "broken"
+    assert restore["labels"][0] == {"name": "suite", "value": "Physical_Restore"}
+    assert {"name": "host", "value": "192.168.22.134"} in restore["labels"]
+
+
+def test_junit_to_allure_skips_per_item_junit_reports(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "report_lawdisk.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="test_items.test_smoke_03_lawdisk" name="test_lawdiskstress" />
+</testsuite>
+""",
         encoding="utf-8",
     )
 

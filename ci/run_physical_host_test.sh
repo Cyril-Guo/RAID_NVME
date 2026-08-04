@@ -98,8 +98,29 @@ NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" REMOTE_DIR="${host_remote_dir}
 test_status=$?
 set -e
 
-run_control_step "restore physical host RAID state after physical host test" bash -c '
-    ${host_ssh} "cd ${host_remote_dir} && chmod +x ci/restore_physical_raid_state.sh && NODE_IP=${NODE_IP} ci/restore_physical_raid_state.sh"
-'
+echo "[${NODE_IP}] restore physical host RAID state after physical host test"
+set +e
+timeout --kill-after=60s "${CONTROL_STEP_TIMEOUT_MINUTES}m" \
+    ${host_ssh} "cd ${host_remote_dir} && chmod +x ci/restore_physical_raid_state.sh && NODE_IP=${NODE_IP} ci/restore_physical_raid_state.sh" \
+    2>&1 | tee -a "${host_log}"
+restore_status=${PIPESTATUS[0]}
+set -e
+if [ "${restore_status}" -eq 124 ] || [ "${restore_status}" -eq 137 ]; then
+    printf '%s\n' 'PHYSICAL_RESTORE_STATUS=failed' >> "${host_log}"
+    echo "[${NODE_IP}] ERROR: restore physical host RAID state timed out after ${CONTROL_STEP_TIMEOUT_MINUTES} minutes"
+    if [ "${test_status}" -eq 0 ]; then
+        exit 124
+    fi
+    exit "${test_status}"
+fi
+if [ "${restore_status}" -ne 0 ]; then
+    printf '%s\n' 'PHYSICAL_RESTORE_STATUS=failed' >> "${host_log}"
+    echo "[${NODE_IP}] ERROR: restore physical host RAID state failed"
+    if [ "${test_status}" -eq 0 ]; then
+        exit "${restore_status}"
+    fi
+    exit "${test_status}"
+fi
+printf '%s\n' 'PHYSICAL_RESTORE_STATUS=passed' >> "${host_log}"
 
 exit "${test_status}"

@@ -444,6 +444,11 @@ def create_raid5_vds(groups, log):
                 )
             step = max(1, (size_gb * int(VD_SIZE_RETRY_STEP_PERCENT) // 100))
             next_size_gb = size_gb - step
+            if next_size_gb <= 0:
+                raise AssertionError(
+                    f"Cannot create RAID5 VDs: next Size would be {next_size_gb}GB after allocation failure: "
+                    f"drives={expr}, last Size={size_gb}GB"
+                )
             log.write(
                 f"Retry RAID5 VD creation with smaller size after allocation failure: "
                 f"drives={expr}, {size_gb}GB -> {next_size_gb}GB"

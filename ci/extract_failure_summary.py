@@ -15,7 +15,10 @@ FAILURE_PATTERNS = (
 BENIGN_PATTERNS = (
     re.compile(r"\b0\s+(?:failed|failure|errors?)\b", re.IGNORECASE),
     re.compile(r"\b(?:failed|failure|errors?)\s*[=:]\s*0\b", re.IGNORECASE),
-    re.compile(r"^(?:TEST_EXECUTION|ENVIRONMENT_PREPARE)_STATUS=", re.IGNORECASE),
+    re.compile(
+        r"^(?:TEST_EXECUTION|ENVIRONMENT_PREPARE|PHYSICAL_RESTORE)_STATUS=",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -54,8 +57,16 @@ def extract_failure_lines(text, limit=8):
 
 
 def junit_failure_lines(paths=None):
+    try:
+        from ci.report_metrics import is_node_junit_report
+    except ModuleNotFoundError:
+        from report_metrics import is_node_junit_report
+
     lines = []
-    for path in sorted(paths or glob.glob("report_*.xml")):
+    candidates = paths or [
+        path for path in glob.glob("report_*.xml") if is_node_junit_report(path)
+    ]
+    for path in sorted(candidates):
         try:
             root = ET.parse(path).getroot()
         except (OSError, ET.ParseError):

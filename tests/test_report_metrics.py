@@ -27,6 +27,7 @@ def test_report_metrics_counts_testcase_nodes_when_testsuites_root_is_zero(tmp_p
         "failures": 1,
         "errors": 1,
         "skipped": 0,
+        "kind": "tests",
     }
 
 
@@ -45,4 +46,105 @@ def test_report_metrics_falls_back_to_allure_results(tmp_path, monkeypatch):
         "failures": 1,
         "errors": 1,
         "skipped": 1,
+        "kind": "tests",
+    }
+
+
+def test_report_metrics_marks_environment_prepare_as_infra(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (allure_dir / "env-result.json").write_text(
+        json.dumps(
+            {
+                "name": "Environment_Prepare_192.168.22.125",
+                "status": "broken",
+                "labels": [{"name": "suite", "value": "Environment_Prepare"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert report_metrics.report_metrics() == {
+        "tests": 1,
+        "failures": 0,
+        "errors": 1,
+        "skipped": 0,
+        "kind": "infra",
+    }
+
+
+def test_main_prints_kind(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (allure_dir / "exec-result.json").write_text(
+        json.dumps(
+            {
+                "name": "Test_Execution_QEMU_192.168.22.134",
+                "status": "broken",
+                "labels": [{"name": "suite", "value": "Test_Execution"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert report_metrics.main() == 0
+    assert capsys.readouterr().out.strip() == "1 0 1 0 infra"
+
+
+def test_report_metrics_skips_per_item_junit_files(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "report_lawdisk.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="x" name="a"><failure message="x">y</failure></testcase>
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="x" name="b" />
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+
+    assert report_metrics.report_metrics() == {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "kind": "tests",
+    }
+
+
+def test_report_metrics_includes_infra_allure_alongside_junit(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="x" name="a" />
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (allure_dir / "restore-result.json").write_text(
+        json.dumps(
+            {
+                "name": "Physical_Restore_192.168.22.134_physical",
+                "status": "broken",
+                "labels": [{"name": "suite", "value": "Physical_Restore"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert report_metrics.report_metrics() == {
+        "tests": 2,
+        "failures": 0,
+        "errors": 1,
+        "skipped": 0,
+        "kind": "tests",
     }
