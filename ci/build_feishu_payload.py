@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import os
+from urllib.parse import quote
 
 
 def env(name, default=""):
@@ -25,6 +26,35 @@ def load_failure_summary(path="failure_summary.txt", max_length=1800):
     return summary
 
 
+def kernel_driver_web_base():
+    configured = env("KERNEL_DRIVER_WEB_URL").rstrip("/")
+    if configured:
+        return configured
+    api = env("KERNEL_DRIVER_GITLAB_API", "http://192.168.21.185:8081/api/v4").rstrip("/")
+    if api.endswith("/api/v4"):
+        return f"{api[: -len('/api/v4')]}/raid_max/kernel_driver"
+    return "http://192.168.21.185:8081/raid_max/kernel_driver"
+
+
+def kernel_driver_code_url():
+    """Prefer MR page; otherwise open the tested branch/commit in GitLab."""
+    mr_url = env("KERNEL_DRIVER_MR_URL").strip()
+    if mr_url:
+        return mr_url
+
+    base = kernel_driver_web_base()
+    commit = env("KERNEL_DRIVER_COMMIT", "").strip()
+    if commit and commit.lower() != "unknown":
+        return f"{base}/-/commit/{commit}"
+
+    ref = (
+        env("KERNEL_DRIVER_REF")
+        or env("KERNEL_DRIVER_BRANCH")
+        or "main"
+    ).strip()
+    return f"{base}/-/tree/{quote(ref, safe='/_-.')}"
+
+
 def main():
     total = int(env("TOTAL", "0"))
     report_kind = env("REPORT_KIND", "tests").strip().lower() or "tests"
@@ -45,9 +75,6 @@ def main():
     skipped = int(env("SKIPPED", "0"))
     if total == 1 and failed == 0 and errors == 0 and report_kind == "infra":
         errors = 1
-    passed = max(0, total - failed - errors - skipped)
-    exec_rate = f"{((total - skipped) / total * 100):.2f}%" if total > 0 else "0%"
-    pass_rate = f"{(passed / total * 100):.1f}%" if total > 0 else "0%"
     build_result = env("BUILD_RESULT", "SUCCESS").upper()
     build_failed = build_result not in ("", "SUCCESS")
     infra_report = report_kind == "infra"
@@ -70,6 +97,7 @@ def main():
     build_url = env("BUILD_URL", "").rstrip("/") + ("/" if env("BUILD_URL") else "")
     build_label = f"{job_name} #{build_number}"
     title_suffix = " [环境/执行失败]" if infra_report else ""
+    code_url = kernel_driver_code_url()
 
     actions = [{
         "tag": "button",
@@ -77,33 +105,13 @@ def main():
         "url": f"{build_url}allure/" if build_url else "about:blank",
         "type": "primary",
     }]
-    if build_url:
+    if code_url:
         actions.append({
             "tag": "button",
-            "text": {"tag": "plain_text", "content": "查看构建"},
-            "url": build_url,
+            "text": {"tag": "plain_text", "content": "查看MR"},
+            "url": code_url,
             "type": "default",
         })
-    if env("KERNEL_DRIVER_MR_URL"):
-        actions.append({
-            "tag": "button",
-            "text": {"tag": "plain_text", "content": "查看 MR"},
-            "url": env("KERNEL_DRIVER_MR_URL"),
-            "type": "default",
-        })
-
-    report_type = (
-        "环境准备/远端执行失败（无测试用例结果，附失败日志）"
-        if infra_report
-        else "测试用例结果"
-    )
-    stats_text = (
-        f"报告类型: **{report_type}**\n"
-        f"通过 **{passed}**  失败 **{failed}**  错误 **{errors}**  Total: **{total}**\n"
-        f"执行率: {exec_rate}   通过率: <font color=\"{font_color}\">{pass_rate}</font>"
-    )
-    if infra_report:
-        stats_text += "\n说明: 本次未产生有效 pytest 用例结果，以下为环境准备或远端执行失败摘要。"
 
     elements = [
         {
@@ -120,31 +128,8 @@ def main():
                 {"is_short": False, "text": {"tag": "lark_md", "content": f"**并发节点:**\n{env('IP_LIST')}"}},
             ],
         },
-        {
-            "tag": "div",
-            "text": {
-                "tag": "lark_md",
-                "content": stats_text,
-            },
-        },
+        {"tag": "action", "actions": actions},
     ]
-    if failure_summary:
-        elements.append({
-            "tag": "div",
-            "text": {
-                "tag": "lark_md",
-                "content": f"**失败摘要:**\n{failure_summary}",
-            },
-        })
-    elif infra_report:
-        elements.append({
-            "tag": "div",
-            "text": {
-                "tag": "lark_md",
-                "content": "**失败摘要:**\n- 未提取到明细，请打开构建日志 / Allure 附件查看 environment_prepare 或 test_execution 日志",
-            },
-        })
-    elements.append({"tag": "action", "actions": actions})
 
     payload = {
         "msg_type": "interactive",

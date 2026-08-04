@@ -31,6 +31,7 @@ def test_failed_build_result_marks_feishu_card_failed(tmp_path, monkeypatch):
         "END_STR": "2026-07-24 17:17:59",
         "IP_LIST": "192.168.22.134",
         "TRIGGER_SOURCE": "Manual MR Build (Simulate Auto MR)",
+        "KERNEL_DRIVER_REF": "led_develop",
         "KERNEL_DRIVER_COMMIT": "86245fc34",
         "RAID_CLI_COMMIT": "cb0cdc7",
         "JOB_NAME": "SMOKE",
@@ -50,17 +51,21 @@ def test_failed_build_result_marks_feishu_card_failed(tmp_path, monkeypatch):
     assert "SMOKE #17010" in field_text
     assert "构建链接" in field_text
     assert "http://jenkins/job/SMOKE/17010/" in field_text
+    assert "并发节点" in field_text
     assert any("构建状态" in field["text"]["content"] for field in fields)
     assert any("FAILURE" in field["text"]["content"] for field in fields)
-    assert "报告类型: **测试用例结果**" in payload["card"]["elements"][1]["text"]["content"]
-    assert "通过 **2**  失败 **0**  错误 **0**  Total: **2**" in payload["card"]["elements"][1]["text"]["content"]
+    assert len(payload["card"]["elements"]) == 2
+    body = "\n".join(str(element) for element in payload["card"]["elements"])
+    assert "报告类型" not in body
+    assert "失败摘要" not in body
+    assert "通过 **" not in body
     actions = payload["card"]["elements"][-1]["actions"]
-    assert [action["text"]["content"] for action in actions] == ["查看报告", "查看构建"]
+    assert [action["text"]["content"] for action in actions] == ["查看报告", "查看MR"]
     assert actions[0]["url"] == "http://jenkins/job/SMOKE/17010/allure/"
-    assert actions[1]["url"] == "http://jenkins/job/SMOKE/17010/"
+    assert actions[1]["url"] == "http://192.168.21.185:8081/raid_max/kernel_driver/-/commit/86245fc34"
 
 
-def test_infra_failure_card_is_labeled_and_includes_summary(tmp_path, monkeypatch):
+def test_infra_failure_card_omits_summary_and_links_mr(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "failure_summary.txt").write_text(
         "- environment_prepare_192.168.22.125.log: ERROR: QEMU VM startup failed\n",
@@ -78,6 +83,7 @@ def test_infra_failure_card_is_labeled_and_includes_summary(tmp_path, monkeypatc
         "IP_LIST": "192.168.22.125, 192.168.22.134",
         "TRIGGER_SOURCE": "kernel_driver Merge Request",
         "KERNEL_DRIVER_COMMIT": "daed195f3",
+        "KERNEL_DRIVER_MR_URL": "http://192.168.21.185:8081/raid_max/kernel_driver/-/merge_requests/141",
         "JOB_NAME": "SMOKE",
         "BUILD_NUMBER": "17010",
         "BUILD_URL": "http://jenkins/job/SMOKE/17010/",
@@ -90,7 +96,9 @@ def test_infra_failure_card_is_labeled_and_includes_summary(tmp_path, monkeypatc
     assert payload["card"]["header"]["title"]["content"] == "NVMe_RAID(F6501) SMOKE #17010 [环境/执行失败]"
     assert payload["card"]["header"]["template"] == "red"
     body = "\n".join(str(element) for element in payload["card"]["elements"])
-    assert "环境准备/远端执行失败" in body
-    assert "未产生有效 pytest 用例结果" in body
-    assert "失败摘要" in body
-    assert "QEMU VM startup failed" in body
+    assert "环境准备/远端执行失败" not in body
+    assert "失败摘要" not in body
+    assert "QEMU VM startup failed" not in body
+    actions = payload["card"]["elements"][-1]["actions"]
+    assert [action["text"]["content"] for action in actions] == ["查看报告", "查看MR"]
+    assert actions[1]["url"] == "http://192.168.21.185:8081/raid_max/kernel_driver/-/merge_requests/141"

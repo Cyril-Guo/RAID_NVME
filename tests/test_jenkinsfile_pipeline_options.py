@@ -68,7 +68,10 @@ def test_failure_logs_are_added_to_allure_and_feishu_report():
     assert "write_failed_execution_results" in source
     assert "python3 ci/extract_failure_summary.py --output failure_summary.txt" in jenkinsfile
     assert "failure_summary.txt" in jenkinsfile
-    assert "失败摘要" in Path("ci/build_feishu_payload.py").read_text(encoding="utf-8")
+    feishu = Path("ci/build_feishu_payload.py").read_text(encoding="utf-8")
+    assert "查看MR" in feishu
+    assert "失败摘要" not in feishu
+    assert "报告类型" not in feishu
 
 
 def test_manual_mr_iid_reruns_merge_request():
