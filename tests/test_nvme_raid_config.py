@@ -44,10 +44,15 @@ def test_discover_test_items_rejects_duplicate_names(tmp_path):
 
 def test_repository_test_items_file_is_valid():
     config = Path(__file__).resolve().parents[1] / "test_items.txt"
+    text = config.read_text(encoding="utf-8")
 
     selected, params = parse_items_file(config)
 
     assert selected == []
+    assert "BEGIN SELECTION" in text
+    assert "END SELECTION" in text
+    for name in ("reboot", "dc", "lawdisk", "filesystem", "mix"):
+        assert f"# {name}" in text
     assert "defaults" not in params
     assert "lawdisk" in params
     assert params["lawdisk"]["STRESS_MONITOR"] == "yes"
@@ -63,16 +68,56 @@ def test_main_prints_item_boundaries():
 
     assert "[ITEM_START] {item}" in source
     assert "[ITEM_END] {item} exit_code={exit_code}" in source
+    assert "sync_selection_list" in source
     assert "[defaults]" not in Path("test_items.txt").read_text(encoding="utf-8")
+
+
+def test_sync_selection_lists_all_discovered_items(tmp_path):
+    config = tmp_path / "test_items.txt"
+    config.write_text(
+        """
+# header
+# === BEGIN SELECTION (auto-synced; uncomment a line to run) ===
+lawdisk
+# mix
+# === END SELECTION ===
+
+[lawdisk]
+IGNORE_ERROR = no
+
+[mix]
+IGNORE_ERROR = no
+""",
+        encoding="utf-8",
+        newline="\n",
+    )
+    catalog = {
+        "reboot": "test_items/test_smoke_01_reboot.py",
+        "dc": "test_items/test_smoke_02_dc.py",
+        "lawdisk": "test_items/test_smoke_03_lawdisk.py",
+        "filesystem": "test_items/test_smoke_04_filesystem.py",
+        "mix": "test_items/test_smoke_05_mix.py",
+    }
+
+    assert nvme_raid_test.sync_selection_list(str(config), catalog) is True
+    text = config.read_text(encoding="utf-8")
+    selected, _params = parse_items_file(config)
+
+    assert selected == ["lawdisk"]
+    assert "lawdisk\n" in text or "lawdisk\r\n" in text
+    for name in ("reboot", "dc", "filesystem", "mix"):
+        assert f"# {name}" in text
 
 
 def test_parse_whitelist_controls_enabled_items_with_per_case_params(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
         """
-# comment
+# === BEGIN SELECTION (auto-synced; uncomment a line to run) ===
+# reboot
 dc
 mix
+# === END SELECTION ===
 
 [dc]
 FIO_CYCLES = 3
@@ -97,9 +142,11 @@ def test_parse_preserves_whitelist_order(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
         """
+# === BEGIN SELECTION (auto-synced; uncomment a line to run) ===
 mix
 lawdisk
 reboot
+# === END SELECTION ===
 
 [mix]
 IGNORE_ERROR = no
@@ -140,6 +187,7 @@ def test_main_stops_after_first_failed_item(monkeypatch):
     executed = []
     merged_calls = []
 
+    monkeypatch.setattr(nvme_raid_test, "sync_selection_list", lambda path, catalog: False)
     monkeypatch.setattr(
         nvme_raid_test,
         "parse_items_file",
@@ -165,7 +213,7 @@ def test_main_stops_after_first_failed_item(monkeypatch):
     )
 
     with pytest.raises(SystemExit) as exc:
-        nvme_raid_test.main()
+        nvme_raid_test.main([])
 
     assert exc.value.code == 1
     assert executed == ["lawdisk"]
@@ -175,6 +223,7 @@ def test_main_stops_after_first_failed_item(monkeypatch):
 def test_main_uses_whitelist_order_not_discovery_order(monkeypatch):
     executed = []
 
+    monkeypatch.setattr(nvme_raid_test, "sync_selection_list", lambda path, catalog: False)
     monkeypatch.setattr(
         nvme_raid_test,
         "parse_items_file",
@@ -196,7 +245,7 @@ def test_main_uses_whitelist_order_not_discovery_order(monkeypatch):
     monkeypatch.setattr(nvme_raid_test, "merge_junit_reports", lambda items, out_path: None)
 
     with pytest.raises(SystemExit) as exc:
-        nvme_raid_test.main()
+        nvme_raid_test.main([])
 
     assert exc.value.code == 0
     assert executed == ["mix", "lawdisk"]

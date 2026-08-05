@@ -1,25 +1,32 @@
 # ============================================================
-# Test selection (whitelist)
+# Test selection
 # ------------------------------------------------------------
-# Put one item name per line ABOVE the first [section].
-# Run order = writing order. Lines starting with # are comments.
-# Empty list = run nothing (safe default for destructive tests).
+# The BEGIN/END SELECTION block is auto-synced from test_items/test_*.py
+# whenever nvme_raid_test.py runs (or: python nvme_raid_test.py --sync-selection).
+#
+# Uncomment a line to run that case. Writing order among uncommented lines
+# is the run order. All discovered cases stay listed for easy toggle.
 #
 # Example — run only lawdisk:
-#   lawdisk
+#   uncomment "lawdisk", keep the others commented.
 #
-# Available names are auto-discovered from test_items/test_*.py
+# Naming:
 #   test_smoke_03_lawdisk.py  ->  lawdisk
 #   test_foo.py               ->  foo
 #
-# To add a new case later:
+# To add a new case:
 #   1. Add test_items/test_<name>.py (or test_smoke_NN_<name>.py)
-#   2. Add "<name>" to this whitelist when you want to run it
-#   3. Add a [<name>] block below with that case's own params
+#   2. Run sync (or any test run) — the new name appears below as "# <name>"
+#   3. Uncomment it to enable; add a [<name>] param block if needed
 # ============================================================
 
+# === BEGIN SELECTION (auto-synced; uncomment a line to run) ===
+# reboot
+# dc
 # lawdisk
+# filesystem
 # mix
+# === END SELECTION ===
 
 
 # ============================================================

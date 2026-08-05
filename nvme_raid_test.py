@@ -69,16 +69,147 @@ def discover_test_items(items_dir=None):
 
 TEST_ITEMS = discover_test_items()
 
+SELECTION_BEGIN = "# === BEGIN SELECTION (auto-synced; uncomment a line to run) ==="
+SELECTION_END = "# === END SELECTION ==="
+
+
+def _selection_entry_name(line):
+    """Return item name from a whitelist line, or None if not an entry."""
+    text = line.strip()
+    if not text:
+        return None
+    commented = False
+    if text.startswith("#"):
+        text = text[1:].strip()
+        commented = True
+        if not text or text.startswith("=") or text.startswith("To ") or text.startswith("Available"):
+            return None
+        # Ignore other documentation comments that are not bare item names.
+        if " " in text or text.startswith("["):
+            return None
+    if text.startswith("[") and text.endswith("]"):
+        return None
+    if "=" in text:
+        key, value = [part.strip() for part in text.split("=", 1)]
+        if value.lower() in ("yes", "y", "true", "1", "on", "no", "n", "false", "0", "off", ""):
+            return key.lower()
+        return None
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", text):
+        return text.lower()
+    return None
+
+
+def read_enabled_selection(path):
+    """Enabled item names from the selection block, in file order."""
+    selected = []
+    if not os.path.exists(path):
+        return selected
+
+    in_block = False
+    saw_marker = False
+    with open(path, "r", encoding="utf-8") as handle:
+        for raw in handle:
+            stripped = raw.strip()
+            if stripped.startswith("# === BEGIN SELECTION"):
+                in_block = True
+                saw_marker = True
+                continue
+            if stripped.startswith("# === END SELECTION"):
+                break
+
+            if saw_marker:
+                if not in_block or not stripped or stripped.startswith("#"):
+                    continue
+                name = _selection_entry_name(raw)
+                if name:
+                    selected.append(name)
+                continue
+
+            # Legacy fallback: uncommented names before the first [section].
+            if stripped.startswith("[") and stripped.endswith("]"):
+                break
+            if not stripped or stripped.startswith("#"):
+                continue
+            name = _selection_entry_name(raw)
+            if name:
+                selected.append(name)
+    return selected
+
+
+def sync_selection_list(path, catalog):
+    """Rewrite selection block so every discovered item is listed for easy toggle.
+
+    Currently enabled names stay uncommented; new/unknown disabled names become '# name'.
+    Returns True when the file content changed.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
+
+    with open(path, "r", encoding="utf-8") as handle:
+        original = handle.read()
+        lines = original.splitlines(keepends=True)
+
+    enabled = set(read_enabled_selection(path))
+    enabled &= set(catalog)
+
+    begin_idx = end_idx = section_idx = None
+    for idx, raw in enumerate(lines):
+        stripped = raw.strip()
+        if begin_idx is None and stripped.startswith("# === BEGIN SELECTION"):
+            begin_idx = idx
+            continue
+        if begin_idx is not None and end_idx is None and stripped.startswith("# === END SELECTION"):
+            end_idx = idx
+            break
+        if section_idx is None and stripped.startswith("[") and stripped.endswith("]"):
+            section_idx = idx
+            if begin_idx is None:
+                break
+
+    selection_lines = [SELECTION_BEGIN + "\n"]
+    for name in catalog:
+        if name in enabled:
+            selection_lines.append(f"{name}\n")
+        else:
+            selection_lines.append(f"# {name}\n")
+    selection_lines.append(SELECTION_END + "\n")
+
+    if begin_idx is not None and end_idx is not None and end_idx > begin_idx:
+        new_lines = lines[:begin_idx] + selection_lines + lines[end_idx + 1 :]
+    elif section_idx is not None:
+        # Insert synced block just before the first parameter section.
+        # Drop legacy bare/commented item lines immediately above that section.
+        insert_at = section_idx
+        while insert_at > 0:
+            prev = lines[insert_at - 1].strip()
+            if not prev:
+                insert_at -= 1
+                continue
+            if _selection_entry_name(lines[insert_at - 1]) is not None:
+                insert_at -= 1
+                continue
+            break
+        new_lines = lines[:insert_at] + ["\n"] + selection_lines + ["\n"] + lines[section_idx:]
+    else:
+        new_lines = lines + ["\n"] + selection_lines
+
+    updated = "".join(new_lines)
+    if updated == original:
+        return False
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(updated)
+    return True
+
 
 def parse_items_file(path):
     """Parse whitelist + per-item parameter blocks.
 
-    Lines before the first [section] are the run list (one item name per line).
-    Empty whitelist means run nothing. Each [item] block holds only that case's params.
+    Selection comes from the auto-synced BEGIN/END SELECTION block
+    (uncommented names). Each [item] block holds only that case's params.
     """
-    selected = []
+    selected = read_enabled_selection(path)
     params_map = {}
-    current = None  # None = whitelist mode
+    current = None
 
     if not os.path.exists(path):
         print(f"[ERROR] Missing config file: {path}")
@@ -94,18 +225,8 @@ def parse_items_file(path):
                 if current:
                     params_map.setdefault(current, {})
                 continue
-
             if current is None:
-                # Whitelist entry: bare name, or "name = yes" for accidental old style.
-                if "=" in line:
-                    key, value = [part.strip() for part in line.split("=", 1)]
-                    enabled = value.lower() in ("yes", "y", "true", "1", "on")
-                    if enabled:
-                        selected.append(key.lower())
-                else:
-                    selected.append(line.lower())
                 continue
-
             if "=" not in line:
                 continue
             key, value = [part.strip() for part in line.split("=", 1)]
@@ -297,10 +418,20 @@ def add_allure_monitor_archive(item, base_dir):
     attach_monitor_archive_to_result(item, base_dir, archive_name)
 
 
-def main():
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
     base_dir = os.path.dirname(os.path.abspath(__file__))
     items_path = os.path.join(base_dir, ITEMS_FILE)
     test_items = discover_test_items(os.path.join(base_dir, ITEMS_DIR))
+
+    sync_only = "--sync-selection" in argv
+    changed = sync_selection_list(items_path, test_items)
+    if changed:
+        print(f"[SYNC] Updated selection list in {ITEMS_FILE}: {list(test_items.keys())}")
+    else:
+        print(f"[SYNC] Selection list already up to date: {list(test_items.keys())}")
+    if sync_only:
+        return 0
 
     selected, params_map = parse_items_file(items_path)
     invalid, missing = validate_selection(selected, test_items=test_items, base_dir=base_dir)
@@ -319,7 +450,10 @@ def main():
 
     if not run_order:
         print(f"[ERROR] No valid test items selected in {ITEMS_FILE}.")
-        print(f"[ERROR] Add item names (one per line) above [defaults]. Available: {list(test_items.keys())}")
+        print(
+            f"[ERROR] Uncomment item names inside BEGIN/END SELECTION. "
+            f"Available: {list(test_items.keys())}"
+        )
         sys.exit(2)
 
     print(f"Selected test items: {run_order}")
@@ -360,4 +494,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--sync-selection" in sys.argv[1:]:
+        sys.exit(main(sys.argv[1:]))
     main()

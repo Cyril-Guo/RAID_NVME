@@ -62,35 +62,28 @@ RAID_NVME/
 
 编辑项目根目录中的 `test_items.txt`：
 
-1. **白名单**（文件顶部、第一个 `[section]` 之前）：一行一个要跑的用例名，书写顺序即执行顺序。带 `#` 的行是注释，不跑。
-2. **`[用例名]` 参数块**：每个用例自己的参数，只写该用例会用到的键；**没有公共 defaults**。
-
-用例文件放在 `test_items/`，按文件名自动发现，**不必**再改 Python 注册表：
-
-- `test_smoke_03_lawdisk.py` → `lawdisk`
-- `test_foo.py` → `foo`
+1. **`BEGIN/END SELECTION` 块**：列出**全部**已发现用例。`# name` = 不跑；去掉 `#` = 跑。  
+   该列表会在运行 `nvme_raid_test.py` 时按 `test_items/test_*.py` **自动同步**（也可手动  
+   `python nvme_raid_test.py --sync-selection`）。新增用例文件后会出现新的 `# <name>` 行。
+2. **`[用例名]` 参数块**：每个用例自己的参数，只写该用例会用到的键。
 
 ```text
-# 只跑 lawdisk：取消下面这一行的注释即可
+# === BEGIN SELECTION (auto-synced; uncomment a line to run) ===
+# reboot
+# dc
 lawdisk
+# filesystem
 # mix
+# === END SELECTION ===
 
 [lawdisk]
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = yes
 MONITOR_RUNTIME = 1000
-
-[mix]
-IGNORE_ERROR    = no
-FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME =
 ```
 
-注意：下面的 `[lawdisk]` / `[mix]` 只是参数配置，**不决定是否执行**；是否执行只看顶部白名单有没有写名字。
-
-新增用例：放入 `test_items/test_<name>.py`，白名单加一行，再补一个 `[name]` 参数块即可。
+上面只跑 `lawdisk`。下方 `[...]` 只是参数，不决定是否执行。
 
 参数含义：
 
