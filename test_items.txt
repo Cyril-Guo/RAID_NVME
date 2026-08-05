@@ -23,9 +23,9 @@
 # === BEGIN SELECTION (auto-synced; uncomment a line to run) ===
 # reboot
 # dc
-# lawdisk
-# filesystem
-# mix
+ lawdisk
+ filesystem
+ mix
 # === END SELECTION ===
 
 
