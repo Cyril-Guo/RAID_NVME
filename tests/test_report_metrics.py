@@ -81,7 +81,7 @@ def test_main_prints_kind(tmp_path, monkeypatch, capsys):
     (allure_dir / "exec-result.json").write_text(
         json.dumps(
             {
-                "name": "Test_Execution_QEMU_192.168.22.134",
+                "name": "Test_Execution_Physical_192.168.22.134",
                 "status": "broken",
                 "labels": [{"name": "suite", "value": "Test_Execution"}],
             }
@@ -153,7 +153,7 @@ def test_report_metrics_includes_infra_allure_alongside_junit(tmp_path, monkeypa
 def test_report_metrics_counts_each_failed_env_log_as_one_item(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "environment_prepare_192.168.22.125.log").write_text(
-        "ERROR: QEMU VM startup failed\nENVIRONMENT_PREPARE_STATUS=failed\n",
+        "ERROR: draid kernel module load failed\nENVIRONMENT_PREPARE_STATUS=failed\n",
         encoding="utf-8",
     )
     (tmp_path / "environment_prepare_192.168.22.134.log").write_text(

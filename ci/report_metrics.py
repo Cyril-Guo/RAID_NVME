@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 
 STAT_KEYS = ("tests", "failures", "errors", "skipped")
 INFRA_SUITES = frozenset({"Environment_Prepare", "Test_Execution", "Physical_Restore"})
-NODE_REPORT_RE = re.compile(r"^report_.+\..+\.xml$|^report_.+_physical\.xml$")
+NODE_REPORT_RE = re.compile(r"^report_.+\..+\.xml$")
 
 
 def empty_stats():
@@ -124,9 +124,8 @@ def _read_text(path):
         return ""
 
 
-def report_has_testcases(target_node, target_kind):
-    suffix = "_physical" if target_kind == "physical" else ""
-    path = f"report_{target_node}{suffix}.xml"
+def report_has_testcases(target_node):
+    path = f"report_{target_node}.xml"
     try:
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):
@@ -152,10 +151,9 @@ def status_log_infra_metrics():
         if "TEST_EXECUTION_STATUS=failed" not in text:
             continue
         stem = os.path.basename(path).removeprefix("test_execution_").removesuffix(".log")
-        target_kind = "physical" if stem.endswith("_physical") else "qemu"
         target_node = stem.removesuffix("_physical")
         # When junit already has cases, that node is counted via tests, not as infra.
-        if report_has_testcases(target_node, target_kind):
+        if report_has_testcases(target_node):
             continue
         stats["tests"] += 1
         stats["errors"] += 1

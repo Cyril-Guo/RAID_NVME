@@ -11,7 +11,6 @@ def raidCliFullCommit = ''
 def raidCliDpraidPath = ''
 def triggerSource = ''
 def shouldRunTests = false
-def useQemuVmTarget = false
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     sh """
@@ -77,13 +76,6 @@ pipeline {
         ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
         TEST_EXECUTION_ATTEMPTED = 'false'
         SSH_OPTS = '-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
-        QEMU_VM_SSH_PORT = '2233'
-        QEMU_VM_SCP_PORT = '2233'
-        QEMU_VM_PASSWORD = '1'
-        QEMU_VM_WORKDIR = '/root/Cyril/qemu'
-        QEMU_VM_START_SCRIPT = './start_vm.sh'
-        QEMU_KERNEL_BUILD_DIR = '/root/Cyril/qemu/general_kernel'
-        QEMU_VFIO_BIND_SCRIPT = './vfio-bind.sh'
 
         KERNEL_DRIVER_REPO = 'git@192.168.21.185:raid_max/kernel_driver.git'
         KERNEL_DRIVER_BRANCH = 'main'
@@ -175,7 +167,6 @@ pipeline {
                         def manualMrIid = (params.MANUAL_MR_IID ?: '').trim()
                         def manualKernelDriverRef = (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()
                         shouldRunTests = true
-                        useQemuVmTarget = false
                         syncRaidCli('manual CI build')
 
                         if (manualMrIid) {
@@ -371,146 +362,17 @@ pipeline {
                             stage("Test on ${ip}") {
                                 def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_${env.BUILD_NUMBER}"
                                 def envPrepareLog = "environment_prepare_${ip}.log"
-                                def qemuVmForNode = useQemuVmTarget
-                                def targetSsh = qemuVmForNode ?
-                                    "sshpass -p '${env.QEMU_VM_PASSWORD}' ssh ${env.SSH_OPTS} -p ${env.QEMU_VM_SSH_PORT} ${env.TARGET_USER}@${ip}" :
-                                    "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
-                                def targetScp = qemuVmForNode ?
-                                    "sshpass -p '${env.QEMU_VM_PASSWORD}' scp ${env.SSH_OPTS} -P ${env.QEMU_VM_SCP_PORT}" :
-                                    "scp ${env.SSH_OPTS}"
-                                def qemuEnv = qemuVmForNode ? '1' : '0'
+                                def targetSsh = "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
+                                def targetScp = "scp ${env.SSH_OPTS}"
 
                                 writeFile file: envPrepareLog, text: "[${ip}] Environment_Prepare started\n"
-
-                                if (qemuVmForNode) {
-                                    echo "[${ip}] reset QEMU VM and host devices before automatic MR test"
-                                    def qemuPreCleanStatus = 0
-                                    try {
-                                        timeout(time: env.ENVIRONMENT_STEP_TIMEOUT_MINUTES.toInteger(), unit: 'MINUTES') {
-                                            qemuPreCleanStatus = sh(
-                                                returnStatus: true,
-                                                script: """#!/bin/bash
-set -o pipefail
-chmod +x ci/qemu_vfio_cleanup.sh
-NODE_IP='${ip}' \\
-TARGET_USER='${env.TARGET_USER}' \\
-SSH_OPTS='${env.SSH_OPTS}' \\
-QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
-QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
-QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
-QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
-BUILD_NUMBER='${env.BUILD_NUMBER}' \\
-CLEANUP_REASON='pre-test cleanup: stop existing QEMU VM and return vfio devices to physical host' \\
-POWER_OFF_QEMU=1 \\
-ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
-"""
-                                            )
-                                        }
-                                    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
-                                        sh "printf '%s\\n%s\\n' '[${ip}] ERROR: QEMU pre-test cleanup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
-                                        error "[${ip}] QEMU pre-test cleanup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes"
-                                    }
-                                    if (qemuPreCleanStatus != 0) {
-                                        sh "printf '%s\\n%s\\n' '[${ip}] ERROR: QEMU pre-test cleanup failed with exit code ${qemuPreCleanStatus}' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
-                                        error "[${ip}] QEMU pre-test cleanup failed with exit code ${qemuPreCleanStatus}"
-                                    }
-
-                                    // Dirty CSD flash (8P/9P) is visible on the physical host after reclaim,
-                                    // before devices are passed through to QEMU.
-                                    echo "[${ip}] clear dirty CSD flash on physical host before QEMU start"
-                                    runTimedEnvironmentStep(ip, 'clear dirty CSD flash on physical host before QEMU start', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
-set -o pipefail
-{
-echo "[${ip}] clear dirty CSD flash on physical host before QEMU start"
-host_ssh="ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
-host_scp="scp ${env.SSH_OPTS}"
-remote_clear_dir="/tmp/jenkins_nvme_${env.BUILD_NUMBER}_flash_clear"
-\${host_ssh} "rm -rf \${remote_clear_dir} && mkdir -p \${remote_clear_dir}"
-chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh
-\${host_scp} ci/clear_8p_csd_flash.sh ci/flash-clear.sh ${env.TARGET_USER}@${ip}:\${remote_clear_dir}/
-\${host_ssh} "cd \${remote_clear_dir} && chmod +x clear_8p_csd_flash.sh flash-clear.sh && NODE_IP=${ip} ./clear_8p_csd_flash.sh"
-} 2>&1 | tee -a ${envPrepareLog}
-""")
-
-                                    echo "[${ip}] start QEMU VM for automatic MR test"
-                                    def qemuStatus = 0
-                                    try {
-                                        timeout(time: env.ENVIRONMENT_STEP_TIMEOUT_MINUTES.toInteger(), unit: 'MINUTES') {
-                                            qemuStatus = sh(
-                                                returnStatus: true,
-                                                script: """#!/bin/bash
-set -o pipefail
-chmod +x ci/qemu_vm_prepare.sh
-NODE_IP='${ip}' \\
-TARGET_USER='${env.TARGET_USER}' \\
-SSH_OPTS='${env.SSH_OPTS}' \\
-QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
-QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
-QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
-QEMU_VM_START_SCRIPT='${env.QEMU_VM_START_SCRIPT}' \\
-QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
-RAID_CLI_DPRAID_PATH_FOR_RUN='${raidCliDpraidPathForRun}' \\
-BUILD_NUMBER='${env.BUILD_NUMBER}' \\
-ci/qemu_vm_prepare.sh 2>&1 | tee -a ${envPrepareLog}
-"""
-                                            )
-                                        }
-                                    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
-                                        sh "printf '%s\\n%s\\n' '[${ip}] ERROR: QEMU VM startup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
-                                        sh(
-                                            returnStatus: true,
-                                            script: """#!/bin/bash
-set -o pipefail
-chmod +x ci/qemu_vfio_cleanup.sh
-NODE_IP='${ip}' \\
-TARGET_USER='${env.TARGET_USER}' \\
-SSH_OPTS='${env.SSH_OPTS}' \\
-QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
-QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
-QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
-QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
-BUILD_NUMBER='${env.BUILD_NUMBER}' \\
-CLEANUP_REASON='QEMU startup timed out before usable VM scene, return vfio devices to physical host' \\
-POWER_OFF_QEMU=1 \\
-ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
-"""
-                                        )
-                                        error "[${ip}] QEMU VM startup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes"
-                                    }
-                                    if (qemuStatus != 0) {
-                                        sh "printf '%s\\n%s\\n' '[${ip}] ERROR: QEMU VM startup failed with exit code ${qemuStatus}' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
-                                        sh(
-                                            returnStatus: true,
-                                            script: """#!/bin/bash
-set -o pipefail
-chmod +x ci/qemu_vfio_cleanup.sh
-NODE_IP='${ip}' \\
-TARGET_USER='${env.TARGET_USER}' \\
-SSH_OPTS='${env.SSH_OPTS}' \\
-QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
-QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
-QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
-QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
-BUILD_NUMBER='${env.BUILD_NUMBER}' \\
-CLEANUP_REASON='QEMU startup failed before usable VM scene, return vfio devices to physical host' \\
-POWER_OFF_QEMU=1 \\
-ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
-"""
-                                        )
-                                        error "[${ip}] QEMU VM startup failed with exit code ${qemuStatus}"
-                                    }
-                                }
 
                                 echo "[${ip}] deploy workspace"
                                 runTimedEnvironmentStep(ip, 'deploy workspace', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail
 {
 echo "[${ip}] deploy workspace"
-if [ '${qemuEnv}' = '1' ]; then
-    ${targetSsh} 'mkdir -p /root/Cyril/Jenkins && find /root/Cyril/Jenkins -maxdepth 1 -type d -name '"'"'jenkins_nvme_*'"'"' -exec rm -rf {} + && mkdir -p ${remoteDir}'
-else
-    ${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
-fi
+${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
 chmod +x ci/deploy_workspace.sh
 NODE_IP='${ip}' \\
 TARGET_USER='${env.TARGET_USER}' \\
@@ -520,16 +382,14 @@ ci/deploy_workspace.sh
 } 2>&1 | tee -a ${envPrepareLog}
 """)
 
-                                if (!qemuVmForNode) {
-                                    echo "[${ip}] clear dirty CSD flash before loading draid"
-                                    runTimedEnvironmentStep(ip, 'clear dirty CSD flash before loading draid', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
+                                echo "[${ip}] clear dirty CSD flash before loading draid"
+                                runTimedEnvironmentStep(ip, 'clear dirty CSD flash before loading draid', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail
 {
 echo "[${ip}] clear dirty CSD flash before loading draid"
 ${targetSsh} 'cd ${remoteDir} && chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh && NODE_IP=${ip} ci/clear_8p_csd_flash.sh'
 } 2>&1 | tee -a ${envPrepareLog}
 """)
-                                }
 
                                 echo "[${ip}] install latest dpraid"
                                 runTimedEnvironmentStep(ip, 'install latest dpraid', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
@@ -559,11 +419,6 @@ TARGET_USER='${env.TARGET_USER}' \\
 SSH_OPTS='${env.SSH_OPTS}' \\
 REMOTE_DIR='${remoteDir}' \\
 BUILD_NUMBER='${env.BUILD_NUMBER}' \\
-QEMU_VM_TARGET='${qemuEnv}' \\
-QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
-QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
-QEMU_VM_SCP_PORT='${env.QEMU_VM_SCP_PORT}' \\
-QEMU_KERNEL_BUILD_DIR='${env.QEMU_KERNEL_BUILD_DIR}' \\
 ci/prepare_draid_driver.sh
 } 2>&1 | tee -a ${envPrepareLog}
 """)
@@ -582,7 +437,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/restore_physical_raid_state.sh && N
 set -o pipefail
 {
 echo "[${ip}] install python dependencies"
-${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEMU_VM_TARGET=${qemuEnv} ci/install_test_dependencies.sh'
+${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && ci/install_test_dependencies.sh'
 } 2>&1 | tee -a ${envPrepareLog}
 """)
                                 sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=passed' >> ${envPrepareLog}"
@@ -604,15 +459,11 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
  REMOTE_SSH_COMMAND="${targetSsh}" \
  REMOTE_SCP_COMMAND="${targetScp}" \
  TEST_IDLE_TIMEOUT_MINUTES='${env.TEST_IDLE_TIMEOUT_MINUTES}' \
- QEMU_VM_TARGET='${qemuEnv}' \
  ALLOW_DESTRUCTIVE_FIO='${env.ALLOW_DESTRUCTIVE_FIO}' \
  ci/run_remote_test_and_collect.sh
  """
                                 )
                                 if (testStatus != 0) {
-                                    if (qemuVmForNode) {
-                                        echo "[${ip}] QEMU test failed; keep VM/vfio devices for failure analysis. Next triggered run will reclaim them in pre-test cleanup."
-                                    }
                                     error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"
                                 }
 
@@ -651,7 +502,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                 '''
 
                 // Node-level reports only; skip leftover per-item report_<case>.xml files.
-                junit testResults: 'report_*.*.*.*.xml,report_*_physical.xml', allowEmptyResults: true
+                junit testResults: 'report_*.*.*.*.xml', allowEmptyResults: true
 
                 allure(
                     includeProperties: true,

@@ -5,16 +5,8 @@ import os
 import sys
 
 
-def target_kind(report_suffix, qemu_target):
-    if report_suffix == "_physical":
-        return "physical"
-    if qemu_target == "1":
-        return "qemu"
-    return "physical"
-
-
 def display_label(kind):
-    return "QEMU" if kind == "qemu" else "Physical"
+    return "Physical"
 
 
 def set_label(labels, name, value):
@@ -85,12 +77,12 @@ def normalize_sidecar(path, allure_dir, node, kind):
 
 def main(argv=None):
     argv = argv or sys.argv[1:]
-    if len(argv) != 4:
-        print("usage: mark_allure_target_context.py <allure_dir> <node_ip> <report_suffix> <qemu_target>")
+    if len(argv) != 2:
+        print("usage: mark_allure_target_context.py <allure_dir> <node_ip>")
         return 2
 
-    allure_dir, node, report_suffix, qemu_target = argv
-    kind = target_kind(report_suffix, qemu_target)
+    allure_dir, node = argv
+    kind = "physical"
     if not os.path.isdir(allure_dir):
         return 0
 

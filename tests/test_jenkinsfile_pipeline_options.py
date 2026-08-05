@@ -16,7 +16,7 @@ def test_apt_get_waits_for_dpkg_lock():
     assert source.count("DPkg::Lock::Timeout=600") >= 4
     assert "apt-get -o DPkg::Lock::Timeout=600 update" in source
     assert "apt-get -o DPkg::Lock::Timeout=600 install -y build-essential" in source
-    assert "apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest" in source
+    assert "apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y \\\n            python3-pip python3-pytest" in source
 
 
 def test_debug_no_feishu_only_skips_notification():
@@ -120,11 +120,8 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
     source = pipeline_sources()
 
     assert "def runTimedEnvironmentStep(" in source
-    assert "timeout(time: env.ENVIRONMENT_STEP_TIMEOUT_MINUTES.toInteger(), unit: 'MINUTES')" in source
-    assert "QEMU pre-test cleanup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes" in source
-    assert "QEMU VM startup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes" in source
+    assert "timeout(time: timeoutMinutes.toInteger(), unit: 'MINUTES')" in source
     for label in [
-        "clear dirty CSD flash on physical host before QEMU start",
         "deploy workspace",
         "clear dirty CSD flash before loading draid",
         "install latest dpraid",
@@ -134,26 +131,9 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
         "collect environment metadata",
     ]:
         assert f"runTimedEnvironmentStep(ip, '{label}'" in source
-    assert "if (!qemuVmForNode)" in source
     assert "ci/clear_8p_csd_flash.sh" in source
     assert "printf 'CLEAR\\n'" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
     assert "is_dirty_csd_size()" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
-    assert "CONTROL_STEP_TIMEOUT_MINUTES=${CONTROL_STEP_TIMEOUT_MINUTES:-15}" in source
-    assert "run_control_step()" in source
-    assert 'timeout --kill-after=60s "${CONTROL_STEP_TIMEOUT_MINUTES}m" env' in source
-    assert "returning NVMe devices to physical host timed out after ${CONTROL_STEP_TIMEOUT_MINUTES} minutes" in source
-    for label in [
-        "clear dirty CSD flash on physical host after reclaim",
-        "deploy workspace for physical host test",
-        "install latest dpraid on physical host",
-        "build and reload draid kernel driver on physical host",
-        "restore RAID state before physical host test",
-        "install python dependencies on physical host",
-        "collect physical host environment metadata",
-    ]:
-        assert f'run_control_step "{label}"' in source
-    assert "restore physical host RAID state after physical host test" not in source
-    assert "PHYSICAL_RESTORE_STATUS=failed" not in Path("ci/run_physical_host_test.sh").read_text(encoding="utf-8")
 
 
 def test_test_idle_watchdog_tracks_non_system_disk_io_progress():
@@ -173,8 +153,7 @@ def test_ci_is_manual_only_without_cron_or_auto_mr_trigger():
     assert "triggers {" not in source
     assert "name: 'SIMULATE_AUTO_MR_TRIGGER'" not in source
     assert "automaticMrTriggered" not in source
-    assert "useQemuVmTarget = false" in source
-    assert "useQemuVmTarget = true" not in source
+    assert "useQemuVmTarget" not in source
     assert "triggerSource = 'kernel_driver Merge Request'" not in source
     assert "merge_requests?state=opened" not in source
     assert "kernel_driver_open_mrs" not in source
@@ -205,79 +184,9 @@ def test_draid_controller_state_check_and_reset_are_disabled():
     assert 'wait_for_all_draid_controllers_online "${expected_controller_ids}"' not in active_lines
 
 
-def test_qemu_vm_installs_sshpass_on_jenkins_server():
+def test_physical_host_installs_full_test_tool_set():
     source = pipeline_sources()
 
-    assert "sshpass is missing on Jenkins server, try to install it automatically." in source
-    assert "sudo apt-get -o DPkg::Lock::Timeout=600 install -y sshpass" in source
-    assert "sudo dnf install -y sshpass" in source
-    assert "sudo yum install -y sshpass" in source
-    assert "sudo zypper install -y sshpass" in source
-
-
-def test_qemu_vm_start_forces_clean_environment_before_start():
-    source = pipeline_sources()
-
-    assert "qemu vm already running" in source
-    assert "pre-test cleanup: stop existing QEMU VM and return vfio devices to physical host" in source
-    assert "QEMU pre-test cleanup failed with exit code" in source
-    assert "QEMU VM is still running before fresh start; try to power it off" in source
-    assert "QEMU VM is still running after pre-test cleanup; refuse to reuse stale VM" in source
-    assert "force stop stale QEMU processes on host" in source
-    assert "force stop stale QEMU process before fresh start" in source
-    assert "QEMU VM is already running, skip vfio bind and ${QEMU_VM_START_SCRIPT}" not in source
-    assert "dpraid_${BUILD_NUMBER}_host_prepare" in source
-    assert "restore physical host RAID state before QEMU handoff" in source
-    assert "\"${QEMU_VM_START_SCRIPT}\"" in source
-    assert "QEMU VM SSH is ready" in source
-
-
-def test_qemu_vm_deploy_cleans_previous_remote_workspaces():
-    source = Path("Jenkinsfile").read_text(encoding="utf-8")
-
-    assert "if [ '${qemuEnv}' = '1' ]; then" in source
-    assert "find /root/Cyril/Jenkins -maxdepth 1 -type d -name" in source
-    assert "jenkins_nvme_*" in source
-    assert "-exec rm -rf {} +" in source
-    assert "${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'" in source
-
-
-def test_qemu_vm_start_fails_fast_when_qemu_process_exits():
-    source = pipeline_sources()
-
-    assert "qemu-system-x86_64.*vm-serial.log" in source
-    assert "QEMU process is not running after ${QEMU_VM_START_SCRIPT}; startup failed before SSH wait" in source
-    assert "QEMU process exited before SSH became ready; stop waiting and fail startup" in source
-    assert "QEMU startup failed before usable VM scene, return vfio devices to physical host" in source
-    assert "QEMU startup timed out before usable VM scene, return vfio devices to physical host" in source
-    assert "POWER_OFF_QEMU=1" in source
-    assert "keep VM/vfio devices for failure analysis" in source
-    assert "Next triggered run will reclaim them in pre-test cleanup" in source
-    assert "fallback unbind vfio NVMe PCI device back to host" in source
-    assert "vfio NVMe devices still bound after cleanup" in source
-
-
-def test_ci_runs_physical_host_path_without_auto_qemu_chain():
-    source = pipeline_sources()
-
-    assert "if (qemuVmForNode && automaticMrTriggered)" not in source
-    assert "Physical Environment_Prepare started after QEMU VM test" in source
-    assert "QEMU_VM_TARGET=0" in source
-    assert "REPORT_SUFFIX='_physical'" in source
-    assert "restore RAID state before test" in source
-    assert "ENVIRONMENT_PREPARE_STATUS=failed" in source
-    assert "ci/salvage_junit_reports.py" in source
-    assert "report_*.*.*.*.xml,report_*_physical.xml" in source
-    assert "dpraid /c0/vall show" in source
-    assert "dpraid /c0/eall/sall show" in source
-    assert 'dpraid "/c0/v${vd}" delete' in source
-    assert 'dpraid "/c0/eall/s${slot}" delete' in source
-
-
-def test_qemu_vm_auto_installs_required_test_tools():
-    source = pipeline_sources()
-
-    assert 'if [ "$qemu_env" = "1" ]; then' in source
     assert "need_test_deps=0" in source
     assert "fix_ubuntu_package_architectures" in source
     assert "dpkg --print-architecture" in source
@@ -294,30 +203,40 @@ def test_qemu_vm_auto_installs_required_test_tools():
     assert "fio nvme-cli pciutils util-linux smartmontools sdparm" in source
     assert "sysstat gawk nmap bc psmisc numactl lsscsi unzip" in source
     assert "xfsprogs parted make gcc g++" in source
-    assert "apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest" in source
+    assert "python3-pip python3-pytest python-is-python3" in source
     assert "for tool in fio nvme lspci findmnt lsblk; do" in source
-    assert "Missing required QEMU VM test tools after auto install" in source
+    assert "Missing required test tools after auto install" in source
 
 
-def test_qemu_vm_builds_draid_against_qemu_host_kernel_tree():
-    source = pipeline_sources()
+def test_run_tests_uses_plain_host_ssh_without_qemu_ports():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
-    assert 'if [ "${QEMU_VM_TARGET}" = "1" ]; then' in source
-    assert "QEMU kernel build dir not found: ${QEMU_KERNEL_BUILD_DIR}" in source
-    assert "Local kernel_driver draid source not found: ${local_draid_src}" in source
-    assert "test -d kernel_driver/drivers/draid && test -f kernel_driver/drivers/draid/Makefile" in source
-    assert 'local_draid_src="kernel_driver/drivers/draid"' in source
-    assert 'tar -czf "${local_archive}" -C "${local_draid_src}" .' in source
-    assert 'host_scp "${local_archive}" "${TARGET_USER}@${NODE_IP}:${host_archive}"' in source
-    assert 'tar -xzf "${host_archive}" -C "${host_build_dir}"' in source
-    assert 'make -C "${QEMU_KERNEL_BUILD_DIR}" M="${host_build_dir}" modules' in source
-    assert "mkdir -p '${REMOTE_DIR}/kernel_driver/drivers/draid'" in source
-    assert 'target_scp "${local_module}"' in source
+    assert 'def targetSsh = "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"' in source
+    assert 'def targetScp = "scp ${env.SSH_OPTS}"' in source
+    assert "sshpass" not in source
+    assert "${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'" in source
+    assert "find /root/Cyril/Jenkins -maxdepth 1 -type d -name" not in source
+    assert "jenkins_nvme_*" not in source
 
 
-def test_qemu_vm_shell_variables_are_escaped_for_groovy():
-    source = pipeline_sources()
+def test_draid_driver_and_test_dependency_steps_target_physical_host_only():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
-    assert 'command -v "$tool"' in source
-    assert 'missing_tools="${missing_tools} ${tool}"' in source
-    assert 'after auto install:${missing_tools}' in source
+    assert "QEMU_VM_TARGET" not in source
+    assert "ci/prepare_draid_driver.sh" in source
+    assert "ci/install_test_dependencies.sh" in source
+
+
+def test_run_remote_test_reports_error_without_qemu_scene_keep_message():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "keep VM/vfio devices for failure analysis" not in source
+    assert "Next triggered run will reclaim them in pre-test cleanup" not in source
+    assert 'error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"' in source
+
+
+def test_junit_glob_only_collects_node_level_reports():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "junit testResults: 'report_*.*.*.*.xml', allowEmptyResults: true" in source
+    assert "report_*_physical.xml" not in source

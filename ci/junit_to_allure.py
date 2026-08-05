@@ -40,23 +40,14 @@ def ensure_dir(path):
 
 def report_context(junit_file):
     base = os.path.basename(junit_file)
-    stem = base.removeprefix("report_").removesuffix(".xml")
-    if stem.endswith("_physical"):
-        node = stem.removesuffix("_physical")
-        if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", node):
-            return node, "physical"
-        return "", ""
+    stem = base.removeprefix("report_").removesuffix(".xml").removesuffix("_physical")
     if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", stem):
-        return stem, "qemu"
+        return stem, "physical"
     return "", ""
 
 
 def context_label(target_kind):
-    if target_kind == "physical":
-        return "Physical"
-    if target_kind == "qemu":
-        return "QEMU"
-    return target_kind or "unknown"
+    return "Physical" if target_kind else "unknown"
 
 
 def result_key(classname, name, target_node="", target_kind=""):
@@ -270,14 +261,12 @@ def write_physical_restore_results(allure_dir, existing_ids):
 
 def execution_log_context(path):
     stem = os.path.basename(path).removeprefix("test_execution_").removesuffix(".log")
-    target_kind = "physical" if stem.endswith("_physical") else "qemu"
     target_node = stem.removesuffix("_physical")
-    return target_node, target_kind
+    return target_node, "physical"
 
 
 def report_has_testcases(target_node, target_kind):
-    suffix = "_physical" if target_kind == "physical" else ""
-    path = f"report_{target_node}{suffix}.xml"
+    path = f"report_{target_node}.xml"
     try:
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):

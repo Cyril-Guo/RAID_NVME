@@ -70,7 +70,7 @@ def test_failed_build_result_marks_feishu_card_failed(tmp_path, monkeypatch):
 def test_infra_failure_card_shows_stats_without_summary(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "failure_summary.txt").write_text(
-        "- environment_prepare_192.168.22.125.log: ERROR: QEMU VM startup failed\n",
+        "- environment_prepare_192.168.22.125.log: ERROR: draid kernel module load failed\n",
         encoding="utf-8",
     )
     for key, value in {
@@ -104,7 +104,7 @@ def test_infra_failure_card_shows_stats_without_summary(tmp_path, monkeypatch):
     body = "\n".join(str(element) for element in payload["card"]["elements"])
     assert "环境准备/远端执行失败" not in body
     assert "失败摘要" not in body
-    assert "QEMU VM startup failed" not in body
+    assert "draid kernel module load failed" not in body
     actions = payload["card"]["elements"][-1]["actions"]
     assert [action["text"]["content"] for action in actions] == ["查看报告", "查看MR"]
     assert actions[1]["url"] == "http://192.168.21.185:8081/raid_max/kernel_driver/-/merge_requests/141"

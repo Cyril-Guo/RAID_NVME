@@ -1,7 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-qemu_env=${QEMU_VM_TARGET:-0}
 need_test_deps=0
 
 fix_ubuntu_package_architectures() {
@@ -37,11 +36,9 @@ APT_NATIVE_ARCH
 }
 
 python3 -c "import pytest" >/dev/null 2>&1 || need_test_deps=1
-if [ "$qemu_env" = "1" ]; then
-    for tool in fio nvme lspci findmnt lsblk; do
-        command -v "$tool" >/dev/null 2>&1 || need_test_deps=1
-    done
-fi
+for tool in fio nvme lspci findmnt lsblk; do
+    command -v "$tool" >/dev/null 2>&1 || need_test_deps=1
+done
 
 if [ "$need_test_deps" = "1" ]; then
     if command -v apt-get >/dev/null 2>&1; then
@@ -56,39 +53,23 @@ if [ "$need_test_deps" = "1" ]; then
             "$@"
         }
         apt_retry apt-get -o DPkg::Lock::Timeout=600 update
-        if [ "$qemu_env" = "1" ]; then
-            apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y \
-                python3-pip python3-pytest python-is-python3 \
-                fio nvme-cli pciutils util-linux smartmontools sdparm \
-                sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-                xfsprogs parted make gcc g++
-        else
-            apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y python3-pip python3-pytest
-        fi
+        apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y \
+            python3-pip python3-pytest python-is-python3 \
+            fio nvme-cli pciutils util-linux smartmontools sdparm \
+            sysstat gawk nmap bc psmisc numactl lsscsi unzip \
+            xfsprogs parted make gcc g++
     elif command -v dnf >/dev/null 2>&1; then
-        if [ "$qemu_env" = "1" ]; then
-            dnf install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
-                smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-                xfsprogs parted make gcc gcc-c++
-        else
-            dnf install -y python3-pip python3-pytest
-        fi
+        dnf install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
+            smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
+            xfsprogs parted make gcc gcc-c++
     elif command -v yum >/dev/null 2>&1; then
-        if [ "$qemu_env" = "1" ]; then
-            yum install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
-                smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-                xfsprogs parted make gcc gcc-c++
-        else
-            yum install -y python3-pip python3-pytest
-        fi
+        yum install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
+            smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
+            xfsprogs parted make gcc gcc-c++
     elif command -v zypper >/dev/null 2>&1; then
-        if [ "$qemu_env" = "1" ]; then
-            zypper install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
-                smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-                xfsprogs parted make gcc gcc-c++
-        else
-            zypper install -y python3-pip python3-pytest
-        fi
+        zypper install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
+            smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
+            xfsprogs parted make gcc gcc-c++
     fi
 fi
 
@@ -110,15 +91,13 @@ if python3 -m pip --version >/dev/null 2>&1; then
 fi
 
 python3 -c "import pytest"
-if [ "$qemu_env" = "1" ]; then
-    missing_tools=""
-    for tool in fio nvme lspci findmnt lsblk; do
-        if ! command -v "$tool" >/dev/null 2>&1; then
-            missing_tools="${missing_tools} ${tool}"
-        fi
-    done
-    if [ -n "$missing_tools" ]; then
-        echo "Missing required QEMU VM test tools after auto install:${missing_tools}" >&2
-        exit 1
+missing_tools=""
+for tool in fio nvme lspci findmnt lsblk; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        missing_tools="${missing_tools} ${tool}"
     fi
+done
+if [ -n "$missing_tools" ]; then
+    echo "Missing required test tools after auto install:${missing_tools}" >&2
+    exit 1
 fi

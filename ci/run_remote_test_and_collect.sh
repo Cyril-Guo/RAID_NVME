@@ -8,7 +8,6 @@ set -euo pipefail
 : "${REMOTE_SCP_COMMAND:?REMOTE_SCP_COMMAND is required}"
 : "${TEST_IDLE_TIMEOUT_MINUTES:?TEST_IDLE_TIMEOUT_MINUTES is required}"
 
-qemu_target="${QEMU_VM_TARGET:-0}"
 allow_fio="${ALLOW_DESTRUCTIVE_FIO:-YES}"
 report_suffix="${REPORT_SUFFIX:-}"
 log_suffix="${LOG_SUFFIX:-}"
@@ -27,7 +26,7 @@ collect_io_signature() {
 
 echo "[${NODE_IP}] run ${test_label}"
 set +e
-remote_test_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && QEMU_VM_TARGET=${qemu_target} ALLOW_DESTRUCTIVE_FIO=${allow_fio} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} sudo -E python3 nvme_raid_test.py\""
+remote_test_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && ALLOW_DESTRUCTIVE_FIO=${allow_fio} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} sudo -E python3 nvme_raid_test.py\""
 setsid bash -c "set -o pipefail; ${remote_test_command} 2>&1 | awk '{ print strftime(\"[%Y-%m-%d %H:%M:%S]\"), \$0; fflush() }' | tee '${execution_log}'" &
 test_pid=$!
 last_progress_ts=$(date +%s)
@@ -83,7 +82,7 @@ mkdir -p allure-results
 rm -rf "${tmp_results}"
 eval "${REMOTE_SCP_COMMAND} -r ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/allure-results ./${tmp_results}" || true
 if [ -d "${tmp_results}" ]; then
-    python3 ci/mark_allure_target_context.py "${tmp_results}" "${NODE_IP}" "${report_suffix}" "${qemu_target}" || true
+    python3 ci/mark_allure_target_context.py "${tmp_results}" "${NODE_IP}" || true
     cp -R "${tmp_results}/." ./allure-results/ || true
     rm -rf "${tmp_results}"
 fi

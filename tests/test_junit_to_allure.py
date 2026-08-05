@@ -36,7 +36,7 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
     results = list(allure_dir.glob("*-result.json"))
     assert len(results) == 1
     result = json.loads(results[0].read_text(encoding="utf-8"))
-    assert result["name"] == "[QEMU 192.168.22.134] test_lawdiskstress"
+    assert result["name"] == "[Physical 192.168.22.134] test_lawdiskstress"
     assert result["attachments"][0]["source"] == "monitor_log_lawdisk.tar.gz"
 
     assert junit_to_allure.main() == 0
@@ -158,7 +158,7 @@ def test_junit_to_allure_generates_broken_result_for_hung_test_without_junit(tmp
     results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
     assert len(results) == 1
     result = results[0]
-    assert result["name"] == "Test_Execution_QEMU_192.168.22.134"
+    assert result["name"] == "Test_Execution_Physical_192.168.22.134"
     assert result["status"] == "broken"
     assert "idle watchdog fired" in result["statusDetails"]["message"]
     attachment = allure_dir / result["attachments"][0]["source"]
@@ -168,7 +168,34 @@ def test_junit_to_allure_generates_broken_result_for_hung_test_without_junit(tmp
     assert len(list(allure_dir.glob("*-result.json"))) == 1
 
 
-def test_junit_to_allure_keeps_qemu_and_physical_results(tmp_path, monkeypatch):
+def test_junit_to_allure_treats_all_node_reports_as_physical(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    junit = """<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="pytest" tests="1">
+  <testcase classname="test_items.test_smoke_06_basic_io" name="test_basic_io" />
+</testsuite>
+"""
+    (tmp_path / "report_192.168.22.134.xml").write_text(junit, encoding="utf-8")
+
+    assert junit_to_allure.main() == 0
+
+    results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    test_results = [result for result in results if "test_basic_io" in result["name"]]
+    assert len(test_results) == 1
+    assert {
+        label["value"] for label in test_results[0]["labels"] if label["name"] == "target"
+    } == {"physical"}
+    assert test_results[0]["name"] == "[Physical 192.168.22.134] test_basic_io"
+
+    assert junit_to_allure.main() == 0
+    rerun_results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    test_results = [result for result in rerun_results if "test_basic_io" in result["name"]]
+    assert len(test_results) == 1
+
+
+def test_junit_to_allure_dedupes_legacy_physical_suffixed_report(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
@@ -184,34 +211,22 @@ def test_junit_to_allure_keeps_qemu_and_physical_results(tmp_path, monkeypatch):
 
     results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
     test_results = [result for result in results if "test_basic_io" in result["name"]]
-    assert len(test_results) == 2
-    assert {
-        next(label["value"] for label in result["labels"] if label["name"] == "target")
-        for result in test_results
-    } == {"qemu", "physical"}
-    assert {result["name"] for result in test_results} == {
-        "[QEMU 192.168.22.134] test_basic_io",
-        "[Physical 192.168.22.134] test_basic_io",
-    }
-
-    assert junit_to_allure.main() == 0
-    rerun_results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
-    test_results = [result for result in rerun_results if "test_basic_io" in result["name"]]
-    assert len(test_results) == 2
+    assert len(test_results) == 1
+    assert test_results[0]["name"] == "[Physical 192.168.22.134] test_basic_io"
 
 
 def test_junit_to_allure_attaches_pending_monitor_only_to_matching_target(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
-    qemu_result = {
-        "name": "[QEMU 192.168.22.134] FIO 测试: lawdiskstress",
-        "historyId": "qemu:192.168.22.134:test_basic_io",
-        "fullName": "qemu:192.168.22.134:test_basic_io",
-        "testCaseId": "qemu:192.168.22.134:test_basic_io",
+    other_node_result = {
+        "name": "[Physical 192.168.22.125] FIO 测试: lawdiskstress",
+        "historyId": "physical:192.168.22.125:test_basic_io",
+        "fullName": "physical:192.168.22.125:test_basic_io",
+        "testCaseId": "physical:192.168.22.125:test_basic_io",
         "labels": [
-            {"name": "host", "value": "192.168.22.134"},
-            {"name": "target", "value": "qemu"},
+            {"name": "host", "value": "192.168.22.125"},
+            {"name": "target", "value": "physical"},
         ],
     }
     physical_result = {
@@ -224,7 +239,7 @@ def test_junit_to_allure_attaches_pending_monitor_only_to_matching_target(tmp_pa
             {"name": "target", "value": "physical"},
         ],
     }
-    (allure_dir / "qemu-result.json").write_text(json.dumps(qemu_result), encoding="utf-8")
+    (allure_dir / "other-node-result.json").write_text(json.dumps(other_node_result), encoding="utf-8")
     (allure_dir / "physical-result.json").write_text(json.dumps(physical_result), encoding="utf-8")
     (allure_dir / "monitor_attachments.json").write_text(
         json.dumps(
@@ -246,7 +261,7 @@ def test_junit_to_allure_attaches_pending_monitor_only_to_matching_target(tmp_pa
 
     assert junit_to_allure.attach_pending_monitor_logs(str(allure_dir)) == 1
 
-    qemu = json.loads((allure_dir / "qemu-result.json").read_text(encoding="utf-8"))
+    other_node = json.loads((allure_dir / "other-node-result.json").read_text(encoding="utf-8"))
     physical = json.loads((allure_dir / "physical-result.json").read_text(encoding="utf-8"))
-    assert "attachments" not in qemu
+    assert "attachments" not in other_node
     assert physical["attachments"][0]["source"] == "physical_monitor_log_basic_io.tar.gz"
