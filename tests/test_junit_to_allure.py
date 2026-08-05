@@ -168,6 +168,46 @@ def test_junit_to_allure_generates_broken_result_for_hung_test_without_junit(tmp
     assert len(list(allure_dir.glob("*-result.json"))) == 1
 
 
+def test_junit_to_allure_generates_result_for_aborted_empty_execution_log(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "test_execution_192.168.22.134.log").write_text("", encoding="utf-8")
+    (tmp_path / "jenkins_console.log").write_text(
+        "Running nvme_raid_test.py\nAborted by cyril\nFinished: ABORTED\n",
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+
+    results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    assert len(results) == 1
+    result = results[0]
+    assert result["name"] == "Test_Execution_Physical_192.168.22.134"
+    assert result["status"] == "broken"
+    assert "aborted or incomplete" in result["statusDetails"]["message"]
+    assert any(item["name"] == "Jenkins Console Output" for item in result["attachments"])
+
+
+def test_junit_to_allure_console_fallback_when_no_execution_log(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "jenkins_console.log").write_text(
+        "Pipeline aborted\nAborted by cyril\nFinished: ABORTED\n",
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+
+    results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    assert len(results) == 1
+    result = results[0]
+    assert result["name"] == "Test_Execution_Build_Console"
+    assert result["status"] == "broken"
+    assert "aborted" in result["statusDetails"]["message"].lower()
+
+
 def test_junit_to_allure_treats_all_node_reports_as_physical(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"

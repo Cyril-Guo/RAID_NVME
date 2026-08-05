@@ -148,7 +148,8 @@ def status_log_infra_metrics():
 
     for path in sorted(glob.glob("test_execution_*.log")):
         text = _read_text(path)
-        if "TEST_EXECUTION_STATUS=failed" not in text:
+        # Match junit_to_allure: failed or aborted/incomplete (no passed marker).
+        if "TEST_EXECUTION_STATUS=passed" in text:
             continue
         stem = os.path.basename(path).removeprefix("test_execution_").removesuffix(".log")
         target_node = stem.removesuffix("_physical")

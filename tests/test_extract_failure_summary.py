@@ -32,6 +32,18 @@ def test_failure_summary_ignores_zero_failure_counters():
     assert extract_failure_summary.extract_failure_lines(text) == ["ERROR: real failure"]
 
 
+def test_failure_summary_ignores_kernel_header_error_comments():
+    text = (
+        '#define KERN_ERR KERN_SOH "3" /* error conditions */\n'
+        "ENVIRONMENT_PREPARE_STATUS=passed\n"
+        "ERROR: insmod ./draid.ko failed\n"
+    )
+
+    assert extract_failure_summary.extract_failure_lines(text) == [
+        "ERROR: insmod ./draid.ko failed"
+    ]
+
+
 def test_main_writes_summary_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "environment_prepare_10.0.0.1.log").write_text(

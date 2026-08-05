@@ -19,6 +19,9 @@ BENIGN_PATTERNS = (
         r"^(?:TEST_EXECUTION|ENVIRONMENT_PREPARE|PHYSICAL_RESTORE)_STATUS=",
         re.IGNORECASE,
     ),
+    # Kernel headers / C comments often contain the word "error" without a real failure.
+    re.compile(r"^\s*#\s*define\b"),
+    re.compile(r"/\*.*\berror\b.*\*/", re.IGNORECASE),
 )
 
 

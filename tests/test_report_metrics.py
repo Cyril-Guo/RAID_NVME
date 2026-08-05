@@ -191,3 +191,16 @@ def test_report_metrics_does_not_double_count_execution_when_junit_exists(tmp_pa
         "skipped": 0,
         "kind": "tests",
     }
+
+
+def test_report_metrics_counts_aborted_empty_execution_log(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "test_execution_192.168.22.134.log").write_text("", encoding="utf-8")
+
+    assert report_metrics.report_metrics() == {
+        "tests": 1,
+        "failures": 0,
+        "errors": 1,
+        "skipped": 0,
+        "kind": "infra",
+    }

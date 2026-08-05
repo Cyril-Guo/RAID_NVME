@@ -274,6 +274,16 @@ def report_has_testcases(target_node, target_kind):
     return root.find(".//testcase") is not None or root.tag == "testcase"
 
 
+def execution_log_needs_result(text):
+    """Treat explicit failures and abort/incomplete logs (no passed marker) as reportable."""
+    if "TEST_EXECUTION_STATUS=passed" in text:
+        return False
+    if "TEST_EXECUTION_STATUS=failed" in text:
+        return True
+    # Empty or truncated logs from ABORTED builds never write a terminal status.
+    return True
+
+
 def write_failed_execution_results(allure_dir, existing_ids):
     generated = 0
     for path in sorted(glob.glob("test_execution_*.log")):
@@ -283,7 +293,7 @@ def write_failed_execution_results(allure_dir, existing_ids):
         except OSError:
             continue
 
-        if "TEST_EXECUTION_STATUS=failed" not in text:
+        if not execution_log_needs_result(text):
             continue
 
         target_node, target_kind = execution_log_context(path)
@@ -299,6 +309,10 @@ def write_failed_execution_results(allure_dir, existing_ids):
             dst.write(src.read())
 
         summary = extract_failure_lines(text)
+        if "TEST_EXECUTION_STATUS=failed" in text:
+            default_message = "Remote test execution failed"
+        else:
+            default_message = "Remote test execution aborted or incomplete"
         label = context_label(target_kind)
         test_uuid = str(uuid.uuid4())
         result = {
@@ -326,8 +340,8 @@ def write_failed_execution_results(allure_dir, existing_ids):
                 }
             ],
             "statusDetails": {
-                "message": summary[0] if summary else "Remote test execution failed",
-                "trace": "\n".join(summary or text.splitlines()[-120:]),
+                "message": summary[0] if summary else default_message,
+                "trace": "\n".join(summary or text.splitlines()[-120:] or [default_message]),
             },
         }
         with open(os.path.join(allure_dir, f"{test_uuid}-result.json"), "w", encoding="utf-8") as handle:
@@ -335,6 +349,66 @@ def write_failed_execution_results(allure_dir, existing_ids):
         existing_ids.add(key)
         generated += 1
     return generated
+
+
+def write_console_fallback_result(allure_dir, existing_ids, console_path="jenkins_console.log"):
+    """Ensure ABORTED/infra builds still produce an Allure case when no other results exist."""
+    if not os.path.isfile(console_path):
+        return 0
+    if glob.glob(os.path.join(allure_dir, "*-result.json")):
+        return 0
+
+    key = "Test_Execution::jenkins::console"
+    if key in existing_ids:
+        return 0
+
+    try:
+        with open(console_path, "r", encoding="utf-8", errors="replace") as handle:
+            text = handle.read()
+    except OSError:
+        return 0
+
+    source = f"{uuid.uuid4()}-jenkins-console.log"
+    with open(console_path, "rb") as src, open(os.path.join(allure_dir, source), "wb") as dst:
+        dst.write(src.read())
+
+    summary = extract_failure_lines(text)
+    if re.search(r"\bAborted by\b", text) or "Finished: ABORTED" in text:
+        default_message = "Build aborted before countable test results were produced"
+    else:
+        default_message = "No countable test results were produced"
+    test_uuid = str(uuid.uuid4())
+    result = {
+        "uuid": test_uuid,
+        "historyId": key,
+        "testCaseId": key,
+        "fullName": "Test_Execution#jenkins#console",
+        "name": "Test_Execution_Build_Console",
+        "status": "broken",
+        "stage": "finished",
+        "labels": [
+            {"name": "suite", "value": "Test_Execution"},
+            {"name": "package", "value": "Test_Execution"},
+            {"name": "testClass", "value": "Test_Execution"},
+            {"name": "framework", "value": "jenkins"},
+            {"name": "language", "value": "shell"},
+        ],
+        "attachments": [
+            {
+                "name": "Jenkins Console Output",
+                "source": source,
+                "type": "text/plain",
+            }
+        ],
+        "statusDetails": {
+            "message": summary[0] if summary else default_message,
+            "trace": "\n".join(summary or text.splitlines()[-120:] or [default_message]),
+        },
+    }
+    with open(os.path.join(allure_dir, f"{test_uuid}-result.json"), "w", encoding="utf-8") as handle:
+        json.dump(result, handle, ensure_ascii=False)
+    existing_ids.add(key)
+    return 1
 
 
 def attach_jenkins_console(allure_dir, console_path="jenkins_console.log"):
@@ -402,13 +476,15 @@ def main():
     env_generated = write_environment_prepare_results(allure_dir, existing_ids)
     restore_generated = write_physical_restore_results(allure_dir, existing_ids)
     execution_generated = write_failed_execution_results(allure_dir, existing_ids)
+    console_fallback = write_console_fallback_result(allure_dir, existing_ids)
     attached = attach_pending_monitor_logs(allure_dir)
     console_attached = attach_jenkins_console(allure_dir)
     print(
         f"generated allure result files from junit: {generated}, "
         f"environment prepare results: {env_generated}, "
         f"physical restore results: {restore_generated}, "
-        f"failed execution results: {execution_generated}, attached monitor logs: {attached}, "
+        f"failed execution results: {execution_generated}, "
+        f"console fallback results: {console_fallback}, attached monitor logs: {attached}, "
         f"attached Jenkins console to results: {console_attached}"
     )
     return 0
