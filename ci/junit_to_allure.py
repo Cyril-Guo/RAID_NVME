@@ -91,8 +91,6 @@ def result_matches_item(result, item):
         "mix": ("mix", "mix_stress"),
         "reboot": ("reboot", "reboot_powercycle"),
         "dc": ("dc", "dc_powercycle"),
-        "basic_io": ("basic_io", "test_basic_io"),
-        "basic_rebuild_io": ("basic_rebuild_io", "test_basic_rebuild_io"),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))
 

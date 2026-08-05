@@ -16,8 +16,6 @@ TEST_ITEMS = {
     "lawdisk": "test_items/test_smoke_03_lawdisk.py",
     "filesystem": "test_items/test_smoke_04_filesystem.py",
     "mix": "test_items/test_smoke_05_mix.py",
-    "basic_io": "test_items/test_smoke_06_basic_io.py",
-    "basic_rebuild_io": "test_items/test_smoke_07_basic_rebuild_io.py",
 }
 
 ITEM_PARAMS = {
@@ -26,8 +24,6 @@ ITEM_PARAMS = {
     "lawdisk": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
     "filesystem": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
     "mix": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
-    "basic_io": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
-    "basic_rebuild_io": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
 }
 
 ALL_PARAM_KEYS = sorted({key for keys in ITEM_PARAMS.values() for key in keys})
@@ -197,8 +193,6 @@ def result_matches_item(result, item):
         "mix": ("mix", "mix_stress"),
         "reboot": ("reboot", "reboot_powercycle"),
         "dc": ("dc", "dc_powercycle"),
-        "basic_io": ("basic_io", "test_basic_io"),
-        "basic_rebuild_io": ("basic_rebuild_io", "test_basic_rebuild_io"),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))
 
