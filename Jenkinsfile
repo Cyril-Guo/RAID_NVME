@@ -382,15 +382,6 @@ ci/deploy_workspace.sh
 } 2>&1 | tee -a ${envPrepareLog}
 """)
 
-                                echo "[${ip}] clear dirty CSD flash before loading draid"
-                                runTimedEnvironmentStep(ip, 'clear dirty CSD flash before loading draid', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
-set -o pipefail
-{
-echo "[${ip}] clear dirty CSD flash before loading draid"
-${targetSsh} 'cd ${remoteDir} && chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh && NODE_IP=${ip} ci/clear_8p_csd_flash.sh'
-} 2>&1 | tee -a ${envPrepareLog}
-""")
-
                                 echo "[${ip}] install latest dpraid"
                                 runTimedEnvironmentStep(ip, 'install latest dpraid', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail
@@ -420,15 +411,6 @@ SSH_OPTS='${env.SSH_OPTS}' \\
 REMOTE_DIR='${remoteDir}' \\
 BUILD_NUMBER='${env.BUILD_NUMBER}' \\
 ci/prepare_draid_driver.sh
-} 2>&1 | tee -a ${envPrepareLog}
-""")
-
-                                echo "[${ip}] restore RAID state before test"
-                                runTimedEnvironmentStep(ip, 'restore RAID state before test', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
-set -o pipefail
-{
-echo "[${ip}] restore RAID state before test"
-${targetSsh} 'cd ${remoteDir} && chmod +x ci/restore_physical_raid_state.sh && NODE_IP=${ip} ci/restore_physical_raid_state.sh'
 } 2>&1 | tee -a ${envPrepareLog}
 """)
 

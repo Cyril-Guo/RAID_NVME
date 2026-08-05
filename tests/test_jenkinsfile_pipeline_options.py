@@ -118,22 +118,22 @@ def test_target_hang_times_out_and_keeps_pipeline_control():
 
 def test_environment_prepare_hang_times_out_after_15_minutes():
     source = pipeline_sources()
+    jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
 
     assert "def runTimedEnvironmentStep(" in source
     assert "timeout(time: timeoutMinutes.toInteger(), unit: 'MINUTES')" in source
     for label in [
         "deploy workspace",
-        "clear dirty CSD flash before loading draid",
         "install latest dpraid",
         "build and reload draid kernel driver",
-        "restore RAID state before test",
         "install python dependencies",
         "collect environment metadata",
     ]:
-        assert f"runTimedEnvironmentStep(ip, '{label}'" in source
-    assert "ci/clear_8p_csd_flash.sh" in source
-    assert "printf 'CLEAR\\n'" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
-    assert "is_dirty_csd_size()" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
+        assert f"runTimedEnvironmentStep(ip, '{label}'" in jenkinsfile
+    assert "clear dirty CSD flash before loading draid" not in jenkinsfile
+    assert "restore RAID state before test" not in jenkinsfile
+    assert "ci/clear_8p_csd_flash.sh" not in jenkinsfile
+    assert "ci/restore_physical_raid_state.sh" not in jenkinsfile
 
 
 def test_test_idle_watchdog_tracks_non_system_disk_io_progress():
