@@ -1,70 +1,50 @@
 # ============================================================
-# SMOKE test selection
+# Test selection (whitelist)
 # ------------------------------------------------------------
-# Change only this section for normal runs:
-#   yes = run this item
-#   no  = skip this item
+# Put one item name per line ABOVE the first [section].
+# Run order = writing order. Lines starting with # are comments.
+# Empty list = run nothing (safe default for destructive tests).
 #
-# Run order is fixed by nvme_raid_test.py:
-#   reboot -> dc -> lawdisk -> filesystem -> mix
+# Available names are auto-discovered from test_items/test_*.py
+#   test_smoke_03_lawdisk.py  ->  lawdisk
+#   test_foo.py               ->  foo
 #
-# To add a new item later:
-#   1. Add "new_case = yes/no" in [selection]
-#   2. Add a [new_case] config block below
-#   3. Register it in nvme_raid_test.py TEST_ITEMS/ITEM_PARAMS
+# To add a new case later:
+#   1. Add test_items/test_<name>.py (or test_smoke_NN_<name>.py)
+#   2. Add "<name>" to this whitelist when you want to run it
+#   3. Optional: add a [<name>] override block only if params differ
+#      from [defaults]
 # ============================================================
 
-[selection]
-reboot      = no
-dc          = no
-lawdisk     = no
-filesystem  = no
-mix         = no
+# lawdisk
+# mix
+
+
+[defaults]
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = no
+MONITOR_RUNTIME =
+FIO_CYCLES      = 10
 
 
 # ============================================================
-# Common parameters
-# ------------------------------------------------------------
-# FIO_DISKS       Test disks, for example: sdb,sdc. Empty = all non-system data disks.
-# IGNORE_ERROR    Continue when MachineCheck differs: yes/no
-# STRESS_MONITOR  Start background stress monitor: yes/no
-# MONITOR_RUNTIME Monitor runtime in seconds. Empty = monitor default.
-# FIO_CYCLES      Power-cycle count. Only used by reboot/dc.
+# Per-item overrides (only keys that differ from [defaults])
 # ============================================================
-
 
 [reboot]
 FIO_CYCLES      = 10
-IGNORE_ERROR    = no
-FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME =
-
 
 [dc]
 FIO_CYCLES      = 5
-IGNORE_ERROR    = no
-FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME =
-
 
 [lawdisk]
-IGNORE_ERROR    = no
-FIO_DISKS       =
 STRESS_MONITOR  = yes
 MONITOR_RUNTIME = 1000
-
 
 [filesystem]
-IGNORE_ERROR    = no
-FIO_DISKS       =
 STRESS_MONITOR  = yes
 MONITOR_RUNTIME = 1000
 
-
 [mix]
-IGNORE_ERROR    = no
-FIO_DISKS       =
 STRESS_MONITOR  = no
-MONITOR_RUNTIME =

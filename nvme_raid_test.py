@@ -1,5 +1,7 @@
+import glob
 import os
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -10,34 +12,74 @@ import importlib.util
 import pytest
 
 
-TEST_ITEMS = {
-    "reboot": "test_items/test_smoke_01_reboot.py",
-    "dc": "test_items/test_smoke_02_dc.py",
-    "lawdisk": "test_items/test_smoke_03_lawdisk.py",
-    "filesystem": "test_items/test_smoke_04_filesystem.py",
-    "mix": "test_items/test_smoke_05_mix.py",
-}
-
-ITEM_PARAMS = {
-    "reboot": ["FIO_CYCLES", "IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
-    "dc": ["FIO_CYCLES", "IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
-    "lawdisk": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
-    "filesystem": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
-    "mix": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
-}
-
-ALL_PARAM_KEYS = sorted({key for keys in ITEM_PARAMS.values() for key in keys})
+ALLOWED_PARAM_KEYS = (
+    "FIO_CYCLES",
+    "IGNORE_ERROR",
+    "FIO_DISKS",
+    "STRESS_MONITOR",
+    "MONITOR_RUNTIME",
+)
+ALL_PARAM_KEYS = sorted(ALLOWED_PARAM_KEYS)
 
 ITEMS_FILE = "test_items.txt"
+ITEMS_DIR = "test_items"
 ALLURE_DIR = "allure-results"
 JUNIT_FINAL = "report.xml"
 
+_SMOKE_NAME_RE = re.compile(r"^test_smoke_\d+_(.+)\.py$", re.IGNORECASE)
+_TEST_NAME_RE = re.compile(r"^test_(.+)\.py$", re.IGNORECASE)
+_SKIP_NAME_RE = re.compile(r"(^__init__\.py$|_common\.py$|^powercycle_launch\.py$)", re.IGNORECASE)
+
+
+def item_name_from_filename(filename):
+    """Map test_smoke_03_lawdisk.py -> lawdisk, test_foo.py -> foo."""
+    if _SKIP_NAME_RE.search(filename):
+        return None
+    match = _SMOKE_NAME_RE.match(filename)
+    if match:
+        return match.group(1).strip().lower()
+    match = _TEST_NAME_RE.match(filename)
+    if match:
+        name = match.group(1).strip().lower()
+        if name and not name.endswith("_common"):
+            return name
+    return None
+
+
+def discover_test_items(items_dir=None):
+    """Scan test_items/test_*.py and return {item_name: relative_path}."""
+    if items_dir is None:
+        items_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ITEMS_DIR)
+
+    discovered = {}
+    pattern = os.path.join(items_dir, "test_*.py")
+    for path in sorted(glob.glob(pattern)):
+        filename = os.path.basename(path)
+        name = item_name_from_filename(filename)
+        if not name:
+            continue
+        rel_path = os.path.join(ITEMS_DIR, filename).replace("\\", "/")
+        if name in discovered:
+            raise ValueError(
+                f"Duplicate test item name '{name}': {discovered[name]} and {rel_path}"
+            )
+        discovered[name] = rel_path
+    return discovered
+
+
+TEST_ITEMS = discover_test_items()
+
 
 def parse_items_file(path):
+    """Parse whitelist + [defaults] + optional per-item overrides.
+
+    Lines before the first [section] are the run list (one item name per line).
+    Empty whitelist means run nothing.
+    """
     selected = []
-    params_map = {}
-    current = None
-    selection_items = []
+    defaults = {}
+    overrides = {}
+    current = None  # None = whitelist mode
 
     if not os.path.exists(path):
         print(f"[ERROR] Missing config file: {path}")
@@ -50,32 +92,40 @@ def parse_items_file(path):
                 continue
             if line.startswith("[") and line.endswith("]"):
                 current = line[1:-1].strip().lower()
-                if current != "selection":
-                    params_map.setdefault(current, {})
-                continue
-            if "=" not in line or current is None:
+                if current and current != "defaults":
+                    overrides.setdefault(current, {})
                 continue
 
+            if current is None:
+                # Whitelist entry: bare name, or "name = yes" for accidental old style.
+                if "=" in line:
+                    key, value = [part.strip() for part in line.split("=", 1)]
+                    enabled = value.lower() in ("yes", "y", "true", "1", "on")
+                    if enabled:
+                        selected.append(key.lower())
+                else:
+                    selected.append(line.lower())
+                continue
+
+            if "=" not in line:
+                continue
             key, value = [part.strip() for part in line.split("=", 1)]
-            enabled = value.lower() in ("yes", "y", "true", "1", "on")
-            if current == "selection":
-                if enabled:
-                    selection_items.append(key.strip().lower())
-            elif key.lower() == "enable":
-                if value.lower() == "yes":
-                    selected.append(current)
+            if current == "defaults":
+                defaults[key] = value
             else:
-                params_map[current][key] = value
+                overrides[current][key] = value
 
-    if selection_items:
-        selected = selection_items
+    params_map = {}
+    for item in set(selected) | set(overrides):
+        params_map[item] = dict(defaults)
+        params_map[item].update(overrides.get(item, {}))
 
     return selected, params_map
 
 
-def run_single_item(item, params, clean_allure):
-    test_file = TEST_ITEMS[item]
-    allowed = ITEM_PARAMS.get(item, [])
+def run_single_item(item, params, clean_allure, test_items=None):
+    catalog = test_items if test_items is not None else TEST_ITEMS
+    test_file = catalog[item]
 
     for key in ALL_PARAM_KEYS:
         os.environ.pop(key, None)
@@ -84,7 +134,7 @@ def run_single_item(item, params, clean_allure):
     print(f"[ITEM] {item} -> {test_file}")
 
     for key, value in params.items():
-        if key not in allowed:
+        if key not in ALLOWED_PARAM_KEYS:
             print(f"  [SKIP] {key}={value} (unused by {item})")
             continue
         os.environ[key] = value
@@ -123,9 +173,15 @@ def merge_junit_reports(items, out_path):
     ET.ElementTree(merged_root).write(out_path, encoding="utf-8", xml_declaration=True)
 
 
-def validate_selection(selected):
-    invalid = [item for item in selected if item not in TEST_ITEMS]
-    missing = [item for item in selected if item in TEST_ITEMS and not os.path.exists(TEST_ITEMS[item])]
+def validate_selection(selected, test_items=None, base_dir=None):
+    catalog = test_items if test_items is not None else TEST_ITEMS
+    root = base_dir or os.path.dirname(os.path.abspath(__file__))
+    invalid = [item for item in selected if item not in catalog]
+    missing = [
+        item
+        for item in selected
+        if item in catalog and not os.path.exists(os.path.join(root, catalog[item]))
+    ]
     return invalid, missing
 
 
@@ -253,27 +309,30 @@ def add_allure_monitor_archive(item, base_dir):
 def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     items_path = os.path.join(base_dir, ITEMS_FILE)
+    test_items = discover_test_items(os.path.join(base_dir, ITEMS_DIR))
 
     selected, params_map = parse_items_file(items_path)
-    invalid, missing = validate_selection(selected)
+    invalid, missing = validate_selection(selected, test_items=test_items, base_dir=base_dir)
 
     if invalid:
         print(f"[ERROR] Unknown test items: {invalid}")
-        print(f"[ERROR] Available items: {list(TEST_ITEMS.keys())}")
+        print(f"[ERROR] Available items: {list(test_items.keys())}")
         sys.exit(2)
 
     if missing:
         print(f"[ERROR] Missing test files: {missing}")
         sys.exit(2)
 
-    selected_set = set(selected)
-    run_order = [item for item in TEST_ITEMS if item in selected_set]
+    # Preserve whitelist order from test_items.txt.
+    run_order = [item for item in selected if item in test_items]
 
     if not run_order:
         print(f"[ERROR] No valid test items selected in {ITEMS_FILE}.")
+        print(f"[ERROR] Add item names (one per line) above [defaults]. Available: {list(test_items.keys())}")
         sys.exit(2)
 
     print(f"Selected test items: {run_order}")
+    print(f"Discovered test items: {list(test_items.keys())}")
 
     exit_codes = []
     executed_items = []
@@ -286,7 +345,9 @@ def main():
         try:
             if monitor_enabled:
                 clean_monitor_log(base_dir)
-            exit_code = run_single_item(item, params, clean_allure=(index == 0))
+            exit_code = run_single_item(
+                item, params, clean_allure=(index == 0), test_items=test_items
+            )
             print(f"[ITEM_END] {item} exit_code={exit_code}")
         finally:
             if monitor_enabled:

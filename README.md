@@ -17,7 +17,7 @@ RAID_NVME/
 ├── nvme_raid_test.py       # 主测试执行调度脚本（从 test_items.txt 读取测试项）
 ├── requirements.txt        # Python 依赖包 (pytest, allure-pytest 等)
 ├── target_ips.txt          # 存放被测目标服务器的 IP 列表
-├── test_items.txt          # 测试项选择文件：勾选要执行的测试项及全局参数
+├── test_items.txt          # 测试项白名单 + defaults/覆盖参数
 ├── conftest.py             # Pytest 全局配置
 ├── IO_Stress/              # FIO 压力测试引擎（共用）：Fio_All.sh、lib/ 等
 ├── MachineCheck/           # 硬件检查工具（共用）：MachineCheck.sh 等
@@ -59,29 +59,36 @@ RAID_NVME/
 编辑项目根目录中的 `target_ips.txt`，将所有需要测试的节点 IP 地址逐行填入。
 
 ### 2. 配置要执行的测试项
-编辑项目根目录中的 `test_items.txt`。**每个测试项就是一个 `[item]` 块**，开关和参数都在同一个块里，
-一处搞定，不用两头看。可用项：`reboot`、`dc`、`lawdisk`、`filesystem`、`mix`。
 
-想跑哪个，就把它块里的 `enable` 改成 `yes`（`no` 即跳过）；参数按需改，不改用默认值。
+编辑项目根目录中的 `test_items.txt`：
+
+1. **白名单**：在第一个 `[section]` 之前，一行写一个要跑的用例名，书写顺序即执行顺序。
+2. **`[defaults]`**：公共参数。
+3. **`[用例名]`**：仅当该用例参数与 defaults 不同时才写覆盖块。
+
+用例文件放在 `test_items/`，按文件名自动发现，**不必**再改 Python 注册表：
+
+- `test_smoke_03_lawdisk.py` → `lawdisk`
+- `test_foo.py` → `foo`
 
 ```text
-# 要跑：enable = yes
-[lawdisk]
-enable          = yes
-IGNORE_ERROR    = no
-FIO_DISKS       =
-STRESS_MONITOR  = yes
-MONITOR_RUNTIME = 300
+# 要跑的用例（取消注释或新增行）
+lawdisk
+# mix
 
-# 不跑：enable = no
-[reboot]
-enable          = no
-FIO_CYCLES      = 10
+[defaults]
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME =
+FIO_CYCLES      = 10
+
+[lawdisk]
+STRESS_MONITOR  = yes
+MONITOR_RUNTIME = 1000
 ```
+
+新增用例：放入 `test_items/test_<name>.py`，需要跑时在白名单加一行 `<name>` 即可。
 
 参数含义：
 
@@ -90,13 +97,10 @@ MONITOR_RUNTIME =
 - `FIO_DISKS`：指定数据盘 (如 `sdb,sdc`)，留空为全部数据盘。
 - `STRESS_MONITOR` / `MONITOR_RUNTIME`：后台压力监控开关与时长。
 
-> 只有 `enable = yes` 的测试项会执行，并按固定顺序
-> （`reboot → dc → lawdisk → filesystem → mix`）运行；
-> 各项以自己 `[item]` 块中的参数独立执行，结果统一合并到同一份 Allure / JUnit 报告中。
->
-> 停止/清理（restore）不再是测试项，已改由 Jenkins Web 的 `RESTORE` 选项随时触发（见下文）。
+> 白名单为空时不跑任何用例（破坏性测试的安全默认）。停止/清理（restore）
+> 不再是测试项，已改由 Jenkins Web 的 `RESTORE` 选项随时触发（见下文）。
 
-> SMOKE 分支的 Jenkins 任务测试项与配置完全由仓库内的 `test_items.txt` 决定，
+> CI 任务的测试项与配置完全由仓库内的 `test_items.txt` 决定，
 > 随代码一起部署到被测节点，保证"配置即代码"。Web 界面仅保留一个 `RESTORE`
 > 选项用于随时停止测试（见下文）。
 

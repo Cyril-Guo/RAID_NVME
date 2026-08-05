@@ -49,7 +49,10 @@ def stop_monitor(wait_seconds=10):
 
 def item_reports(directory):
     root = Path(directory)
-    return [item for item in nvme_raid_test.TEST_ITEMS if (root / f"report_{item}.xml").exists()]
+    catalog = nvme_raid_test.discover_test_items(str(root / nvme_raid_test.ITEMS_DIR))
+    if not catalog:
+        catalog = nvme_raid_test.TEST_ITEMS
+    return [item for item in catalog if (root / f"report_{item}.xml").exists()]
 
 
 def merge_from_directory(directory, output):
