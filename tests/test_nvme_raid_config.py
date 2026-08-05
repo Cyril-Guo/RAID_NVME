@@ -48,10 +48,13 @@ def test_repository_test_items_file_is_valid():
     selected, params = parse_items_file(config)
 
     assert selected == []
+    assert "defaults" not in params
     assert "lawdisk" in params
     assert params["lawdisk"]["STRESS_MONITOR"] == "yes"
     assert params["lawdisk"]["IGNORE_ERROR"] == "no"
+    assert "FIO_CYCLES" not in params["lawdisk"]
     assert params["dc"]["FIO_CYCLES"] == "5"
+    assert params["reboot"]["FIO_CYCLES"] == "10"
     assert "basic_io" not in params
 
 
@@ -60,9 +63,10 @@ def test_main_prints_item_boundaries():
 
     assert "[ITEM_START] {item}" in source
     assert "[ITEM_END] {item} exit_code={exit_code}" in source
+    assert "[defaults]" not in Path("test_items.txt").read_text(encoding="utf-8")
 
 
-def test_parse_whitelist_controls_enabled_items_and_merges_defaults(tmp_path):
+def test_parse_whitelist_controls_enabled_items_with_per_case_params(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
         """
@@ -70,13 +74,9 @@ def test_parse_whitelist_controls_enabled_items_and_merges_defaults(tmp_path):
 dc
 mix
 
-[defaults]
-IGNORE_ERROR = no
-FIO_CYCLES = 10
-STRESS_MONITOR = no
-
 [dc]
 FIO_CYCLES = 3
+IGNORE_ERROR = no
 
 [mix]
 FIO_DISKS = sdb,sdc
@@ -88,11 +88,9 @@ STRESS_MONITOR = yes
     selected, params = parse_items_file(config)
 
     assert selected == ["dc", "mix"]
-    assert params["dc"]["FIO_CYCLES"] == "3"
-    assert params["dc"]["IGNORE_ERROR"] == "no"
-    assert params["mix"]["FIO_DISKS"] == "sdb,sdc"
-    assert params["mix"]["STRESS_MONITOR"] == "yes"
-    assert params["mix"]["FIO_CYCLES"] == "10"
+    assert params["dc"] == {"FIO_CYCLES": "3", "IGNORE_ERROR": "no"}
+    assert params["mix"] == {"FIO_DISKS": "sdb,sdc", "STRESS_MONITOR": "yes"}
+    assert "FIO_CYCLES" not in params["mix"]
 
 
 def test_parse_preserves_whitelist_order(tmp_path):
@@ -103,8 +101,14 @@ mix
 lawdisk
 reboot
 
-[defaults]
+[mix]
 IGNORE_ERROR = no
+
+[lawdisk]
+IGNORE_ERROR = no
+
+[reboot]
+FIO_CYCLES = 10
 """,
         encoding="utf-8",
     )

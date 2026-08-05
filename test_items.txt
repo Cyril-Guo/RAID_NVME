@@ -5,6 +5,9 @@
 # Run order = writing order. Lines starting with # are comments.
 # Empty list = run nothing (safe default for destructive tests).
 #
+# Example — run only lawdisk:
+#   lawdisk
+#
 # Available names are auto-discovered from test_items/test_*.py
 #   test_smoke_03_lawdisk.py  ->  lawdisk
 #   test_foo.py               ->  foo
@@ -12,39 +15,45 @@
 # To add a new case later:
 #   1. Add test_items/test_<name>.py (or test_smoke_NN_<name>.py)
 #   2. Add "<name>" to this whitelist when you want to run it
-#   3. Optional: add a [<name>] override block only if params differ
-#      from [defaults]
+#   3. Add a [<name>] block below with that case's own params
 # ============================================================
 
 # lawdisk
 # mix
 
 
-[defaults]
-IGNORE_ERROR    = no
-FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME =
-FIO_CYCLES      = 10
-
-
 # ============================================================
-# Per-item overrides (only keys that differ from [defaults])
+# Per-item parameters (only keys used by that case)
 # ============================================================
 
 [reboot]
 FIO_CYCLES      = 10
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = no
+MONITOR_RUNTIME =
 
 [dc]
 FIO_CYCLES      = 5
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = no
+MONITOR_RUNTIME =
 
 [lawdisk]
+IGNORE_ERROR    = no
+FIO_DISKS       =
 STRESS_MONITOR  = yes
 MONITOR_RUNTIME = 1000
 
 [filesystem]
+IGNORE_ERROR    = no
+FIO_DISKS       =
 STRESS_MONITOR  = yes
 MONITOR_RUNTIME = 1000
 
 [mix]
+IGNORE_ERROR    = no
+FIO_DISKS       =
 STRESS_MONITOR  = no
+MONITOR_RUNTIME =

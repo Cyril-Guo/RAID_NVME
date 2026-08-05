@@ -17,7 +17,7 @@ RAID_NVME/
 ├── nvme_raid_test.py       # 主测试执行调度脚本（从 test_items.txt 读取测试项）
 ├── requirements.txt        # Python 依赖包 (pytest, allure-pytest 等)
 ├── target_ips.txt          # 存放被测目标服务器的 IP 列表
-├── test_items.txt          # 测试项白名单 + defaults/覆盖参数
+├── test_items.txt          # 测试项白名单 + 各用例独立参数
 ├── conftest.py             # Pytest 全局配置
 ├── IO_Stress/              # FIO 压力测试引擎（共用）：Fio_All.sh、lib/ 等
 ├── MachineCheck/           # 硬件检查工具（共用）：MachineCheck.sh 等
@@ -62,9 +62,8 @@ RAID_NVME/
 
 编辑项目根目录中的 `test_items.txt`：
 
-1. **白名单**：在第一个 `[section]` 之前，一行写一个要跑的用例名，书写顺序即执行顺序。
-2. **`[defaults]`**：公共参数。
-3. **`[用例名]`**：仅当该用例参数与 defaults 不同时才写覆盖块。
+1. **白名单**（文件顶部、第一个 `[section]` 之前）：一行一个要跑的用例名，书写顺序即执行顺序。带 `#` 的行是注释，不跑。
+2. **`[用例名]` 参数块**：每个用例自己的参数，只写该用例会用到的键；**没有公共 defaults**。
 
 用例文件放在 `test_items/`，按文件名自动发现，**不必**再改 Python 注册表：
 
@@ -72,23 +71,26 @@ RAID_NVME/
 - `test_foo.py` → `foo`
 
 ```text
-# 要跑的用例（取消注释或新增行）
+# 只跑 lawdisk：取消下面这一行的注释即可
 lawdisk
 # mix
 
-[defaults]
+[lawdisk]
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = yes
+MONITOR_RUNTIME = 1000
+
+[mix]
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME =
-FIO_CYCLES      = 10
-
-[lawdisk]
-STRESS_MONITOR  = yes
-MONITOR_RUNTIME = 1000
 ```
 
-新增用例：放入 `test_items/test_<name>.py`，需要跑时在白名单加一行 `<name>` 即可。
+注意：下面的 `[lawdisk]` / `[mix]` 只是参数配置，**不决定是否执行**；是否执行只看顶部白名单有没有写名字。
+
+新增用例：放入 `test_items/test_<name>.py`，白名单加一行，再补一个 `[name]` 参数块即可。
 
 参数含义：
 

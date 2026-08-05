@@ -71,14 +71,13 @@ TEST_ITEMS = discover_test_items()
 
 
 def parse_items_file(path):
-    """Parse whitelist + [defaults] + optional per-item overrides.
+    """Parse whitelist + per-item parameter blocks.
 
     Lines before the first [section] are the run list (one item name per line).
-    Empty whitelist means run nothing.
+    Empty whitelist means run nothing. Each [item] block holds only that case's params.
     """
     selected = []
-    defaults = {}
-    overrides = {}
+    params_map = {}
     current = None  # None = whitelist mode
 
     if not os.path.exists(path):
@@ -92,8 +91,8 @@ def parse_items_file(path):
                 continue
             if line.startswith("[") and line.endswith("]"):
                 current = line[1:-1].strip().lower()
-                if current and current != "defaults":
-                    overrides.setdefault(current, {})
+                if current:
+                    params_map.setdefault(current, {})
                 continue
 
             if current is None:
@@ -110,15 +109,7 @@ def parse_items_file(path):
             if "=" not in line:
                 continue
             key, value = [part.strip() for part in line.split("=", 1)]
-            if current == "defaults":
-                defaults[key] = value
-            else:
-                overrides[current][key] = value
-
-    params_map = {}
-    for item in set(selected) | set(overrides):
-        params_map[item] = dict(defaults)
-        params_map[item].update(overrides.get(item, {}))
+            params_map[current][key] = value
 
     return selected, params_map
 
