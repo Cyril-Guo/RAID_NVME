@@ -12,7 +12,6 @@ def raidCliDpraidPath = ''
 def triggerSource = ''
 def shouldRunTests = false
 def useQemuVmTarget = false
-def automaticMrTriggered = false
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     sh """
@@ -45,10 +44,6 @@ pipeline {
         skipDefaultCheckout()
     }
 
-    triggers {
-        cron('* * * * *')
-    }
-
     parameters {
         booleanParam(
             name: 'RESTORE',
@@ -60,22 +55,17 @@ pipeline {
             defaultValue: false,
             description: 'Debug mode: run the same pipeline but skip Feishu notification.'
         )
-        booleanParam(
-            name: 'SIMULATE_AUTO_MR_TRIGGER',
-            defaultValue: false,
-            description: 'Debug mode: manual build uses the same QEMU VM target path as automatic MR trigger.'
-        )
         string(
             name: 'MANUAL_MR_IID',
             defaultValue: '',
             trim: true,
-            description: 'Manual rerun: set a kernel_driver merge request IID, for example 141. Takes priority over MANUAL_KERNEL_DRIVER_REF.'
+            description: 'Optional: kernel_driver merge request IID, for example 141. Takes priority over MANUAL_KERNEL_DRIVER_REF.'
         )
         string(
             name: 'MANUAL_KERNEL_DRIVER_REF',
             defaultValue: '',
             trim: true,
-            description: 'Manual build: kernel_driver branch to test. Empty means main; ignored when MANUAL_MR_IID is set.'
+            description: 'Optional: kernel_driver branch to test. Empty means main; ignored when MANUAL_MR_IID is set.'
         )
     }
 
@@ -117,18 +107,12 @@ pipeline {
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
 
                     if (!params.RESTORE) {
-                        def manuallyTriggered = currentBuild.getBuildCauses('hudson.model.Cause$UserIdCause').size() > 0
-                        def markerName = "${env.JOB_NAME}_kernel_driver_open_mrs".replaceAll('[^A-Za-z0-9_.-]', '_')
-                        def markerPath = "${jenkinsHome}/.raid_nvme/${markerName}.signature"
+                        // CI is manual-only: default kernel_driver/main; optional MANUAL_MR_IID or MANUAL_KERNEL_DRIVER_REF.
                         def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
                         def raidCliMarkerPath = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.commit"
-                        def raidCliCheckPath = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.last_check"
                         def raidCliWorkDir = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo"
                         raidCliDpraidPath = "${raidCliWorkDir}/dpraid"
                         def mrProps = [:]
-                        def currentMrSignature = 'none'
-                        def hasNewOpenMrEvent = false
-                        def hasRaidCliUpdate = false
                         def syncRaidCli = { String reason ->
                             echo "Check raid_cli(${env.RAID_CLI_BRANCH}) updates: ${reason}."
                             checkout scm: [
@@ -188,194 +172,60 @@ pipeline {
                             return needsRaidCliUpdate
                         }
 
-                        if (manuallyTriggered) {
-                            def manualMrIid = (params.MANUAL_MR_IID ?: '').trim()
-                            def manualKernelDriverRef = (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()
-                            shouldRunTests = true
-                            useQemuVmTarget = params.SIMULATE_AUTO_MR_TRIGGER
-                            automaticMrTriggered = params.SIMULATE_AUTO_MR_TRIGGER
-                            def raidCliBootstrapMissing = sh(
-                                script: "test -d '${raidCliWorkDir}/.git' && test -x '${raidCliDpraidPath}'; echo \$?",
-                                returnStdout: true
-                            ).trim() != '0'
-                            if (raidCliBootstrapMissing) {
-                                hasRaidCliUpdate = syncRaidCli('initial bootstrap is missing')
+                        def manualMrIid = (params.MANUAL_MR_IID ?: '').trim()
+                        def manualKernelDriverRef = (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()
+                        shouldRunTests = true
+                        useQemuVmTarget = false
+                        syncRaidCli('manual CI build')
+
+                        if (manualMrIid) {
+                            if (manualKernelDriverRef) {
+                                echo "MANUAL_MR_IID is set; ignore MANUAL_KERNEL_DRIVER_REF=${manualKernelDriverRef}."
                             }
-
-                            if (manualMrIid) {
-                                if (manualKernelDriverRef) {
-                                    echo "MANUAL_MR_IID is set; ignore MANUAL_KERNEL_DRIVER_REF=${manualKernelDriverRef}."
-                                }
-                                if (!(manualMrIid ==~ /^[0-9]+$/)) {
-                                    error "MANUAL_MR_IID must be a numeric GitLab merge request IID, got: ${manualMrIid}"
-                                }
-
-                                withCredentials([string(credentialsId: env.KERNEL_DRIVER_GITLAB_TOKEN_CRED, variable: 'GITLAB_TOKEN')]) {
-                                    sh """
-                                    set -eu
-                                    curl -fsS \\
-                                      --header "PRIVATE-TOKEN: \${GITLAB_TOKEN}" \\
-                                      "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests/${manualMrIid}" \\
-                                      -o kernel_driver_manual_mr.json
-
-                                    python3 ci/gitlab_mr_to_properties.py kernel_driver_manual_mr.json > kernel_driver_manual_mr.properties
-                                    """
-                                }
-
-                                readFile('kernel_driver_manual_mr.properties').split('\\r?\\n').each { line ->
-                                    if (line.contains('=')) {
-                                        def parts = line.split('=', 2)
-                                        mrProps[parts[0]] = parts[1]
-                                    }
-                                }
-
-                                kernelDriverRef = mrProps.MR_SOURCE_BRANCH ?: env.KERNEL_DRIVER_BRANCH
-                                kernelDriverMrIid = mrProps.MR_IID ?: manualMrIid
-                                kernelDriverMrTitle = mrProps.MR_TITLE ?: ''
-                                kernelDriverMrUpdatedAt = mrProps.MR_UPDATED_AT ?: ''
-                                kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
-                                triggerSource = params.SIMULATE_AUTO_MR_TRIGGER ? 'Manual MR Build (Simulate Auto MR)' : 'Manual MR Build'
-                                echo "Manual MR build requested. Run smoke tests on kernel_driver !${kernelDriverMrIid} ${kernelDriverRef}."
-                            } else {
-                                if (manualKernelDriverRef) {
-                                    if (!(manualKernelDriverRef ==~ '[A-Za-z0-9][A-Za-z0-9._/-]*') ||
-                                        manualKernelDriverRef.contains('..') ||
-                                        manualKernelDriverRef.endsWith('/')) {
-                                        error "MANUAL_KERNEL_DRIVER_REF is not a safe branch name: ${manualKernelDriverRef}"
-                                    }
-                                    kernelDriverRef = manualKernelDriverRef
-                                    triggerSource = params.SIMULATE_AUTO_MR_TRIGGER ? 'Manual Branch Build (Simulate Auto MR)' : 'Manual Branch Build'
-                                } else {
-                                    kernelDriverRef = env.KERNEL_DRIVER_BRANCH
-                                    triggerSource = params.SIMULATE_AUTO_MR_TRIGGER ? 'Manual Build (Simulate Auto MR)' : 'Manual Build'
-                                }
-                                echo "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}."
-                            }
-                            if (params.SIMULATE_AUTO_MR_TRIGGER) {
-                                echo 'SIMULATE_AUTO_MR_TRIGGER=true, use QEMU VM target path for this manual build.'
-                            }
-                        } else {
-                            def nowEpoch = sh(script: 'date +%s', returnStdout: true).trim().toLong()
-                            def lastRaidCliCheck = sh(
-                                script: "cat '${raidCliCheckPath}' 2>/dev/null || echo 0",
-                                returnStdout: true
-                            ).trim()
-                            def lastRaidCliEpoch = (lastRaidCliCheck ==~ /^[0-9]+$/) ? lastRaidCliCheck.toLong() : 0L
-
-                            def raidCliBootstrapMissing = sh(
-                                script: "test -d '${raidCliWorkDir}/.git' && test -x '${raidCliDpraidPath}'; echo \$?",
-                                returnStdout: true
-                            ).trim() != '0'
-
-                            if (raidCliBootstrapMissing || nowEpoch - lastRaidCliEpoch >= 1800L) {
-                                def reason = raidCliBootstrapMissing ? 'initial bootstrap is missing' : '30-minute interval'
-                                hasRaidCliUpdate = syncRaidCli(reason)
-                                sh """
-                                mkdir -p '${jenkinsHome}/.raid_nvme'
-                                printf '%s\\n' '${nowEpoch}' > '${raidCliCheckPath}'
-                                """
-                            } else {
-                                echo "Skip raid_cli polling. Last check was ${nowEpoch - lastRaidCliEpoch}s ago."
+                            if (!(manualMrIid ==~ /^[0-9]+$/)) {
+                                error "MANUAL_MR_IID must be a numeric GitLab merge request IID, got: ${manualMrIid}"
                             }
 
                             withCredentials([string(credentialsId: env.KERNEL_DRIVER_GITLAB_TOKEN_CRED, variable: 'GITLAB_TOKEN')]) {
-                                sh '''
+                                sh """
                                 set -eu
-                                curl -fsS \
-                                  --header "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
-                                  "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests?state=opened&order_by=updated_at&sort=desc&per_page=100" \
-                                  -o kernel_driver_mrs.json
+                                curl -fsS \\
+                                  --header "PRIVATE-TOKEN: \${GITLAB_TOKEN}" \\
+                                  "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests/${manualMrIid}" \\
+                                  -o kernel_driver_manual_mr.json
 
-                                python3 ci/gitlab_mr_to_properties.py --list kernel_driver_mrs.json > kernel_driver_mr.properties
-                                '''
+                                python3 ci/gitlab_mr_to_properties.py kernel_driver_manual_mr.json > kernel_driver_manual_mr.properties
+                                """
                             }
 
-                            readFile('kernel_driver_mr.properties').split('\\r?\\n').each { line ->
+                            readFile('kernel_driver_manual_mr.properties').split('\\r?\\n').each { line ->
                                 if (line.contains('=')) {
                                     def parts = line.split('=', 2)
                                     mrProps[parts[0]] = parts[1]
                                 }
                             }
 
-                            def mrCount = (mrProps.MR_COUNT ?: '0').toInteger()
-                            currentMrSignature = mrProps.MR_SIGNATURE ?: 'none'
-                            def previousMrSignature = sh(
-                                script: "cat '${markerPath}' 2>/dev/null || true",
-                                returnStdout: true
-                            ).trim()
-                            def markerEpochText = sh(
-                                script: "stat -c %Y '${markerPath}' 2>/dev/null || echo 0",
-                                returnStdout: true
-                            ).trim()
-                            def markerEpoch = (markerEpochText ==~ /^[0-9]+$/) ? markerEpochText.toLong() : 0L
-
-                            def currentSignatures = currentMrSignature == 'none' ? [] : currentMrSignature.split('\\|') as List
-                            def previousSignatures = previousMrSignature ? previousMrSignature.split('\\|') as List : []
-                            if (!previousMrSignature && currentMrSignature != 'none') {
-                                sh """
-                                mkdir -p '${jenkinsHome}/.raid_nvme'
-                                printf '%s\\n' '${currentMrSignature}' > '${markerPath}'
-                                """
-                                currentBuild.result = 'NOT_BUILT'
-                                echo "kernel_driver MR marker bootstrap initialized. Existing open merge requests are recorded as baseline, skip tests."
-                                return
-                            }
-                            previousSignatures = previousSignatures.collect { signature ->
-                                def parts = signature.split(':')
-                                parts.size() >= 3 ? "${parts[0]}:${parts[-1]}" : signature
-                            }
-                            def signatureByIid = { signatures ->
-                                signatures.collectEntries { signature ->
-                                    def parts = signature.split(':', 2)
-                                    parts.size() == 2 && parts[0] ? [(parts[0]): signature] : [:]
-                                }
-                            }
-                            def createdEpochByIid = (mrProps.MR_CREATED_EPOCH_SIGNATURE ?: '').split('\\|').collectEntries { item ->
-                                def parts = item.split(':', 2)
-                                parts.size() == 2 && parts[0] && parts[1] ==~ /^[0-9]+$/ ? [(parts[0]): parts[1].toLong()] : [:]
-                            }
-                            def currentByIid = signatureByIid(currentSignatures)
-                            def previousByIid = signatureByIid(previousSignatures)
-                            def existingMrShaChanged = currentByIid.any { iid, signature ->
-                                previousByIid.containsKey(iid) && previousByIid[iid] != signature
-                            }
-                            def newlyCreatedMr = currentByIid.any { iid, signature ->
-                                !previousByIid.containsKey(iid) && (createdEpochByIid[iid] ?: 0L) > markerEpoch
-                            }
-                            hasNewOpenMrEvent = existingMrShaChanged || newlyCreatedMr
-
-                            if (!hasNewOpenMrEvent) {
-                                if (currentMrSignature != 'none') {
-                                    sh """
-                                    mkdir -p '${jenkinsHome}/.raid_nvme'
-                                    printf '%s\\n' '${currentMrSignature}' > '${markerPath}'
-                                    """
-                                }
-                                if (hasRaidCliUpdate) {
-                                    echo "raid_cli was updated for the test environment. No kernel_driver MR event, so skip smoke tests."
-                                    return
-                                }
-                                currentBuild.result = 'NOT_BUILT'
-                                echo "kernel_driver open merge requests have no new event. Skip NVMe RAID smoke tests."
-                                return
-                            }
-
                             kernelDriverRef = mrProps.MR_SOURCE_BRANCH ?: env.KERNEL_DRIVER_BRANCH
-                            kernelDriverMrIid = mrProps.MR_IID ?: ''
+                            kernelDriverMrIid = mrProps.MR_IID ?: manualMrIid
                             kernelDriverMrTitle = mrProps.MR_TITLE ?: ''
                             kernelDriverMrUpdatedAt = mrProps.MR_UPDATED_AT ?: ''
                             kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
-
-                            shouldRunTests = true
-                            useQemuVmTarget = true
-                            automaticMrTriggered = true
-                            triggerSource = 'kernel_driver Merge Request'
-
-                            if (kernelDriverMrIid) {
-                                echo "kernel_driver open MR !${kernelDriverMrIid} updated at ${kernelDriverMrUpdatedAt}: ${kernelDriverMrTitle}"
+                            triggerSource = 'Manual MR Build'
+                            echo "Manual MR build requested. Run tests on kernel_driver !${kernelDriverMrIid} ${kernelDriverRef}."
+                        } else {
+                            if (manualKernelDriverRef) {
+                                if (!(manualKernelDriverRef ==~ '[A-Za-z0-9][A-Za-z0-9._/-]*') ||
+                                    manualKernelDriverRef.contains('..') ||
+                                    manualKernelDriverRef.endsWith('/')) {
+                                    error "MANUAL_KERNEL_DRIVER_REF is not a safe branch name: ${manualKernelDriverRef}"
+                                }
+                                kernelDriverRef = manualKernelDriverRef
+                                triggerSource = 'Manual Branch Build'
                             } else {
-                                echo "GitLab MR polling has no MR IID. Fall back to ${kernelDriverRef}."
+                                kernelDriverRef = env.KERNEL_DRIVER_BRANCH
+                                triggerSource = 'Manual Build'
                             }
+                            echo "Manual build requested. Run tests on kernel_driver/${kernelDriverRef}."
                         }
 
                         checkout scm: [
@@ -405,19 +255,12 @@ pipeline {
                             returnStdout: true
                         ).trim()
                         echo "kernel_driver(${kernelDriverRef}) commit: ${kernelDriverCommit}"
-
-                        if (currentMrSignature != 'none') {
-                            sh """
-                            mkdir -p '${jenkinsHome}/.raid_nvme'
-                            printf '%s\\n' '${currentMrSignature}' > '${markerPath}'
-                            """
-                        }
                     }
                 }
 
                 script {
                     if (!shouldRunTests && !params.RESTORE) {
-                        echo 'Skip target node loading because kernel_driver merge requests have no new event.'
+                        echo 'Skip target node loading because this build is not configured to run tests.'
                         return
                     }
 
@@ -773,30 +616,6 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                                     error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"
                                 }
 
-                                if (qemuVmForNode && automaticMrTriggered) {
-                                    echo "[${ip}] QEMU test passed; stop QEMU VM, return NVMe devices, then run physical host test"
-                                    def hostStatus = sh(
-                                        returnStatus: true,
-                                        script: """#!/bin/bash
- chmod +x ci/run_physical_host_test.sh
- NODE_IP='${ip}' \
- TARGET_USER='${env.TARGET_USER}' \
- SSH_OPTS='${env.SSH_OPTS}' \
- QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \
- QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \
- QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \
- QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \
- BUILD_NUMBER='${env.BUILD_NUMBER}' \
- DPRAID_SOURCE='${raidCliDpraidPathForRun}' \
- TEST_IDLE_TIMEOUT_MINUTES='${env.TEST_IDLE_TIMEOUT_MINUTES}' \
- ALLOW_DESTRUCTIVE_FIO='${env.ALLOW_DESTRUCTIVE_FIO}' \
- ci/run_physical_host_test.sh
- """
-                                    )
-                                    if (hostStatus != 0) {
-                                        error "[${ip}] physical host test failed with exit code ${hostStatus}"
-                                    }
-                                }
                             }
                         }
                     }
@@ -817,7 +636,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
                 }
 
                 if (!shouldRunTests) {
-                    echo 'No kernel_driver merge request event detected. Nothing to report.'
+                    echo 'No test run was requested. Nothing to report.'
                     return
                 }
 

@@ -82,9 +82,9 @@ def test_manual_mr_iid_reruns_merge_request():
     assert "MANUAL_MR_IID must be a numeric GitLab merge request IID" in source
     assert "merge_requests/${manualMrIid}" in source
     assert "kernel_driver_manual_mr.properties" in source
-    assert "'Manual MR Build (Simulate Auto MR)' : 'Manual MR Build'" in source
+    assert "triggerSource = 'Manual MR Build'" in source
     assert "ignore MANUAL_KERNEL_DRIVER_REF=${manualKernelDriverRef}" in source
-    assert "Manual build requested. Run smoke tests on kernel_driver/${kernelDriverRef}." in source
+    assert "Manual build requested. Run tests on kernel_driver/${kernelDriverRef}." in source
 
 
 def test_manual_build_can_select_kernel_driver_branch():
@@ -94,8 +94,9 @@ def test_manual_build_can_select_kernel_driver_branch():
     assert "def manualKernelDriverRef = (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()" in source
     assert "MANUAL_KERNEL_DRIVER_REF is not a safe branch name" in source
     assert "kernelDriverRef = manualKernelDriverRef" in source
-    assert "'Manual Branch Build (Simulate Auto MR)' : 'Manual Branch Build'" in source
+    assert "triggerSource = 'Manual Branch Build'" in source
     assert "kernelDriverRef = env.KERNEL_DRIVER_BRANCH" in source
+    assert "triggerSource = 'Manual Build'" in source
 
 
 def test_target_hang_times_out_and_keeps_pipeline_control():
@@ -165,35 +166,20 @@ def test_test_idle_watchdog_tracks_non_system_disk_io_progress():
     assert 'awk -v dev="${dev}"' in source
 
 
-def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
-    source = pipeline_sources()
+def test_ci_is_manual_only_without_cron_or_auto_mr_trigger():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
-    assert "useQemuVmTarget = params.SIMULATE_AUTO_MR_TRIGGER" in source
-    assert "useQemuVmTarget = true" in source
-    assert "'Manual MR Build (Simulate Auto MR)' : 'Manual MR Build'" in source
-    assert "triggerSource = 'kernel_driver Merge Request'" in source
-    assert "QEMU_VM_SSH_PORT = '2233'" in source
-    assert "QEMU_VM_SCP_PORT = '2233'" in source
-    assert "QEMU_VM_WORKDIR = '/root/Cyril/qemu'" in source
-    assert "QEMU_KERNEL_BUILD_DIR = '/root/Cyril/qemu/general_kernel'" in source
-    assert "cd \"${QEMU_VM_WORKDIR}\"" in source
-    assert "\"${QEMU_VM_START_SCRIPT}\"" in source
-    assert "QEMU_VM_TARGET=${qemuEnv}" in source
-    assert "sshpass is required on Jenkins server for QEMU VM login, and automatic install failed" in source
-
-
-def test_automatic_mr_signature_only_tracks_code_sha():
-    source = pipeline_sources()
-
-    assert 'f"{mr.get(\'iid\')}:{mr.get(\'sha\')}"' in source
-    assert 'f"{mr.get(\'iid\')}:{mr.get(\'updated_at\')}:{mr.get(\'sha\')}"' not in source
-    assert 'parts.size() >= 3 ? "${parts[0]}:${parts[-1]}" : signature' in source
-    assert "MR_CREATED_EPOCH_SIGNATURE" in source
-    assert "existingMrShaChanged || newlyCreatedMr" in source
-    assert "createdEpochByIid[iid]" in source
-    assert "stat -c %Y '${markerPath}'" in source
-    assert "kernel_driver MR marker bootstrap initialized" in source
-    assert "Existing open merge requests are recorded as baseline, skip tests." in source
+    assert "cron(" not in source
+    assert "triggers {" not in source
+    assert "name: 'SIMULATE_AUTO_MR_TRIGGER'" not in source
+    assert "automaticMrTriggered" not in source
+    assert "useQemuVmTarget = false" in source
+    assert "useQemuVmTarget = true" not in source
+    assert "triggerSource = 'kernel_driver Merge Request'" not in source
+    assert "merge_requests?state=opened" not in source
+    assert "kernel_driver_open_mrs" not in source
+    assert "existingMrShaChanged || newlyCreatedMr" not in source
+    assert "manual CI build" in source
 
 
 def test_draid_module_reload_retries_and_reports_memory_on_insmod_failure():
@@ -271,74 +257,21 @@ def test_qemu_vm_start_fails_fast_when_qemu_process_exits():
     assert "vfio NVMe devices still bound after cleanup" in source
 
 
-def test_automatic_mr_runs_qemu_then_physical_host():
+def test_ci_runs_physical_host_path_without_auto_qemu_chain():
     source = pipeline_sources()
 
-    assert "automaticMrTriggered = true" in source
-    assert "if (qemuVmForNode && automaticMrTriggered)" in source
+    assert "if (qemuVmForNode && automaticMrTriggered)" not in source
     assert "Physical Environment_Prepare started after QEMU VM test" in source
     assert "QEMU_VM_TARGET=0" in source
     assert "REPORT_SUFFIX='_physical'" in source
-
-
-def test_automatic_mr_moves_nvme_between_host_and_qemu():
-    source = pipeline_sources()
-
-    assert "QEMU_VFIO_BIND_SCRIPT = './vfio-bind.sh'" in source
-    assert "VFIO_BIND_TIMEOUT_SECONDS=${VFIO_BIND_TIMEOUT_SECONDS:-30}" in source
-    assert 'timeout --kill-after=5s "${VFIO_BIND_TIMEOUT_SECONDS}s"' in source
-    assert "vfio ${action} timed out after ${VFIO_BIND_TIMEOUT_SECONDS}s" in source
-    assert "bind NVMe PCI device to QEMU vfio" in source
-    assert "skip invalid QEMU vfio device" in source
-    assert '[ ! -e "/dev/vfio/${group}" ]' in source
-    assert "no usable QEMU vfio NVMe devices after bind validation" in source
-    assert "QEMU_ALLOWED_VFIO_FILE" in source
-    assert "skip QEMU vfio device not in validated list" in source
-    assert "skip QEMU vfio device without vfio node" in source
-    assert "append auto detected QEMU vfio device" in source
-    assert "skip auto QEMU vfio device without vfio node" in source
-    assert 'patched_start_script=".jenkins_start_vm_${BUILD_NUMBER}.sh"' in source
-    assert "*PASSTHROUGH_HOSTS block not found" in source
-    assert "replace ${passthrough_var} in ${QEMU_VM_START_SCRIPT} with current validated BDF list" in source
-    assert "^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*PASSTHROUGH_HOSTS=\\(" in source
-    assert "use auto detected QEMU passthrough hosts from ${allowed_file}" in source
-    assert "use original script and rely on QEMU vfio wrapper filtering" in source
-    assert ".jenkins_qemu_start_${BUILD_NUMBER}.log" in source
-    assert "waiting for QEMU process" in source
-    assert "return NVMe devices to physical host" in source
-    assert "unbind NVMe PCI device back to host" in source
-    assert "fallback unbind vfio NVMe PCI device back to host" in source
-    assert ".jenkins_nvme_${BUILD_NUMBER}_vfio_devices" in source
-
-
-def test_automatic_mr_restores_raid_state_before_tests_after_driver_load():
-    source = pipeline_sources()
-
-    assert "restore physical host RAID state before QEMU handoff" in source
     assert "restore RAID state before test" in source
-    assert "restore RAID state before physical host test" in source
-    assert "restore physical host RAID state after physical host test" not in source
     assert "ENVIRONMENT_PREPARE_STATUS=failed" in source
     assert "ci/salvage_junit_reports.py" in source
-    assert "merged junit items" in source or "no per-item junit reports found to merge" in source
     assert "report_*.*.*.*.xml,report_*_physical.xml" in source
-    assert "unload draid module before QEMU handoff if loaded" in source
-    assert "unload draid module before restoring physical RAID state if loaded" not in source
     assert "dpraid /c0/vall show" in source
     assert "dpraid /c0/eall/sall show" in source
     assert 'dpraid "/c0/v${vd}" delete' in source
     assert 'dpraid "/c0/eall/s${slot}" delete' in source
-
-
-def test_manual_debug_can_simulate_automatic_mr_trigger():
-    source = Path("Jenkinsfile").read_text(encoding="utf-8")
-
-    assert "name: 'SIMULATE_AUTO_MR_TRIGGER'" in source
-    assert "automaticMrTriggered = params.SIMULATE_AUTO_MR_TRIGGER" in source
-    assert "Manual MR Build (Simulate Auto MR)" in source
-    assert "Manual Build (Simulate Auto MR)" in source
-    assert "SIMULATE_AUTO_MR_TRIGGER=true, use QEMU VM target path for this manual build." in source
-    assert "merge_requests/${manualMrIid}" in source
 
 
 def test_qemu_vm_auto_installs_required_test_tools():

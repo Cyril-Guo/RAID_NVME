@@ -101,44 +101,35 @@ MONITOR_RUNTIME =
 > 选项用于随时停止测试（见下文）。
 
 ### 3. 在 Jenkins 中触发任务
-两种触发方式：
 
-**手动触发**：在 Jenkins 界面点击 **"Build with Parameters"**：
-- 直接构建（`RESTORE` 不勾选）即按 `test_items.txt` 执行测试，不受 MR 轮询去重限制；
-  被测驱动默认 checkout `kernel_driver/main`。
+CI 任务**仅支持手动触发**（无定时轮询、无自动 MR 触发）。在 Jenkins 界面点击
+**"Build with Parameters"**：
+
+- 直接构建（`RESTORE` 不勾选）：按 `test_items.txt` 执行测试；被测驱动默认 checkout
+  `kernel_driver/main`。
+- 可选填写 **`MANUAL_MR_IID`**：按指定 GitLab MR 的 source branch 测试，并固定到该 MR 当前 `sha`
+  （优先于分支参数）。
+- 可选填写 **`MANUAL_KERNEL_DRIVER_REF`**：按指定 `kernel_driver` 分支测试；留空则用 `main`。
 - 勾选 **`RESTORE`** 后构建：本次不执行测试，仅对 `target_ips.txt` 中所有节点
   **立即停止**正在运行的测试（含后台 FIO / 监控进程），并恢复系统环境
   （还原自动登录、开机自启等配置）。用于随时中止测试。
 
-**自动触发（kernel_driver 打开中 MR 变化 1 分钟轮询）**：`Jenkinsfile` 每 1 分钟通过
-GitLab API 检查 `kernel_driver` 的打开中 Merge Request。标题以 `[WIP]` 开头的 MR
-会被过滤，不自动触发测试。只要未过滤的打开中 MR 有新增、更新时间变化或头部提交变化，
-即自动运行冒烟测试。测试会 checkout source branch，并固定到 MR 当前 `sha`。
-
 RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试框架推代码**不会**
-误触发破坏性测试。没有打开中的 MR 变化时，本次构建会标记为 `NOT_BUILT`，不会进入测试和飞书报告流程。
-如果一个 MR 在两次轮询之间完成创建并合并或关闭，Jenkins 查询打开中 MR 时可能看不到它；
-只要 MR 保持打开状态超过一次 1 分钟轮询窗口，就能被监控到并触发。
+误触发破坏性测试。
 
-**环境代码拉取（raid_cli 30 分钟轮询）**：同一个 Jenkins 任务会每 30 分钟检查一次
-`general_tools/raid_cli` 的 `hostraid_cli` 分支。发现新提交时，只把代码拉取并保存到 Jenkins
-服务器的 `$JENKINS_HOME/.raid_nvme/...repo` 持久目录，然后在该目录执行 `./build.sh`。
-编译成功后会校验生成的 `dpraid` 可执行文件；只有校验通过才会记录本次 `raid_cli` 提交。
-如果 Jenkins 服务器上还没有初始的 `raid_cli` 仓库或 `dpraid` 可执行文件，会忽略 30 分钟间隔，
-先立即拉取并编译一份初始版本。
-`raid_cli` 的变化不会触发冒烟测试，也不会进入飞书测试报告流程；只有 `kernel_driver` 的未过滤
-打开中 MR 变化才会自动跑测试。真正执行测试时，Jenkins 会在每台测试机开始测试前把这个
-`dpraid` 覆盖到 `/usr/bin/dpraid`，保证测试使用最新已编译的工具。测试完成后的飞书报告会
-同时展示本次使用的 `raid_cli` commit。
+**raid_cli / dpraid**：每次手动测试构建会检查 `general_tools/raid_cli` 的 `hostraid_cli`
+分支；有新提交或本地还没有 `dpraid` 时，拉取到 Jenkins 服务器
+`$JENKINS_HOME/.raid_nvme/...repo` 并执行 `./build.sh`。真正执行测试时，会把该 `dpraid`
+覆盖到测试机 `/usr/bin/dpraid`。飞书报告会展示本次使用的 `raid_cli` commit。
 
 **Python 测试依赖**：测试机优先使用系统软件源安装 `python3-pytest`，避免无 pip 源时卡在
 `pip install pytest`。`allure-pytest` 会尽量通过 pip 安装，但不是硬依赖；缺失时用例仍会运行并
 生成 JUnit，Jenkins 后置步骤会把 JUnit 转换为 Allure 报告。
 
 **kernel_driver 驱动准备**：触发测试后，Jenkins 会把当前被测的 `kernel_driver` 源码同步到每台
-测试机。手动构建使用 `main` 分支；MR 自动触发使用 MR source branch，并固定到 MR 当前 `sha`。
-每台测试机执行用例前，会进入 `kernel_driver/drivers/draid` 执行 `make`，生成 `draid.ko` 后先
-通过 `modinfo -F name ./draid.ko` 识别真实模块名，并按真实模块名和 `draid` 候选卸载已有模块，
+测试机（默认 `main`，或手动指定的 MR / 分支）。每台测试机执行用例前，会进入
+`kernel_driver/drivers/draid` 执行 `make`，生成 `draid.ko` 后先通过
+`modinfo -F name ./draid.ko` 识别真实模块名，并按真实模块名和 `draid` 候选卸载已有模块，
 再执行 `insmod ./draid.ko`。如果模块卸载失败、加载失败或 `draid.ko` 未生成，构建会
 直接失败并打印相关模块状态，不继续使用旧驱动测试。编译前会自动安装内核模块编译依赖：Ubuntu/Debian 使用
 `build-essential linux-headers-$(uname -r) kmod`，RHEL 系使用 `make gcc kernel-devel kmod`。
