@@ -262,6 +262,8 @@ def test_qemu_vm_start_forces_clean_environment_before_start():
     assert "force stop stale QEMU process before fresh start" in source
     assert "QEMU VM is already running, skip vfio bind and ${QEMU_VM_START_SCRIPT}" not in source
     assert "dpraid_${BUILD_NUMBER}_host_prepare" in source
+    assert 'host_scp "${RAID_CLI_DPRAID_PATH_FOR_RUN}"' in source
+    assert 'scp ${SSH_OPTS} "${RAID_CLI_DPRAID_PATH_FOR_RUN}"' not in source
     assert "restore physical host RAID state before QEMU handoff" in source
     assert "\"${QEMU_VM_START_SCRIPT}\"" in source
     assert "QEMU VM SSH is ready" in source

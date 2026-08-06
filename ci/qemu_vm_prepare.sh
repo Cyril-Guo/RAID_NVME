@@ -19,6 +19,10 @@ host_ssh() {
     SSHPASS="${TARGET_PASSWORD}" sshpass -e ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
 }
 
+host_scp() {
+    SSHPASS="${TARGET_PASSWORD}" sshpass -e scp ${SSH_OPTS} "$@"
+}
+
 qemu_ssh() {
     sshpass -p "${QEMU_VM_PASSWORD}" ssh ${SSH_OPTS} -p "${QEMU_VM_SSH_PORT}" "${TARGET_USER}@${NODE_IP}" "$@"
 }
@@ -66,7 +70,7 @@ if [ -n "${qemu_pids}" ]; then
 fi
 HOST_STOP_STALE_QEMU
 
-    scp ${SSH_OPTS} "${RAID_CLI_DPRAID_PATH_FOR_RUN}" "${TARGET_USER}@${NODE_IP}:/tmp/dpraid_${BUILD_NUMBER}_host_prepare"
+host_scp "${RAID_CLI_DPRAID_PATH_FOR_RUN}" "${TARGET_USER}@${NODE_IP}:/tmp/dpraid_${BUILD_NUMBER}_host_prepare"
     host_ssh "NODE_IP='${NODE_IP}' BUILD_NUMBER='${BUILD_NUMBER}' QEMU_VM_WORKDIR='${QEMU_VM_WORKDIR}' QEMU_VFIO_BIND_SCRIPT='${QEMU_VFIO_BIND_SCRIPT}' bash -s" <<'HOST_PREPARE'
 set -euo pipefail
 install -m 0755 "/tmp/dpraid_${BUILD_NUMBER}_host_prepare" /usr/bin/dpraid
