@@ -34,8 +34,25 @@ Node             SN                   Model                                    N
     assert [disk.sn for disk in disks] == ["SN0", "SN1", "SN-081FD192427DAB2C"]
     assert disks[0].size_gb == Decimal("960.20")
     assert disks[1].size_gb == Decimal("1920.00")
+    # Capacity must come from the total after '/', not the used size before it.
+    assert disks[2].size_gb == Decimal("9010000.00")
     assert disks[2].model == "DAPUSTOR DPRP5108T0TF06T4000"
     assert disks[2].model in EXCLUDED_NVME_MODELS
+
+
+def test_parse_nvme_list_uses_total_capacity_when_used_is_zero():
+    text = """
+Node             SN                   Model                                    Namespace Usage                      Format           FW Rev
+---------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------
+/dev/nvme5n1     SN5                  DAPUSTOR DPRD3108T8T506T4000             1           0.00   B /   6.40  TB    512   B +  0 B   1.0
+/dev/nvme8n1     SN8                  DAPUSTOR DPRD3108T8T506T4000             1           3.84  TB /   3.84  TB    512   B +  0 B   1.0
+"""
+
+    disks = parse_nvme_list(text)
+
+    assert [disk.namespace for disk in disks] == ["nvme5n1", "nvme8n1"]
+    assert disks[0].size_gb == Decimal("6400.00")
+    assert disks[1].size_gb == Decimal("3840.00")
 
 
 def test_discover_nvme_data_disks_excludes_qemu_nvme_ctrl(monkeypatch):

@@ -197,32 +197,43 @@ def mounted_devices(log):
     return mounted
 
 
+def _size_to_gb(size, unit):
+    size = Decimal(size)
+    unit = unit.upper()
+    if unit == "PB":
+        return size * Decimal("1000000")
+    if unit == "TB":
+        return size * Decimal("1000")
+    if unit == "GB":
+        return size
+    if unit == "MB":
+        return size / Decimal("1000")
+    if unit == "KB":
+        return size / Decimal("1000000")
+    if unit == "B":
+        return size / Decimal("1000000000")
+    return size
+
+
 def parse_nvme_list(text):
     disks = []
     for line in text.splitlines():
+        # nvme list Usage column is "used / total"; always take total capacity after '/'.
         match = re.search(
-            r"(/dev/(nvme\d+)n\d+)\s+(\S+)\s+(.+?)\s+\d+\s+(\d+(?:\.\d+)?)\s+([KMGT]?B)\s*/",
+            r"(/dev/(nvme\d+)n\d+)\s+(\S+)\s+(.+?)\s+\d+\s+"
+            r"\d+(?:\.\d+)?\s+[KMGTP]?B\s*/\s*(\d+(?:\.\d+)?)\s+([KMGTP]?B)\b",
             line,
         )
         if not match:
             continue
         sn = match.group(3)
         model = " ".join(match.group(4).split())
-        size = Decimal(match.group(5))
-        unit = match.group(6)
-        if unit == "TB":
-            size *= Decimal("1000")
-        elif unit == "MB":
-            size /= Decimal("1000")
-        elif unit == "KB":
-            size /= Decimal("1000000")
-        elif unit == "B":
-            size /= Decimal("1000000000")
+        size_gb = _size_to_gb(match.group(5), match.group(6))
         disks.append(
             NvmeDisk(
                 namespace=Path(match.group(1)).name,
                 controller=match.group(2),
-                size_gb=size,
+                size_gb=size_gb,
                 model=model,
                 sn=sn,
             )
