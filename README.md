@@ -5,7 +5,7 @@
 ## 🌟 主要功能
 
 - **分布式并发执行**：通过 Jenkins 并发调度，可同时对 `target_ips.txt` 中配置的多个节点进行测试。
-- **自动化环境部署**：Jenkins Pipeline 会通过 SSH 自动将测试代码部署到远端服务器（目录 `/tmp/jenkins_nvme_xxx`），并自动加载和安装所需要的 Python 运行依赖。
+- **自动化环境部署**：Jenkins Pipeline 通过 **SSH 密码登录**（`sshpass`）将测试代码部署到远端服务器（目录 `/root/Cyril/Jenkins/jenkins_nvme_<BUILD_NUMBER>`），并自动安装所需 Python 运行依赖、编译/加载 `draid` 驱动。
 - **Allure 监控报告合并**：自动从所有远端测试节点中回收测试产物（`.xml` 控制台日志和 `allure-results`），统一生成直观的 Allure UI 评估报告。
 - **飞书通知集成**：测试完成后，通过自定义飞书机器人 Webhook，自动实时推送详尽的测试结果与成功/失败数据到飞书群组。
 
@@ -29,29 +29,35 @@ RAID_NVME/
 > 说明：`IO_Stress`、`MachineCheck`、`Stress_Monitor` 为多个测试项共用的引擎/工具，
 > 统一放在根目录；`test_items/` 只保留纯粹的测试用例脚本，职责更清晰。
 
-## 🔑 SSH 免密登录配置 (重要)
+## 🔑 目标机 SSH 密码登录 (重要)
 
-为了使 Jenkins 能够顺畅地部署和执行远程测试，必须确保 Jenkins 服务器能够免密登录到所有目标节点。请按照以下步骤操作：
+Pipeline **不再依赖** Jenkins → 被测机的 SSH 免密（公钥）。所有连物理机 / QEMU 客户机的 `ssh`/`scp`
+都通过 `sshpass` 走密码，并强制 `PreferredAuthentications=password`、`PubkeyAuthentication=no`。
 
-1.  **切换到 Jenkins 用户** (极其重要 ⚠️):
-    ```bash
-    sudo su -s /bin/bash jenkins
-    ```
-2.  **生成 SSH 密钥对**:
-    ```bash
-    ssh-keygen -t rsa -b 4096
-    # 一路回车即可，不要设置密码
-    ```
-3.  **将公钥分发给远端被测机**:
-    ```bash
-    ssh-copy-id root@<目标IP>
-    # 例如: ssh-copy-id root@192.168.1.100
-    ```
-4.  **测试免密登录是否生效**:
-    ```bash
-    ssh root@<目标IP>
-    # 如果不需要输入密码直接进入，则配置成功
-    ```
+| 对象 | 用户 | 密码来源 | 默认值 |
+|------|------|----------|--------|
+| 物理机（`target_ips.txt`） | `root`（`TARGET_USER`） | 构建参数 / 环境变量 `TARGET_PASSWORD` | `123456` |
+| QEMU 客户机（端口 `2233`） | `root` | `QEMU_VM_PASSWORD`（Jenkinsfile 环境变量） | `1` |
+
+**被测物理机侧只需保证：**
+
+1. `root` 允许密码 SSH 登录（`PasswordAuthentication yes`，且 `PermitRootLogin` 允许）。
+2. `root` 密码与流水线一致：默认 **`123456`**；若机器密码不同，在 Jenkins
+   **Build with Parameters** 里改 `TARGET_PASSWORD`（自动触发用参数默认值 `123456`）。
+3. Jenkins 节点已安装 `sshpass`（流水线会调用 `ci/ensure_sshpass.sh` 尝试自动安装）。
+
+在 Jenkins 节点上可自检物理机密码登录：
+
+```bash
+SSHPASS='123456' sshpass -e ssh \
+  -o StrictHostKeyChecking=no \
+  -o PreferredAuthentications=password \
+  -o PubkeyAuthentication=no \
+  root@<目标IP> 'echo ok'
+```
+
+> 说明：拉取 `kernel_driver` / `raid_cli` 仍使用 Jenkins 凭据 `kernel_driver_ssh`（连 Git 主机
+> `192.168.21.185`），与被测机登录无关，二者不要混淆。
 
 ## 🚀 快速使用说明
 
@@ -97,8 +103,8 @@ MONITOR_RUNTIME =
 > 停止/清理（restore）不再是测试项，已改由 Jenkins Web 的 `RESTORE` 选项随时触发（见下文）。
 
 > SMOKE 分支的 Jenkins 任务测试项与配置完全由仓库内的 `test_items.txt` 决定，
-> 随代码一起部署到被测节点，保证"配置即代码"。Web 界面仅保留一个 `RESTORE`
-> 选项用于随时停止测试（见下文）。
+> 随代码一起部署到被测节点，保证"配置即代码"。Web 参数主要保留 `RESTORE`、`TARGET_PASSWORD`
+> 以及调试用选项（见下文）。
 
 ### 3. 在 Jenkins 中触发任务
 两种触发方式：
@@ -106,6 +112,8 @@ MONITOR_RUNTIME =
 **手动触发**：在 Jenkins 界面点击 **"Build with Parameters"**：
 - 直接构建（`RESTORE` 不勾选）即按 `test_items.txt` 执行测试，不受 MR 轮询去重限制；
   被测驱动默认 checkout `kernel_driver/main`。
+- **`TARGET_PASSWORD`**：物理机 `root` SSH 密码，默认 `123456`；仅当目标机密码不是默认值时再改。
+- 勾选 **`SIMULATE_AUTO_MR_TRIGGER`**：手动构建也走与自动 MR 相同的 **QEMU 虚拟机** 路径（便于调试）。
 - 勾选 **`RESTORE`** 后构建：本次不执行测试，仅对 `target_ips.txt` 中所有节点
   **立即停止**正在运行的测试（含后台 FIO / 监控进程），并恢复系统环境
   （还原自动登录、开机自启等配置）。用于随时中止测试。
@@ -146,17 +154,19 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 `environment_prepare_<ip>.log`，并在 Allure 报告中作为 `Environment_Prepare_<ip>` 独立结果展示。
 
 > 需要在 Jenkins 中预先完成一次性配置：
-> 1. **添加 SSH 凭据**：Manage Jenkins → Credentials → 新增 *SSH Username with private key*，
->    凭据 ID 填 `kernel_driver_ssh`（与 `Jenkinsfile` 的 `KERNEL_DRIVER_CRED` / `RAID_CLI_CRED`
->    一致），私钥需对 `192.168.21.185` 的 `raid_max/kernel_driver` 和
->    `general_tools/raid_cli` 有读取权限。
+> 1. **添加 Git SSH 凭据（仅用于拉代码，不是连被测机）**：Manage Jenkins → Credentials →
+>    新增 *SSH Username with private key*，凭据 ID 填 `kernel_driver_ssh`
+>    （与 `Jenkinsfile` 的 `KERNEL_DRIVER_CRED` / `RAID_CLI_CRED` 一致），私钥需对
+>    `192.168.21.185` 的 `raid_max/kernel_driver` 和 `general_tools/raid_cli` 有读取权限。
 > 2. **添加 GitLab API Token 凭据**：Manage Jenkins → Credentials → 新增 *Secret text*，
 >    凭据 ID 填 `kernel_driver_gitlab_token`（与 `Jenkinsfile` 的
 >    `KERNEL_DRIVER_GITLAB_TOKEN_CRED` 一致）。Token 只需要能读取
 >    `raid_max/kernel_driver` 的 Merge Request API。
 > 3. **信任 Git 主机指纹**：Manage Jenkins → Security → Git Host Key Verification 配置为
 >    “Accept first connection” 或把 `192.168.21.185` 加入 known_hosts，否则首次克隆会因主机校验失败。
-> 4. 测试机需要能访问对应系统的软件源，用于自动安装内核头文件、`make`、编译器等编译环境。
+> 4. **被测机 root 密码**：与 `TARGET_PASSWORD` 一致（默认 `123456`）；Jenkins 节点需可用 `sshpass`
+>    （流水线会尝试自动安装）。
+> 5. 测试机需要能访问对应系统的软件源，用于自动安装内核头文件、`make`、编译器等编译环境。
 
 ### 4. 查看结果
 - **Allure 报告**: 详尽展示每个测试项的执行结果、耗时及日志。
@@ -166,4 +176,6 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 ## ⚠️ 注意事项
 
 * 本框架的测试流中开启了 `ALLOW_DESTRUCTIVE_FIO=1` 可选参数。这可能触发破坏性测试，因此请**务必确保远端测试设备并非生产环境且可以被格式化/清空数据**。
-* `Jenkinsfile` 中默认写入了特定的飞书 Webhook 地址与机器人 UI 解析卡片。如果在其他域/新环境中运行，请替换对应的 `FEISHU_WEBHOOK` 值。
+* 飞书 Webhook 使用 Jenkins 凭据 `feishu-webhook`（`FEISHU_WEBHOOK`），不要在仓库里硬编码。
+* 自动触发构建使用参数默认值：物理机密码即 `TARGET_PASSWORD=123456`；若某台机器密码不同，需改机器密码或仅用手动参数覆盖（自动任务不会记住上次手动输入的密码）。
+* 目标机 SSH 必须走密码；仓库内回归测试会拦截对目标机的裸 `ssh`/`scp`（未包 `sshpass`）写法。
