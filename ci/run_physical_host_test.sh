@@ -12,9 +12,14 @@ CONTROL_STEP_TIMEOUT_MINUTES=${CONTROL_STEP_TIMEOUT_MINUTES:-15}
 TARGET_PASSWORD=${TARGET_PASSWORD:-123456}
 host_remote_dir="/root/Cyril/Jenkins/jenkins_nvme_${BUILD_NUMBER}_physical"
 host_log="environment_prepare_${NODE_IP}_physical.log"
-host_ssh="sshpass -p '${TARGET_PASSWORD}' ssh ${SSH_OPTS} ${TARGET_USER}@${NODE_IP}"
-host_scp="sshpass -p '${TARGET_PASSWORD}' scp ${SSH_OPTS}"
-export NODE_IP TARGET_USER TARGET_PASSWORD SSH_OPTS BUILD_NUMBER DPRAID_SOURCE host_remote_dir host_ssh host_scp
+
+# Prefer sshpass -e so the password is never embedded in a bash string that is
+# later expanded (that turns surrounding quotes into part of the password).
+export SSHPASS="${TARGET_PASSWORD}"
+host_ssh="sshpass -e ssh ${SSH_OPTS} ${TARGET_USER}@${NODE_IP}"
+host_scp="sshpass -e scp ${SSH_OPTS}"
+export NODE_IP TARGET_USER TARGET_PASSWORD SSH_OPTS SSHPASS BUILD_NUMBER DPRAID_SOURCE
+export host_remote_dir host_ssh host_scp
 
 printf '[%s] Physical Environment_Prepare started after QEMU VM test\n' "${NODE_IP}" > "${host_log}"
 

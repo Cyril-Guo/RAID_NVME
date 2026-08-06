@@ -15,11 +15,12 @@ def useQemuVmTarget = false
 def automaticMrTriggered = false
 
 def hostSshCmd(ip) {
-    return "sshpass -p '${env.TARGET_PASSWORD}' ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
+    // Use sshpass -e so callers can also safely store/expand the command string.
+    return "SSHPASS='${env.TARGET_PASSWORD}' sshpass -e ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
 }
 
 def hostScpCmd() {
-    return "sshpass -p '${env.TARGET_PASSWORD}' scp ${env.SSH_OPTS}"
+    return "SSHPASS='${env.TARGET_PASSWORD}' sshpass -e scp ${env.SSH_OPTS}"
 }
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
@@ -594,18 +595,20 @@ ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
 
                                     // Dirty CSD flash (8P/9P) is visible on the physical host after reclaim,
                                     // before devices are passed through to QEMU.
+                                    // Use hostSshCmd/hostScpCmd directly (do not store sshpass -p '...' in a
+                                    // bash variable and expand it — the quotes become part of the password).
                                     echo "[${ip}] clear dirty CSD flash on physical host before QEMU start"
+                                    def flashClearSsh = hostSshCmd(ip)
+                                    def flashClearScp = hostScpCmd()
                                     runTimedEnvironmentStep(ip, 'clear dirty CSD flash on physical host before QEMU start', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail
 {
 echo "[${ip}] clear dirty CSD flash on physical host before QEMU start"
-host_ssh="sshpass -p '${env.TARGET_PASSWORD}' ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
-host_scp="sshpass -p '${env.TARGET_PASSWORD}' scp ${env.SSH_OPTS}"
 remote_clear_dir="/tmp/jenkins_nvme_${env.BUILD_NUMBER}_flash_clear"
-\${host_ssh} "rm -rf \${remote_clear_dir} && mkdir -p \${remote_clear_dir}"
+${flashClearSsh} "rm -rf \${remote_clear_dir} && mkdir -p \${remote_clear_dir}"
 chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh
-\${host_scp} ci/clear_8p_csd_flash.sh ci/flash-clear.sh ${env.TARGET_USER}@${ip}:\${remote_clear_dir}/
-\${host_ssh} "cd \${remote_clear_dir} && chmod +x clear_8p_csd_flash.sh flash-clear.sh && NODE_IP=${ip} ./clear_8p_csd_flash.sh"
+${flashClearScp} ci/clear_8p_csd_flash.sh ci/flash-clear.sh ${env.TARGET_USER}@${ip}:\${remote_clear_dir}/
+${flashClearSsh} "cd \${remote_clear_dir} && chmod +x clear_8p_csd_flash.sh flash-clear.sh && NODE_IP=${ip} ./clear_8p_csd_flash.sh"
 } 2>&1 | tee -a ${envPrepareLog}
 """)
 

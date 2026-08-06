@@ -15,7 +15,7 @@ CLEANUP_REASON=${CLEANUP_REASON:-return NVMe devices to physical host}
 POWER_OFF_QEMU=${POWER_OFF_QEMU:-0}
 
 host_ssh() {
-    sshpass -p "${TARGET_PASSWORD}" ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
+    SSHPASS="${TARGET_PASSWORD}" sshpass -e ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
 }
 
 qemu_ssh() {

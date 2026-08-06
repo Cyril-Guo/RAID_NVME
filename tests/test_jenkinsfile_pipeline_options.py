@@ -241,11 +241,13 @@ def test_physical_host_ssh_uses_password_with_default_and_override():
     assert "PubkeyAuthentication=no" in jenkinsfile
     assert "def hostSshCmd(ip)" in jenkinsfile
     assert "def hostScpCmd()" in jenkinsfile
-    assert "sshpass -p '${env.TARGET_PASSWORD}' ssh" in jenkinsfile
+    assert "SSHPASS='${env.TARGET_PASSWORD}' sshpass -e ssh" in jenkinsfile
+    assert "flashClearSsh = hostSshCmd(ip)" in jenkinsfile
     assert 'hostSshCmd(ip)' in jenkinsfile
     assert '    "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"' not in jenkinsfile
     assert "TARGET_PASSWORD=${TARGET_PASSWORD:-123456}" in source
-    assert "sshpass -p '${TARGET_PASSWORD}' ssh" in source or 'sshpass -p "${TARGET_PASSWORD}" ssh' in source
+    assert "sshpass -e ssh" in source
+    assert "do not store sshpass -p" in jenkinsfile
 
 
 def test_qemu_vm_start_forces_clean_environment_before_start():

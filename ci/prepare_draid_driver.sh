@@ -15,11 +15,11 @@ QEMU_VM_SCP_PORT=${QEMU_VM_SCP_PORT:-2233}
 QEMU_KERNEL_BUILD_DIR=${QEMU_KERNEL_BUILD_DIR:-}
 
 host_ssh() {
-    sshpass -p "${TARGET_PASSWORD}" ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
+    SSHPASS="${TARGET_PASSWORD}" sshpass -e ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
 }
 
 host_scp() {
-    sshpass -p "${TARGET_PASSWORD}" scp ${SSH_OPTS} "$@"
+    SSHPASS="${TARGET_PASSWORD}" sshpass -e scp ${SSH_OPTS} "$@"
 }
 
 target_ssh() {
