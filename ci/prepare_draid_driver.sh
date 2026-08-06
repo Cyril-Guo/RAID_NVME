@@ -10,11 +10,11 @@ SSH_OPTS=${SSH_OPTS:-}
 TARGET_PASSWORD=${TARGET_PASSWORD:-123456}
 
 host_ssh() {
-    sshpass -p "${TARGET_PASSWORD}" ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
+    SSHPASS="${TARGET_PASSWORD}" sshpass -e ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
 }
 
 host_scp() {
-    sshpass -p "${TARGET_PASSWORD}" scp ${SSH_OPTS} "$@"
+    SSHPASS="${TARGET_PASSWORD}" sshpass -e scp ${SSH_OPTS} "$@"
 }
 
 reload_remote_module() {

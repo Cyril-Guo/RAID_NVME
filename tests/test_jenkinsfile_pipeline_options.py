@@ -223,7 +223,7 @@ def test_run_tests_uses_password_host_ssh_without_qemu_ports():
 
     assert "def targetSsh = hostSshCmd(ip)" in source
     assert "def targetScp = hostScpCmd()" in source
-    assert "sshpass -p '${env.TARGET_PASSWORD}' ssh" in source
+    assert "SSHPASS='${env.TARGET_PASSWORD}' sshpass -e ssh" in source
     assert "${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'" in source
     assert "find /root/Cyril/Jenkins -maxdepth 1 -type d -name" not in source
     assert "jenkins_nvme_*" not in source
@@ -245,7 +245,7 @@ def test_physical_host_ssh_uses_password_with_default_and_override():
     assert 'hostSshCmd(ip)' in jenkinsfile
     assert '    "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"' not in jenkinsfile
     assert "TARGET_PASSWORD=${TARGET_PASSWORD:-123456}" in source
-    assert "sshpass -p '${TARGET_PASSWORD}' ssh" in source or 'sshpass -p "${TARGET_PASSWORD}" ssh' in source
+    assert "sshpass -e ssh" in source
 
 
 def test_draid_driver_and_test_dependency_steps_target_physical_host_only():

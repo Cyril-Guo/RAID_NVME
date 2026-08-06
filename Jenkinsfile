@@ -13,11 +13,12 @@ def triggerSource = ''
 def shouldRunTests = false
 
 def hostSshCmd(ip) {
-    return "sshpass -p '${env.TARGET_PASSWORD}' ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
+    // Use sshpass -e so callers can also safely store/expand the command string.
+    return "SSHPASS='${env.TARGET_PASSWORD}' sshpass -e ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
 }
 
 def hostScpCmd() {
-    return "sshpass -p '${env.TARGET_PASSWORD}' scp ${env.SSH_OPTS}"
+    return "SSHPASS='${env.TARGET_PASSWORD}' sshpass -e scp ${env.SSH_OPTS}"
 }
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
