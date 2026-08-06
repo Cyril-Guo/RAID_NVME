@@ -19,7 +19,7 @@ host_ssh() {
 }
 
 qemu_ssh() {
-    sshpass -p "${QEMU_VM_PASSWORD}" ssh ${SSH_OPTS} -p "${QEMU_VM_SSH_PORT}" "${TARGET_USER}@${NODE_IP}" "$@"
+    SSHPASS="${QEMU_VM_PASSWORD}" sshpass -e ssh ${SSH_OPTS} -p "${QEMU_VM_SSH_PORT}" "${TARGET_USER}@${NODE_IP}" "$@"
 }
 
 echo "[${NODE_IP}] ${CLEANUP_REASON}"

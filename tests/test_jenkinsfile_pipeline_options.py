@@ -230,6 +230,26 @@ def test_qemu_vm_installs_sshpass_on_jenkins_server():
     assert "sudo zypper install -y sshpass" in source
 
 
+def test_no_bare_ssh_or_scp_to_target_hosts():
+    """Target-host ssh/scp must go through sshpass (password), never bare key login."""
+    import re
+
+    paths = [Path("Jenkinsfile"), *sorted(Path("ci").glob("*.sh"))]
+    # Match bare ssh/scp commands; ignore the word inside quoted remote payloads.
+    pat = re.compile(r"(?<![\w/-])(ssh|scp)(?=\s)")
+    offenders = []
+    for path in paths:
+        for index, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.lstrip()
+            if stripped.startswith("#") or "sshpass" in line or "ensure_sshpass" in line:
+                continue
+            code = re.sub(r"'[^']*'|\"[^\"]*\"", "", line)
+            if not pat.search(code):
+                continue
+            offenders.append(f"{path}:{index}:{line.strip()}")
+    assert offenders == [], "bare ssh/scp without sshpass:\n" + "\n".join(offenders)
+
+
 def test_physical_host_ssh_uses_password_with_default_and_override():
     jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
     source = pipeline_sources()

@@ -24,7 +24,7 @@ host_scp() {
 
 target_ssh() {
     if [ "${QEMU_VM_TARGET}" = "1" ]; then
-        sshpass -p "${QEMU_VM_PASSWORD}" ssh ${SSH_OPTS} -p "${QEMU_VM_SSH_PORT}" "${TARGET_USER}@${NODE_IP}" "$@"
+        SSHPASS="${QEMU_VM_PASSWORD}" sshpass -e ssh ${SSH_OPTS} -p "${QEMU_VM_SSH_PORT}" "${TARGET_USER}@${NODE_IP}" "$@"
     else
         host_ssh "$@"
     fi
@@ -32,7 +32,7 @@ target_ssh() {
 
 target_scp() {
     if [ "${QEMU_VM_TARGET}" = "1" ]; then
-        sshpass -p "${QEMU_VM_PASSWORD}" scp ${SSH_OPTS} -P "${QEMU_VM_SCP_PORT}" "$@"
+        SSHPASS="${QEMU_VM_PASSWORD}" sshpass -e scp ${SSH_OPTS} -P "${QEMU_VM_SCP_PORT}" "$@"
     else
         host_scp "$@"
     fi

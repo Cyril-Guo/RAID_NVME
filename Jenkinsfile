@@ -550,10 +550,10 @@ pipeline {
                                 def envPrepareLog = "environment_prepare_${ip}.log"
                                 def qemuVmForNode = useQemuVmTarget
                                 def targetSsh = qemuVmForNode ?
-                                    "sshpass -p '${env.QEMU_VM_PASSWORD}' ssh ${env.SSH_OPTS} -p ${env.QEMU_VM_SSH_PORT} ${env.TARGET_USER}@${ip}" :
+                                    "SSHPASS='${env.QEMU_VM_PASSWORD}' sshpass -e ssh ${env.SSH_OPTS} -p ${env.QEMU_VM_SSH_PORT} ${env.TARGET_USER}@${ip}" :
                                     hostSshCmd(ip)
                                 def targetScp = qemuVmForNode ?
-                                    "sshpass -p '${env.QEMU_VM_PASSWORD}' scp ${env.SSH_OPTS} -P ${env.QEMU_VM_SCP_PORT}" :
+                                    "SSHPASS='${env.QEMU_VM_PASSWORD}' sshpass -e scp ${env.SSH_OPTS} -P ${env.QEMU_VM_SCP_PORT}" :
                                     hostScpCmd()
                                 def qemuEnv = qemuVmForNode ? '1' : '0'
 
