@@ -193,4 +193,8 @@ cd "${REMOTE_DIR}/kernel_driver/drivers/draid"
 make
 test -f ./draid.ko
 REMOTE_BUILD
-reload_remote_module
+
+# Module unload/load (rmmod/insmod) is temporarily disabled for CI.
+# Keep the compiled draid.ko in place; do not replace the running module.
+# reload_remote_module
+echo "[${NODE_IP}] skip draid module unload/load (temporarily disabled)"

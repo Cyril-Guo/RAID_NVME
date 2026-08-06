@@ -170,6 +170,16 @@ def test_draid_module_reload_retries_and_reports_memory_on_insmod_failure():
     assert "VmallocTotal" in source
 
 
+def test_draid_module_unload_and_load_are_disabled():
+    source = Path("ci/prepare_draid_driver.sh").read_text(encoding="utf-8")
+    stripped_lines = [line.strip() for line in source.splitlines() if line.strip()]
+
+    assert "Module unload/load (rmmod/insmod) is temporarily disabled for CI" in source
+    assert "skip draid module unload/load (temporarily disabled)" in source
+    assert "# reload_remote_module" in stripped_lines
+    assert "reload_remote_module" not in stripped_lines
+
+
 def test_draid_controller_state_check_and_reset_are_disabled():
     source = Path("ci/prepare_draid_driver.sh").read_text(encoding="utf-8")
     active_lines = {
