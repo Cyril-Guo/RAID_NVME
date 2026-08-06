@@ -6,8 +6,9 @@ set -euo pipefail
 : "${REMOTE_DIR:?REMOTE_DIR is required}"
 
 SSH_OPTS=${SSH_OPTS:-}
+TARGET_PASSWORD=${TARGET_PASSWORD:-123456}
 if [ -z "${REMOTE_SSH_COMMAND:-}" ]; then
-    REMOTE_SSH_COMMAND="ssh ${SSH_OPTS} ${TARGET_USER}@${NODE_IP}"
+    REMOTE_SSH_COMMAND="sshpass -p '${TARGET_PASSWORD}' ssh ${SSH_OPTS} ${TARGET_USER}@${NODE_IP}"
 fi
 
 tar \

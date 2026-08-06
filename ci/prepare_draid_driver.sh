@@ -7,13 +7,14 @@ set -euo pipefail
 : "${BUILD_NUMBER:?BUILD_NUMBER is required}"
 
 SSH_OPTS=${SSH_OPTS:-}
+TARGET_PASSWORD=${TARGET_PASSWORD:-123456}
 
 host_ssh() {
-    ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
+    sshpass -p "${TARGET_PASSWORD}" ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
 }
 
 host_scp() {
-    scp ${SSH_OPTS} "$@"
+    sshpass -p "${TARGET_PASSWORD}" scp ${SSH_OPTS} "$@"
 }
 
 reload_remote_module() {

@@ -12,10 +12,18 @@ def raidCliDpraidPath = ''
 def triggerSource = ''
 def shouldRunTests = false
 
+def hostSshCmd(ip) {
+    return "sshpass -p '${env.TARGET_PASSWORD}' ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
+}
+
+def hostScpCmd() {
+    return "sshpass -p '${env.TARGET_PASSWORD}' scp ${env.SSH_OPTS}"
+}
+
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     sh """
     chmod +x ci/deploy_workspace.sh
-    NODE_IP='${ip}' TARGET_USER='${targetUser}' SSH_OPTS='${sshOpts}' REMOTE_DIR='${remoteDir}' ci/deploy_workspace.sh
+    NODE_IP='${ip}' TARGET_USER='${targetUser}' SSH_OPTS='${sshOpts}' TARGET_PASSWORD='${env.TARGET_PASSWORD}' REMOTE_DIR='${remoteDir}' ci/deploy_workspace.sh
     """
 }
 
@@ -66,16 +74,23 @@ pipeline {
             trim: true,
             description: 'Optional: kernel_driver branch to test. Empty means main; ignored when MANUAL_MR_IID is set.'
         )
+        string(
+            name: 'TARGET_PASSWORD',
+            defaultValue: '123456',
+            trim: true,
+            description: 'Physical host SSH password for TARGET_USER (default 123456).'
+        )
     }
 
     environment {
         FEISHU_WEBHOOK = credentials('feishu-webhook')
         TARGET_USER = 'root'
+        TARGET_PASSWORD = "${params.TARGET_PASSWORD?.trim() ?: '123456'}"
         ALLOW_DESTRUCTIVE_FIO = '1'
         TEST_IDLE_TIMEOUT_MINUTES = '15'
         ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
         TEST_EXECUTION_ATTEMPTED = 'false'
-        SSH_OPTS = '-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
+        SSH_OPTS = '-o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
 
         KERNEL_DRIVER_REPO = 'git@192.168.21.185:raid_max/kernel_driver.git'
         KERNEL_DRIVER_BRANCH = 'main'
@@ -94,6 +109,8 @@ pipeline {
                 cleanWs()
 
                 checkout scm: scm, poll: false, changelog: false
+
+                sh 'chmod +x ci/ensure_sshpass.sh && ci/ensure_sshpass.sh'
 
                 script {
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
@@ -297,9 +314,11 @@ pipeline {
                             stage("Restore on ${ip}") {
                                 def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_restore_${env.BUILD_NUMBER}"
 
+                                def restoreSsh = hostSshCmd(ip)
+
                                 echo "[${ip}] stop running test processes"
                                 sh """
-                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
+                                ${restoreSsh} '
                                     pkill -9 -f nvme_raid_test.py 2>/dev/null || true
                                     pkill -2 -f Stress_Monitor/main.py 2>/dev/null || true
                                     pkill -9 -f run_fio.sh 2>/dev/null || true
@@ -309,18 +328,18 @@ pipeline {
                                 """
 
                                 echo "[${ip}] deploy restore scripts"
-                                sh "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
+                                sh "${restoreSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
                                 copyWorkspaceToRemote(ip, remoteDir, env.TARGET_USER, env.SSH_OPTS)
 
                                 echo "[${ip}] execute restore"
                                 sh """
-                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
+                                ${restoreSsh} '
                                     cd ${remoteDir}/IO_Stress && bash ./Fio_All.sh -i restore || true
                                 '
                                 """
 
                                 echo "[${ip}] clean temporary directory"
-                                sh "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir}' || true"
+                                sh "${restoreSsh} 'rm -rf ${remoteDir}' || true"
                             }
                         }
                     }
@@ -362,8 +381,8 @@ pipeline {
                             stage("Test on ${ip}") {
                                 def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_${env.BUILD_NUMBER}"
                                 def envPrepareLog = "environment_prepare_${ip}.log"
-                                def targetSsh = "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
-                                def targetScp = "scp ${env.SSH_OPTS}"
+                                def targetSsh = hostSshCmd(ip)
+                                def targetScp = hostScpCmd()
 
                                 writeFile file: envPrepareLog, text: "[${ip}] Environment_Prepare started\n"
 
@@ -391,6 +410,7 @@ chmod +x ci/install_dpraid_remote.sh
 NODE_IP='${ip}' \\
 TARGET_USER='${env.TARGET_USER}' \\
 SSH_OPTS='${env.SSH_OPTS}' \\
+TARGET_PASSWORD='${env.TARGET_PASSWORD}' \\
 DPRAID_SOURCE='${raidCliDpraidPathForRun}' \\
 BUILD_NUMBER='${env.BUILD_NUMBER}' \\
 REMOTE_SSH_COMMAND="${targetSsh}" \\
@@ -408,6 +428,7 @@ chmod +x ci/prepare_draid_driver.sh
 NODE_IP='${ip}' \\
 TARGET_USER='${env.TARGET_USER}' \\
 SSH_OPTS='${env.SSH_OPTS}' \\
+TARGET_PASSWORD='${env.TARGET_PASSWORD}' \\
 REMOTE_DIR='${remoteDir}' \\
 BUILD_NUMBER='${env.BUILD_NUMBER}' \\
 ci/prepare_draid_driver.sh

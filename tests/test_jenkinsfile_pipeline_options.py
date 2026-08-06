@@ -218,15 +218,34 @@ def test_physical_host_installs_full_test_tool_set():
     assert "Missing required test tools after auto install" in source
 
 
-def test_run_tests_uses_plain_host_ssh_without_qemu_ports():
+def test_run_tests_uses_password_host_ssh_without_qemu_ports():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
-    assert 'def targetSsh = "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"' in source
-    assert 'def targetScp = "scp ${env.SSH_OPTS}"' in source
-    assert "sshpass" not in source
+    assert "def targetSsh = hostSshCmd(ip)" in source
+    assert "def targetScp = hostScpCmd()" in source
+    assert "sshpass -p '${env.TARGET_PASSWORD}' ssh" in source
     assert "${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'" in source
     assert "find /root/Cyril/Jenkins -maxdepth 1 -type d -name" not in source
     assert "jenkins_nvme_*" not in source
+    assert "QEMU_VM_SSH_PORT" not in source
+
+
+def test_physical_host_ssh_uses_password_with_default_and_override():
+    jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
+    source = pipeline_sources()
+
+    assert "name: 'TARGET_PASSWORD'" in jenkinsfile
+    assert "defaultValue: '123456'" in jenkinsfile
+    assert 'TARGET_PASSWORD = "${params.TARGET_PASSWORD?.trim() ?: \'123456\'}"' in jenkinsfile
+    assert "PreferredAuthentications=password" in jenkinsfile
+    assert "PubkeyAuthentication=no" in jenkinsfile
+    assert "def hostSshCmd(ip)" in jenkinsfile
+    assert "def hostScpCmd()" in jenkinsfile
+    assert "ci/ensure_sshpass.sh" in jenkinsfile
+    assert 'hostSshCmd(ip)' in jenkinsfile
+    assert '    "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"' not in jenkinsfile
+    assert "TARGET_PASSWORD=${TARGET_PASSWORD:-123456}" in source
+    assert "sshpass -p '${TARGET_PASSWORD}' ssh" in source or 'sshpass -p "${TARGET_PASSWORD}" ssh' in source
 
 
 def test_draid_driver_and_test_dependency_steps_target_physical_host_only():
