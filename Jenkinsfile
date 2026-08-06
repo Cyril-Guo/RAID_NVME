@@ -14,10 +14,18 @@ def shouldRunTests = false
 def useQemuVmTarget = false
 def automaticMrTriggered = false
 
+def hostSshCmd(ip) {
+    return "sshpass -p '${env.TARGET_PASSWORD}' ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
+}
+
+def hostScpCmd() {
+    return "sshpass -p '${env.TARGET_PASSWORD}' scp ${env.SSH_OPTS}"
+}
+
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     sh """
     chmod +x ci/deploy_workspace.sh
-    NODE_IP='${ip}' TARGET_USER='${targetUser}' SSH_OPTS='${sshOpts}' REMOTE_DIR='${remoteDir}' ci/deploy_workspace.sh
+    NODE_IP='${ip}' TARGET_USER='${targetUser}' SSH_OPTS='${sshOpts}' TARGET_PASSWORD='${env.TARGET_PASSWORD}' REMOTE_DIR='${remoteDir}' ci/deploy_workspace.sh
     """
 }
 
@@ -77,16 +85,23 @@ pipeline {
             trim: true,
             description: 'Manual build: kernel_driver branch to test. Empty means main; ignored when MANUAL_MR_IID is set.'
         )
+        string(
+            name: 'TARGET_PASSWORD',
+            defaultValue: '123456',
+            trim: true,
+            description: 'Physical host SSH password for TARGET_USER (default 123456).'
+        )
     }
 
     environment {
         FEISHU_WEBHOOK = credentials('feishu-webhook')
         TARGET_USER = 'root'
+        TARGET_PASSWORD = "${params.TARGET_PASSWORD?.trim() ?: '123456'}"
         ALLOW_DESTRUCTIVE_FIO = '1'
         TEST_IDLE_TIMEOUT_MINUTES = '15'
         ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
         TEST_EXECUTION_ATTEMPTED = 'false'
-        SSH_OPTS = '-o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
+        SSH_OPTS = '-o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
         QEMU_VM_SSH_PORT = '2233'
         QEMU_VM_SCP_PORT = '2233'
         QEMU_VM_PASSWORD = '1'
@@ -112,6 +127,8 @@ pipeline {
                 cleanWs()
 
                 checkout scm: scm, poll: false, changelog: false
+
+                sh 'chmod +x ci/ensure_sshpass.sh && ci/ensure_sshpass.sh'
 
                 script {
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
@@ -463,9 +480,11 @@ pipeline {
                             stage("Restore on ${ip}") {
                                 def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_restore_${env.BUILD_NUMBER}"
 
+                                def restoreSsh = hostSshCmd(ip)
+
                                 echo "[${ip}] stop running test processes"
                                 sh """
-                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
+                                ${restoreSsh} '
                                     pkill -9 -f nvme_raid_test.py 2>/dev/null || true
                                     pkill -2 -f Stress_Monitor/main.py 2>/dev/null || true
                                     pkill -9 -f run_fio.sh 2>/dev/null || true
@@ -475,18 +494,18 @@ pipeline {
                                 """
 
                                 echo "[${ip}] deploy restore scripts"
-                                sh "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
+                                sh "${restoreSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
                                 copyWorkspaceToRemote(ip, remoteDir, env.TARGET_USER, env.SSH_OPTS)
 
                                 echo "[${ip}] execute restore"
                                 sh """
-                                ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} '
+                                ${restoreSsh} '
                                     cd ${remoteDir}/IO_Stress && bash ./Fio_All.sh -i restore || true
                                 '
                                 """
 
                                 echo "[${ip}] clean temporary directory"
-                                sh "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip} 'rm -rf ${remoteDir}' || true"
+                                sh "${restoreSsh} 'rm -rf ${remoteDir}' || true"
                             }
                         }
                     }
@@ -531,10 +550,10 @@ pipeline {
                                 def qemuVmForNode = useQemuVmTarget
                                 def targetSsh = qemuVmForNode ?
                                     "sshpass -p '${env.QEMU_VM_PASSWORD}' ssh ${env.SSH_OPTS} -p ${env.QEMU_VM_SSH_PORT} ${env.TARGET_USER}@${ip}" :
-                                    "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
+                                    hostSshCmd(ip)
                                 def targetScp = qemuVmForNode ?
                                     "sshpass -p '${env.QEMU_VM_PASSWORD}' scp ${env.SSH_OPTS} -P ${env.QEMU_VM_SCP_PORT}" :
-                                    "scp ${env.SSH_OPTS}"
+                                    hostScpCmd()
                                 def qemuEnv = qemuVmForNode ? '1' : '0'
 
                                 writeFile file: envPrepareLog, text: "[${ip}] Environment_Prepare started\n"
@@ -552,6 +571,7 @@ chmod +x ci/qemu_vfio_cleanup.sh
 NODE_IP='${ip}' \\
 TARGET_USER='${env.TARGET_USER}' \\
 SSH_OPTS='${env.SSH_OPTS}' \\
+TARGET_PASSWORD='${env.TARGET_PASSWORD}' \\
 QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
 QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
 QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
@@ -579,8 +599,8 @@ ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
 set -o pipefail
 {
 echo "[${ip}] clear dirty CSD flash on physical host before QEMU start"
-host_ssh="ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
-host_scp="scp ${env.SSH_OPTS}"
+host_ssh="sshpass -p '${env.TARGET_PASSWORD}' ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
+host_scp="sshpass -p '${env.TARGET_PASSWORD}' scp ${env.SSH_OPTS}"
 remote_clear_dir="/tmp/jenkins_nvme_${env.BUILD_NUMBER}_flash_clear"
 \${host_ssh} "rm -rf \${remote_clear_dir} && mkdir -p \${remote_clear_dir}"
 chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh
@@ -601,6 +621,7 @@ chmod +x ci/qemu_vm_prepare.sh
 NODE_IP='${ip}' \\
 TARGET_USER='${env.TARGET_USER}' \\
 SSH_OPTS='${env.SSH_OPTS}' \\
+TARGET_PASSWORD='${env.TARGET_PASSWORD}' \\
 QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \\
 QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
 QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
@@ -627,6 +648,7 @@ QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
 QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
 QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
 BUILD_NUMBER='${env.BUILD_NUMBER}' \\
+TARGET_PASSWORD='${env.TARGET_PASSWORD}' \\
 CLEANUP_REASON='QEMU startup timed out before usable VM scene, return vfio devices to physical host' \\
 POWER_OFF_QEMU=1 \\
 ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
@@ -649,6 +671,7 @@ QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \\
 QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \\
 QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \\
 BUILD_NUMBER='${env.BUILD_NUMBER}' \\
+TARGET_PASSWORD='${env.TARGET_PASSWORD}' \\
 CLEANUP_REASON='QEMU startup failed before usable VM scene, return vfio devices to physical host' \\
 POWER_OFF_QEMU=1 \\
 ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
@@ -714,6 +737,7 @@ chmod +x ci/prepare_draid_driver.sh
 NODE_IP='${ip}' \\
 TARGET_USER='${env.TARGET_USER}' \\
 SSH_OPTS='${env.SSH_OPTS}' \\
+TARGET_PASSWORD='${env.TARGET_PASSWORD}' \\
 REMOTE_DIR='${remoteDir}' \\
 BUILD_NUMBER='${env.BUILD_NUMBER}' \\
 QEMU_VM_TARGET='${qemuEnv}' \\
@@ -782,6 +806,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
  NODE_IP='${ip}' \
  TARGET_USER='${env.TARGET_USER}' \
  SSH_OPTS='${env.SSH_OPTS}' \
+ TARGET_PASSWORD='${env.TARGET_PASSWORD}' \
  QEMU_VM_PASSWORD='${env.QEMU_VM_PASSWORD}' \
  QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \
  QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \

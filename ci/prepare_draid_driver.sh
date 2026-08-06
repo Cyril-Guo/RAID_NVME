@@ -8,17 +8,18 @@ set -euo pipefail
 : "${QEMU_VM_TARGET:?QEMU_VM_TARGET is required}"
 
 SSH_OPTS=${SSH_OPTS:-}
+TARGET_PASSWORD=${TARGET_PASSWORD:-123456}
 QEMU_VM_PASSWORD=${QEMU_VM_PASSWORD:-}
 QEMU_VM_SSH_PORT=${QEMU_VM_SSH_PORT:-2233}
 QEMU_VM_SCP_PORT=${QEMU_VM_SCP_PORT:-2233}
 QEMU_KERNEL_BUILD_DIR=${QEMU_KERNEL_BUILD_DIR:-}
 
 host_ssh() {
-    ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
+    sshpass -p "${TARGET_PASSWORD}" ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
 }
 
 host_scp() {
-    scp ${SSH_OPTS} "$@"
+    sshpass -p "${TARGET_PASSWORD}" scp ${SSH_OPTS} "$@"
 }
 
 target_ssh() {
@@ -210,10 +211,9 @@ REMOTE_DEPS
 if [ "${QEMU_VM_TARGET}" = "1" ]; then
     : "${QEMU_VM_PASSWORD:?QEMU_VM_PASSWORD is required for QEMU target}"
     : "${QEMU_KERNEL_BUILD_DIR:?QEMU_KERNEL_BUILD_DIR is required for QEMU target}"
-    command -v sshpass >/dev/null 2>&1 || {
-        echo "sshpass is required on Jenkins server for QEMU VM login" >&2
-        exit 1
-    }
+    SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+    chmod +x "${SCRIPT_DIR}/ensure_sshpass.sh"
+    "${SCRIPT_DIR}/ensure_sshpass.sh"
 
     host_build_dir="/tmp/draid_build_${BUILD_NUMBER}"
     host_module="/tmp/draid_${BUILD_NUMBER}.ko"

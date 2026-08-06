@@ -179,7 +179,7 @@ def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
     assert "cd \"${QEMU_VM_WORKDIR}\"" in source
     assert "\"${QEMU_VM_START_SCRIPT}\"" in source
     assert "QEMU_VM_TARGET=${qemuEnv}" in source
-    assert "sshpass is required on Jenkins server for QEMU VM login, and automatic install failed" in source
+    assert "sshpass is required on Jenkins server, and automatic install failed" in source
 
 
 def test_automatic_mr_signature_only_tracks_code_sha():
@@ -222,11 +222,30 @@ def test_draid_controller_state_check_and_reset_are_disabled():
 def test_qemu_vm_installs_sshpass_on_jenkins_server():
     source = pipeline_sources()
 
+    assert "ci/ensure_sshpass.sh" in source
     assert "sshpass is missing on Jenkins server, try to install it automatically." in source
     assert "sudo apt-get -o DPkg::Lock::Timeout=600 install -y sshpass" in source
     assert "sudo dnf install -y sshpass" in source
     assert "sudo yum install -y sshpass" in source
     assert "sudo zypper install -y sshpass" in source
+
+
+def test_physical_host_ssh_uses_password_with_default_and_override():
+    jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
+    source = pipeline_sources()
+
+    assert "name: 'TARGET_PASSWORD'" in jenkinsfile
+    assert "defaultValue: '123456'" in jenkinsfile
+    assert 'TARGET_PASSWORD = "${params.TARGET_PASSWORD?.trim() ?: \'123456\'}"' in jenkinsfile
+    assert "PreferredAuthentications=password" in jenkinsfile
+    assert "PubkeyAuthentication=no" in jenkinsfile
+    assert "def hostSshCmd(ip)" in jenkinsfile
+    assert "def hostScpCmd()" in jenkinsfile
+    assert "sshpass -p '${env.TARGET_PASSWORD}' ssh" in jenkinsfile
+    assert 'hostSshCmd(ip)' in jenkinsfile
+    assert '    "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"' not in jenkinsfile
+    assert "TARGET_PASSWORD=${TARGET_PASSWORD:-123456}" in source
+    assert "sshpass -p '${TARGET_PASSWORD}' ssh" in source or 'sshpass -p "${TARGET_PASSWORD}" ssh' in source
 
 
 def test_qemu_vm_start_forces_clean_environment_before_start():

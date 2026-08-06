@@ -12,9 +12,11 @@ set -euo pipefail
 : "${BUILD_NUMBER:?BUILD_NUMBER is required}"
 
 SSH_OPTS=${SSH_OPTS:-}
+TARGET_PASSWORD=${TARGET_PASSWORD:-123456}
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 host_ssh() {
-    ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
+    sshpass -p "${TARGET_PASSWORD}" ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
 }
 
 qemu_ssh() {
@@ -22,23 +24,8 @@ qemu_ssh() {
 }
 
 echo "[${NODE_IP}] start QEMU VM for automatic MR test"
-if ! command -v sshpass >/dev/null 2>&1; then
-    echo "[${NODE_IP}] sshpass is missing on Jenkins server, try to install it automatically."
-    if command -v apt-get >/dev/null 2>&1; then
-        sudo apt-get -o DPkg::Lock::Timeout=600 update
-        sudo apt-get -o DPkg::Lock::Timeout=600 install -y sshpass
-    elif command -v dnf >/dev/null 2>&1; then
-        sudo dnf install -y sshpass
-    elif command -v yum >/dev/null 2>&1; then
-        sudo yum install -y sshpass
-    elif command -v zypper >/dev/null 2>&1; then
-        sudo zypper install -y sshpass
-    fi
-fi
-command -v sshpass >/dev/null 2>&1 || {
-    echo "sshpass is required on Jenkins server for QEMU VM login, and automatic install failed"
-    exit 1
-}
+chmod +x "${SCRIPT_DIR}/ensure_sshpass.sh"
+"${SCRIPT_DIR}/ensure_sshpass.sh"
 
 if qemu_ssh 'echo qemu vm already running' >/dev/null 2>&1; then
     echo "[${NODE_IP}] QEMU VM is still running before fresh start; try to power it off"

@@ -8,13 +8,14 @@ set -euo pipefail
 : "${BUILD_NUMBER:?BUILD_NUMBER is required}"
 
 SSH_OPTS=${SSH_OPTS:-}
+TARGET_PASSWORD=${TARGET_PASSWORD:-123456}
 QEMU_VM_PASSWORD=${QEMU_VM_PASSWORD:-}
 QEMU_VM_SSH_PORT=${QEMU_VM_SSH_PORT:-2233}
 CLEANUP_REASON=${CLEANUP_REASON:-return NVMe devices to physical host}
 POWER_OFF_QEMU=${POWER_OFF_QEMU:-0}
 
 host_ssh() {
-    ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
+    sshpass -p "${TARGET_PASSWORD}" ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"
 }
 
 qemu_ssh() {
