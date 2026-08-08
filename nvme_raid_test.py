@@ -69,7 +69,7 @@ def discover_test_items(items_dir=None):
 
 TEST_ITEMS = discover_test_items()
 
-SELECTION_BEGIN = "# === BEGIN SELECTION (auto-synced; uncomment a line to run) ==="
+SELECTION_BEGIN = "# === BEGIN SELECTION (auto-synced; reorder / uncomment to choose run order) ==="
 SELECTION_END = "# === END SELECTION ==="
 
 
@@ -78,10 +78,8 @@ def _selection_entry_name(line):
     text = line.strip()
     if not text:
         return None
-    commented = False
     if text.startswith("#"):
         text = text[1:].strip()
-        commented = True
         if not text or text.startswith("=") or text.startswith("To ") or text.startswith("Available"):
             return None
         # Ignore other documentation comments that are not bare item names.
@@ -99,11 +97,17 @@ def _selection_entry_name(line):
     return None
 
 
-def read_enabled_selection(path):
-    """Enabled item names from the selection block, in file order."""
-    selected = []
+def _selection_line_enabled(line):
+    """True when a selection entry line is uncommented (enabled)."""
+    return not line.strip().startswith("#")
+
+
+def read_selection_entries(path):
+    """Return [(name, enabled), ...] from the selection block, in file order."""
+    block_entries = []
+    legacy_entries = []
     if not os.path.exists(path):
-        return selected
+        return block_entries
 
     in_block = False
     saw_marker = False
@@ -118,28 +122,56 @@ def read_enabled_selection(path):
                 break
 
             if saw_marker:
-                if not in_block or not stripped or stripped.startswith("#"):
+                if not in_block or not stripped:
                     continue
                 name = _selection_entry_name(raw)
                 if name:
-                    selected.append(name)
+                    block_entries.append((name, _selection_line_enabled(raw)))
                 continue
 
-            # Legacy fallback: uncommented names before the first [section].
+            # Legacy fallback only when no BEGIN/END block exists.
             if stripped.startswith("[") and stripped.endswith("]"):
                 break
-            if not stripped or stripped.startswith("#"):
+            if not stripped:
                 continue
             name = _selection_entry_name(raw)
             if name:
-                selected.append(name)
-    return selected
+                legacy_entries.append((name, _selection_line_enabled(raw)))
+    return block_entries if saw_marker else legacy_entries
+
+
+def read_enabled_selection(path):
+    """Enabled item names from the selection block, in file order."""
+    return [name for name, enabled in read_selection_entries(path) if enabled]
+
+
+def build_synced_selection_order(existing_entries, catalog):
+    """Preserve file order for known items; append newly discovered names disabled."""
+    catalog_names = list(catalog)
+    catalog_set = set(catalog_names)
+    ordered = []
+    seen = set()
+
+    for name, enabled in existing_entries:
+        if name not in catalog_set or name in seen:
+            continue
+        ordered.append((name, bool(enabled)))
+        seen.add(name)
+
+    for name in catalog_names:
+        if name in seen:
+            continue
+        ordered.append((name, False))
+        seen.add(name)
+
+    return ordered
 
 
 def sync_selection_list(path, catalog):
     """Rewrite selection block so every discovered item is listed for easy toggle.
 
-    Currently enabled names stay uncommented; new/unknown disabled names become '# name'.
+    Existing file order and enable/disable state are preserved. Removed catalog
+    names are dropped; newly discovered names are appended as '# name'.
     Returns True when the file content changed.
     """
     if not os.path.exists(path):
@@ -148,9 +180,6 @@ def sync_selection_list(path, catalog):
     with open(path, "r", encoding="utf-8") as handle:
         original = handle.read()
         lines = original.splitlines(keepends=True)
-
-    enabled = set(read_enabled_selection(path))
-    enabled &= set(catalog)
 
     begin_idx = end_idx = section_idx = None
     for idx, raw in enumerate(lines):
@@ -166,12 +195,12 @@ def sync_selection_list(path, catalog):
             if begin_idx is None:
                 break
 
+    existing_entries = read_selection_entries(path)
+    ordered = build_synced_selection_order(existing_entries, catalog)
+
     selection_lines = [SELECTION_BEGIN + "\n"]
-    for name in catalog:
-        if name in enabled:
-            selection_lines.append(f"{name}\n")
-        else:
-            selection_lines.append(f"# {name}\n")
+    for name, enabled in ordered:
+        selection_lines.append(f"{name}\n" if enabled else f"# {name}\n")
     selection_lines.append(SELECTION_END + "\n")
 
     if begin_idx is not None and end_idx is not None and end_idx > begin_idx:

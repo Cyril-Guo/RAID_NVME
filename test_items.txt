@@ -4,8 +4,9 @@
 # The BEGIN/END SELECTION block is auto-synced from test_items/test_*.py
 # whenever nvme_raid_test.py runs (or: python nvme_raid_test.py --sync-selection).
 #
-# Uncomment a line to run that case. Writing order among uncommented lines
-# is the run order. All discovered cases stay listed for easy toggle.
+# Uncomment a line to run that case. Line order among uncommented names
+# is the run order — reorder freely; sync keeps your order and only adds
+# newly discovered names (as "# name") or drops removed ones.
 #
 # Example — run only lawdisk:
 #   uncomment "lawdisk", keep the others commented.
@@ -20,12 +21,12 @@
 #   3. Uncomment it to enable; add a [<name>] param block if needed
 # ============================================================
 
-# === BEGIN SELECTION (auto-synced; uncomment a line to run) ===
+# === BEGIN SELECTION (auto-synced; reorder / uncomment to choose run order) ===
 # reboot
 # dc
- lawdisk
- filesystem
- mix
+lawdisk
+filesystem
+mix
 # === END SELECTION ===
 
 
