@@ -437,9 +437,10 @@ def test_lsblk_rows_uses_pairs_without_raw_flag(monkeypatch):
     assert captured["cmd"] == ["lsblk", "-nP", "-o", "NAME,PKNAME,MOUNTPOINT"]
 
 
-def test_qemu_vm_power_cycle_uses_pci_remove_and_rescan(monkeypatch):
+def test_power_cycle_uses_pci_remove_and_rescan_on_qemu_and_physical(monkeypatch):
     calls = []
     disk = NvmeDisk(namespace="nvme0n1", controller="nvme0", size_gb=Decimal("1"), bdf="0000:01:00.0", did=0)
+    original_exists = basic_io_common.Path.exists
 
     def fake_run_cmd(cmd, log, check=True, shell=False):
         calls.append((cmd, shell))
@@ -450,8 +451,15 @@ def test_qemu_vm_power_cycle_uses_pci_remove_and_rescan(monkeypatch):
 
         return Result()
 
-    monkeypatch.setenv("QEMU_VM_TARGET", "1")
+    def fake_exists(self):
+        normalized = str(self).replace("\\", "/")
+        if normalized.endswith("/sys/bus/pci/devices/0000:01:00.0/remove"):
+            return True
+        return original_exists(self)
+
+    monkeypatch.delenv("QEMU_VM_TARGET", raising=False)
     monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(basic_io_common.Path, "exists", fake_exists)
 
     basic_io_common.power_cycle_one_disk_per_group([[disk]], CommandLog())
 
@@ -459,30 +467,13 @@ def test_qemu_vm_power_cycle_uses_pci_remove_and_rescan(monkeypatch):
     assert (["sleep", "1"], False) in calls
     assert ("echo 1 > /sys/bus/pci/rescan", True) in calls
     assert (["sleep", "2"], False) in calls
+    assert not any("/sys/bus/pci/slots/" in str(cmd) for cmd, _ in calls)
 
-
-def test_physical_power_cycle_still_uses_slot_power(monkeypatch):
-    calls = []
-    disk = NvmeDisk(namespace="nvme0n1", controller="nvme0", size_gb=Decimal("1"), bdf="0000:01:00.0", did=0)
-
-    def fake_run_cmd(cmd, log, check=True, shell=False):
-        calls.append((cmd, shell))
-
-        class Result:
-            stdout = ""
-            returncode = 0
-
-        return Result()
-
-    monkeypatch.delenv("QEMU_VM_TARGET", raising=False)
-    monkeypatch.setattr(basic_io_common, "slot_from_bdf", lambda bdf, log: "81")
-    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
-
+    calls.clear()
+    monkeypatch.setenv("QEMU_VM_TARGET", "1")
     basic_io_common.power_cycle_one_disk_per_group([[disk]], CommandLog())
-
-    assert ("echo 0 > /sys/bus/pci/slots/81/power", True) in calls
-    assert ("echo 1 > /sys/bus/pci/slots/81/power", True) in calls
-    assert not any("/sys/bus/pci/rescan" in str(cmd) for cmd, _ in calls)
+    assert ("echo 1 > /sys/bus/pci/devices/0000:01:00.0/remove", True) in calls
+    assert ("echo 1 > /sys/bus/pci/rescan", True) in calls
 
 
 def test_power_cycle_skips_excluded_nvme_models(monkeypatch):

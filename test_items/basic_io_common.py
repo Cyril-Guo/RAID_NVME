@@ -523,10 +523,24 @@ def slot_from_bdf(bdf, log):
     return match.group(1)
 
 
+def drop_pci_disk(bdf, log, remove_settle_seconds=1, rescan_settle_seconds=2):
+    """Simulate disk drop via PCI hot-remove, then rescan to bring the device back.
+
+    Uses /sys/bus/pci/devices/<bdf>/remove + pci rescan on both QEMU and physical hosts.
+    Slot power sysfs (/sys/bus/pci/slots/*/power) is platform-specific and often not writable.
+    """
+    remove_path = f"/sys/bus/pci/devices/{bdf}/remove"
+    if not Path(remove_path).exists():
+        raise AssertionError(f"PCI device sysfs missing for BDF {bdf}: {remove_path}")
+    run_cmd(f"echo 1 > {remove_path}", log, check=True, shell=True)
+    run_cmd(["sleep", str(remove_settle_seconds)], log, check=True)
+    run_cmd("echo 1 > /sys/bus/pci/rescan", log, check=True, shell=True)
+    run_cmd(["sleep", str(rescan_settle_seconds)], log, check=True)
+
+
 def power_cycle_one_disk_per_group(groups, log):
     selected = []
     rng = random.SystemRandom()
-    qemu_vm_target = os.environ.get("QEMU_VM_TARGET", "0") == "1"
     for group in groups:
         candidates = [disk for disk in group if disk.bdf and not is_excluded_nvme_model(disk.model)]
         if not candidates:
@@ -536,19 +550,9 @@ def power_cycle_one_disk_per_group(groups, log):
             )
         selected.append(rng.choice(candidates))
     for disk in selected:
-        if qemu_vm_target:
-            log.write(f"QEMU VM power cycle {disk.namespace} BDF {disk.bdf}")
-            run_cmd(f"echo 1 > /sys/bus/pci/devices/{disk.bdf}/remove", log, check=True, shell=True)
-            run_cmd(["sleep", "1"], log, check=True)
-            run_cmd("echo 1 > /sys/bus/pci/rescan", log, check=True, shell=True)
-            run_cmd(["sleep", "2"], log, check=True)
-            continue
-        slot = slot_from_bdf(disk.bdf, log)
-        power_file = f"/sys/bus/pci/slots/{slot}/power"
-        run_cmd(f"echo 0 > {power_file}", log, check=True, shell=True)
-        run_cmd(["sleep", "5"], log, check=True)
-        run_cmd(f"echo 1 > {power_file}", log, check=True, shell=True)
-        log.write(f"Power cycled {disk.namespace} BDF {disk.bdf} slot {slot}")
+        log.write(f"PCI drop/rescan {disk.namespace} BDF {disk.bdf}")
+        drop_pci_disk(disk.bdf, log)
+        log.write(f"PCI drop/rescan done for {disk.namespace} BDF {disk.bdf}")
 
 
 def verify_all_vds_degraded(log, expected=8):
