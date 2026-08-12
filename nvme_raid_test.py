@@ -69,41 +69,52 @@ def discover_test_items(items_dir=None):
 
 TEST_ITEMS = discover_test_items()
 
-SELECTION_BEGIN = "# === BEGIN SELECTION (auto-synced; reorder / uncomment to choose run order) ==="
+SELECTION_BEGIN = "# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）==="
 SELECTION_END = "# === END SELECTION ==="
+_SMOKE_ORDER_RE = re.compile(r"^test_smoke_(\d+)_.+\.py$", re.IGNORECASE)
+_SELECTION_ENTRY_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\s+(\d+))?$")
 
 
-def _selection_entry_name(line):
-    """Return item name from a whitelist line, or None if not an entry."""
+def parse_selection_entry(line):
+    """Parse a selection line into (name, order|None, enabled), or None."""
     text = line.strip()
     if not text:
         return None
+    enabled = True
     if text.startswith("#"):
         text = text[1:].strip()
-        if not text or text.startswith("=") or text.startswith("To ") or text.startswith("Available"):
-            return None
-        # Ignore other documentation comments that are not bare item names.
-        if " " in text or text.startswith("["):
+        enabled = False
+        if not text or text.startswith("="):
             return None
     if text.startswith("[") and text.endswith("]"):
         return None
     if "=" in text:
-        key, value = [part.strip() for part in text.split("=", 1)]
-        if value.lower() in ("yes", "y", "true", "1", "on", "no", "n", "false", "0", "off", ""):
-            return key.lower()
         return None
-    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", text):
-        return text.lower()
+    match = _SELECTION_ENTRY_RE.fullmatch(text)
+    if not match:
+        return None
+    name = match.group(1).lower()
+    order = int(match.group(2)) if match.group(2) else None
+    return name, order, enabled
+
+
+def _selection_entry_name(line):
+    """Return item name from a whitelist line, or None if not an entry."""
+    parsed = parse_selection_entry(line)
+    return parsed[0] if parsed else None
+
+
+def catalog_default_order(name, catalog):
+    """Prefer smoke file number (test_smoke_03_*.py -> 3); else None."""
+    path = catalog.get(name, "")
+    match = _SMOKE_ORDER_RE.match(os.path.basename(path))
+    if match:
+        return int(match.group(1))
     return None
 
 
-def _selection_line_enabled(line):
-    """True when a selection entry line is uncommented (enabled)."""
-    return not line.strip().startswith("#")
-
-
 def read_selection_entries(path):
-    """Return [(name, enabled), ...] from the selection block, in file order."""
+    """Return [(name, order|None, enabled), ...] from the selection block."""
     block_entries = []
     legacy_entries = []
     if not os.path.exists(path):
@@ -124,9 +135,9 @@ def read_selection_entries(path):
             if saw_marker:
                 if not in_block or not stripped:
                     continue
-                name = _selection_entry_name(raw)
-                if name:
-                    block_entries.append((name, _selection_line_enabled(raw)))
+                parsed = parse_selection_entry(raw)
+                if parsed:
+                    block_entries.append(parsed)
                 continue
 
             # Legacy fallback only when no BEGIN/END block exists.
@@ -134,44 +145,75 @@ def read_selection_entries(path):
                 break
             if not stripped:
                 continue
-            name = _selection_entry_name(raw)
-            if name:
-                legacy_entries.append((name, _selection_line_enabled(raw)))
+            parsed = parse_selection_entry(raw)
+            if parsed:
+                legacy_entries.append(parsed)
     return block_entries if saw_marker else legacy_entries
 
 
 def read_enabled_selection(path):
-    """Enabled item names from the selection block, in file order."""
-    return [name for name, enabled in read_selection_entries(path) if enabled]
+    """Enabled item names sorted by order ascending (then name)."""
+    enabled = [entry for entry in read_selection_entries(path) if entry[2]]
+    enabled.sort(key=lambda entry: (entry[1] if entry[1] is not None else 10**9, entry[0]))
+    return [name for name, _order, _enabled in enabled]
 
 
 def build_synced_selection_order(existing_entries, catalog):
-    """Preserve file order for known items; append newly discovered names disabled."""
+    """Keep known items' order/enable state; assign numbers to new items; sort by order."""
     catalog_names = list(catalog)
     catalog_set = set(catalog_names)
     ordered = []
     seen = set()
+    used_orders = set()
 
-    for name, enabled in existing_entries:
+    for name, order, enabled in existing_entries:
         if name not in catalog_set or name in seen:
             continue
-        ordered.append((name, bool(enabled)))
+        if order is None:
+            order = catalog_default_order(name, catalog)
+        ordered.append((name, order, bool(enabled)))
         seen.add(name)
+        if order is not None:
+            used_orders.add(order)
 
+    next_order = (max(used_orders) + 1) if used_orders else 1
     for name in catalog_names:
         if name in seen:
             continue
-        ordered.append((name, False))
+        order = catalog_default_order(name, catalog)
+        if order is None or order in used_orders:
+            while next_order in used_orders:
+                next_order += 1
+            order = next_order
+            next_order += 1
+        ordered.append((name, order, False))
         seen.add(name)
+        used_orders.add(order)
 
+    # Fill any still-missing orders stably.
+    for idx, (name, order, enabled) in enumerate(ordered):
+        if order is not None:
+            continue
+        while next_order in used_orders:
+            next_order += 1
+        ordered[idx] = (name, next_order, enabled)
+        used_orders.add(next_order)
+        next_order += 1
+
+    ordered.sort(key=lambda entry: (entry[1], entry[0]))
     return ordered
+
+
+def format_selection_line(name, order, enabled):
+    body = f"{name} {order}"
+    return f"{body}\n" if enabled else f"# {body}\n"
 
 
 def sync_selection_list(path, catalog):
     """Rewrite selection block so every discovered item is listed for easy toggle.
 
-    Existing file order and enable/disable state are preserved. Removed catalog
-    names are dropped; newly discovered names are appended as '# name'.
+    Preserve enable/disable and numeric order; sort lines by order ascending.
+    Newly discovered names are added as '# name <order>'.
     Returns True when the file content changed.
     """
     if not os.path.exists(path):
@@ -199,8 +241,8 @@ def sync_selection_list(path, catalog):
     ordered = build_synced_selection_order(existing_entries, catalog)
 
     selection_lines = [SELECTION_BEGIN + "\n"]
-    for name, enabled in ordered:
-        selection_lines.append(f"{name}\n" if enabled else f"# {name}\n")
+    for name, order, enabled in ordered:
+        selection_lines.append(format_selection_line(name, order, enabled))
     selection_lines.append(SELECTION_END + "\n")
 
     if begin_idx is not None and end_idx is not None and end_idx > begin_idx:
@@ -233,8 +275,8 @@ def sync_selection_list(path, catalog):
 def parse_items_file(path):
     """Parse whitelist + per-item parameter blocks.
 
-    Selection comes from the auto-synced BEGIN/END SELECTION block
-    (uncommented names). Each [item] block holds only that case's params.
+    Selection comes from the BEGIN/END SELECTION block: uncommented
+    `name <order>` lines, sorted by order. Each [item] block holds params.
     """
     selected = read_enabled_selection(path)
     params_map = {}
@@ -474,13 +516,13 @@ def main(argv=None):
         print(f"[ERROR] Missing test files: {missing}")
         sys.exit(2)
 
-    # Preserve whitelist order from test_items.txt.
+    # selected is already sorted by numeric order from test_items.txt.
     run_order = [item for item in selected if item in test_items]
 
     if not run_order:
         print(f"[ERROR] No valid test items selected in {ITEMS_FILE}.")
         print(
-            f"[ERROR] Uncomment item names inside BEGIN/END SELECTION. "
+            f"[ERROR] Uncomment `name <order>` lines inside BEGIN/END SELECTION. "
             f"Available: {list(test_items.keys())}"
         )
         sys.exit(2)

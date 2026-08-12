@@ -62,18 +62,20 @@ RAID_NVME/
 
 编辑项目根目录中的 `test_items.txt`：
 
-1. **`BEGIN/END SELECTION` 块**：列出**全部**已发现用例。`# name` = 不跑；去掉 `#` = 跑。  
-   **未注释行的先后顺序 = 执行顺序**，可任意调整。同步只会补上新发现的 `# <name>`、删掉已不存在的项，**不会重排**你写好的顺序（也可手动  
-   `python nvme_raid_test.py --sync-selection`）。
+1. **`BEGIN/END SELECTION` 块**：列出全部已发现用例，格式为 `名称 序号`。  
+   - 行首 `#` = 不跑；去掉 `#` = 跑  
+   - **按数字升序执行**（与 `test_smoke_NN_*.py` 编号对齐更清晰）  
+   - 同步会按序号重排、保留启用状态，并给新用例补上 `# <name> <序号>`（也可手动  
+     `python nvme_raid_test.py --sync-selection`）
 2. **`[用例名]` 参数块**：每个用例自己的参数，只写该用例会用到的键。
 
 ```text
-# === BEGIN SELECTION (auto-synced; reorder / uncomment to choose run order) ===
-# reboot
-# dc
-mix
-lawdisk
-# filesystem
+# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
+# reboot 1
+# dc 2
+lawdisk 3
+# filesystem 4
+mix 5
 # === END SELECTION ===
 
 [lawdisk]
@@ -83,7 +85,7 @@ STRESS_MONITOR  = yes
 MONITOR_RUNTIME = 1000
 ```
 
-上面按顺序跑 `mix` → `lawdisk`。下方 `[...]` 只是参数，不决定是否执行。
+上面启用项按序号执行：`lawdisk`(3) → `mix`(5)。下方 `[...]` 只是参数，不决定是否执行。
 
 参数含义：
 

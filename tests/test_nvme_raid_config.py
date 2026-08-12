@@ -52,9 +52,10 @@ def test_repository_test_items_file_is_valid():
 
     assert "BEGIN SELECTION" in text
     assert "END SELECTION" in text
-    assert [name for name, _enabled in entries]
-    assert set(name for name, _enabled in entries) == set(catalog)
+    assert [name for name, _order, _enabled in entries]
+    assert set(name for name, _order, _enabled in entries) == set(catalog)
     assert all(name in catalog for name in selected)
+    assert selected == ["lawdisk", "filesystem", "mix"]
     assert "defaults" not in params
     assert "lawdisk" in params
     assert params["lawdisk"]["IGNORE_ERROR"] == "no"
@@ -78,9 +79,9 @@ def test_sync_selection_lists_all_discovered_items(tmp_path):
     config.write_text(
         """
 # header
-# === BEGIN SELECTION (auto-synced; reorder / uncomment to choose run order) ===
-lawdisk
-# mix
+# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
+lawdisk 3
+# mix 5
 # === END SELECTION ===
 
 [lawdisk]
@@ -106,30 +107,28 @@ IGNORE_ERROR = no
     entries = nvme_raid_test.read_selection_entries(str(config))
 
     assert selected == ["lawdisk"]
-    # Existing relative order is kept; missing catalog names are appended disabled.
-    assert [name for name, _enabled in entries] == [
-        "lawdisk",
-        "mix",
-        "reboot",
-        "dc",
-        "filesystem",
+    assert [(name, order, enabled) for name, order, enabled in entries] == [
+        ("reboot", 1, False),
+        ("dc", 2, False),
+        ("lawdisk", 3, True),
+        ("filesystem", 4, False),
+        ("mix", 5, False),
     ]
-    assert entries[0] == ("lawdisk", True)
-    assert entries[1] == ("mix", False)
-    for name in ("reboot", "dc", "filesystem"):
-        assert f"# {name}" in text
+    assert "lawdisk 3\n" in text
+    for name in ("reboot", "dc", "filesystem", "mix"):
+        assert f"# {name} " in text
 
 
-def test_sync_selection_preserves_custom_run_order(tmp_path):
+def test_sync_selection_preserves_custom_numeric_order(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
         """
-# === BEGIN SELECTION (auto-synced; reorder / uncomment to choose run order) ===
-mix
-# filesystem
-lawdisk
-# reboot
-# dc
+# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
+mix 1
+# filesystem 2
+lawdisk 3
+# reboot 4
+# dc 5
 # === END SELECTION ===
 
 [mix]
@@ -154,12 +153,12 @@ IGNORE_ERROR = no
     entries = nvme_raid_test.read_selection_entries(str(config))
 
     assert selected == ["mix", "lawdisk"]
-    assert [name for name, _enabled in entries] == [
-        "mix",
-        "filesystem",
-        "lawdisk",
-        "reboot",
-        "dc",
+    assert [(name, order) for name, order, _enabled in entries] == [
+        ("mix", 1),
+        ("filesystem", 2),
+        ("lawdisk", 3),
+        ("reboot", 4),
+        ("dc", 5),
     ]
 
 
@@ -167,10 +166,10 @@ def test_parse_whitelist_controls_enabled_items_with_per_case_params(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
         """
-# === BEGIN SELECTION (auto-synced; reorder / uncomment to choose run order) ===
-# reboot
-dc
-mix
+# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
+# reboot 1
+dc 2
+mix 5
 # === END SELECTION ===
 
 [dc]
@@ -192,14 +191,14 @@ STRESS_MONITOR = yes
     assert "FIO_CYCLES" not in params["mix"]
 
 
-def test_parse_preserves_whitelist_order(tmp_path):
+def test_parse_sorts_enabled_items_by_numeric_order(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
         """
-# === BEGIN SELECTION (auto-synced; reorder / uncomment to choose run order) ===
-mix
-lawdisk
-reboot
+# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
+mix 5
+lawdisk 3
+reboot 1
 # === END SELECTION ===
 
 [mix]
@@ -216,7 +215,7 @@ FIO_CYCLES = 10
 
     selected, _params = parse_items_file(config)
 
-    assert selected == ["mix", "lawdisk", "reboot"]
+    assert selected == ["reboot", "lawdisk", "mix"]
 
 
 def test_run_single_item_omits_allure_args_without_plugin(monkeypatch):

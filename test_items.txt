@@ -1,37 +1,40 @@
 # ============================================================
-# Test selection
+# 测试项选择
 # ------------------------------------------------------------
-# The BEGIN/END SELECTION block is auto-synced from test_items/test_*.py
-# whenever nvme_raid_test.py runs (or: python nvme_raid_test.py --sync-selection).
+# BEGIN/END SELECTION 块会在运行 nvme_raid_test.py 时自动同步
+# （也可手动：python nvme_raid_test.py --sync-selection）。
 #
-# Uncomment a line to run that case. Line order among uncommented names
-# is the run order — reorder freely; sync keeps your order and only adds
-# newly discovered names (as "# name") or drops removed ones.
+# 格式：名称 + 空格 + 数字序号
+#   - 数字越小越先执行（升序）
+#   - 行首 # 表示不跑该用例
+#   - 同步会按序号重排列表，并保留你的启用状态与序号
+#   - 新发现的用例会追加为「# 名称 序号」
 #
-# Example — run only lawdisk:
-#   uncomment "lawdisk", keep the others commented.
+# 示例 — 只跑 lawdisk：
+#   lawdisk 3
+#   其余行保持 # 注释
 #
-# Naming:
-#   test_smoke_03_lawdisk.py  ->  lawdisk
+# 命名对应：
+#   test_smoke_03_lawdisk.py  ->  lawdisk（建议序号 3）
 #   test_foo.py               ->  foo
 #
-# To add a new case:
-#   1. Add test_items/test_<name>.py (or test_smoke_NN_<name>.py)
-#   2. Run sync (or any test run) — the new name appears below as "# <name>"
-#   3. Uncomment it to enable; add a [<name>] param block if needed
+# 新增用例：
+#   1. 添加 test_items/test_<name>.py（或 test_smoke_NN_<name>.py）
+#   2. 运行 sync（或任意测试）— 下方出现「# <name> <序号>」
+#   3. 去掉 # 启用；按需补充 [<name>] 参数块
 # ============================================================
 
-# === BEGIN SELECTION (auto-synced; reorder / uncomment to choose run order) ===
-# reboot
-# dc
-lawdisk
-mix
-filesystem
+# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
+# reboot 1
+# dc 2
+lawdisk 3
+filesystem 4
+mix 5
 # === END SELECTION ===
 
 
 # ============================================================
-# Per-item parameters (only keys used by that case)
+# 各用例参数（只写该用例会用到的键）
 # ============================================================
 
 [reboot]
