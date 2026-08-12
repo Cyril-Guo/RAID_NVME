@@ -88,7 +88,7 @@ pipeline {
         TARGET_USER = 'root'
         TARGET_PASSWORD = "${params.TARGET_PASSWORD?.trim() ?: '123456'}"
         ALLOW_DESTRUCTIVE_FIO = '1'
-        TEST_IDLE_TIMEOUT_MINUTES = '15'
+        TEST_IDLE_TIMEOUT_MINUTES = '90'
         ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
         TEST_EXECUTION_ATTEMPTED = 'false'
         SSH_OPTS = '-o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
@@ -467,6 +467,22 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && ci/
  ci/run_remote_test_and_collect.sh
  """
                                 )
+                                echo "[${ip}] wait powercycle completion if reboot/dc selected"
+                                def powercycleWaitStatus = sh(
+                                    returnStatus: true,
+                                    script: """#!/bin/bash
+ chmod +x ci/wait_powercycle_completion.sh
+ NODE_IP='${ip}' \
+ TARGET_USER='${env.TARGET_USER}' \
+ REMOTE_DIR='${remoteDir}' \
+ REMOTE_SSH_COMMAND="${targetSsh}" \
+ TEST_ITEMS_FILE='test_items.txt' \
+ ci/wait_powercycle_completion.sh
+ """
+                                )
+                                if (powercycleWaitStatus != 0) {
+                                    error "[${ip}] powercycle completion wait failed with exit code ${powercycleWaitStatus}"
+                                }
                                 if (testStatus != 0) {
                                     error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"
                                 }

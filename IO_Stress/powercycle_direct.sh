@@ -25,6 +25,7 @@ if [[ "$item" != "REBOOT" && "$item" != "DC" ]]; then
 fi
 
 export POWER_CYCLE_FORCE_ONCE=1
+export POWER_CYCLE_COMMAND_GRACE="${POWER_CYCLE_COMMAND_GRACE:-90}"
 
 command_log="$ResultLog/reboot_command.log"
 if [[ "$item" == "DC" ]]; then

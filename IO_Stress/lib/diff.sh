@@ -2,23 +2,38 @@
 
 IFS=$'\n'
 
-
+# Compare only stable inventory fields. Ignore banners, tool versions, CPU summary, timestamps.
+machinecheck_fingerprint() {
+    local file="$1"
+    sed 's/[[:space:]]\+/ /g; s/^ //; s/ $//' "$file" | awk '
+        $1 == "disk:" || $1 == "pcie_nvme:" || $1 == "link:" || $1 == "aer:" { print; next }
+        $1 == "disk" && $2 == "count:" { print; next }
+        $1 == "pcie_nvme" && $2 == "count:" { print; next }
+    ' | sort
+}
 
 function record_errorinfo(){
+    local fp_before fp_after
+    fp_before=$(mktemp)
+    fp_after=$(mktemp)
+    machinecheck_fingerprint "$MachineCheckLog/info_before.log" > "$fp_before"
+    machinecheck_fingerprint "$MachineCheckLog/info_after.log" > "$fp_after"
+
     echo "ERROR: MachineCheck Log Inconsistency Detected!" | tee -a $TestErrorLog/machine_diff_error.log
     echo "==================================================" | tee -a $TestErrorLog/machine_diff_error.log
     echo "Current Loop: $loop" | tee -a $TestErrorLog/machine_diff_error.log
     echo "Time: $(date)" | tee -a $TestErrorLog/machine_diff_error.log
-    echo "Differences (Golden < vs Current >):" | tee -a $TestErrorLog/machine_diff_error.log
+    echo "Whitelist field differences (Golden < vs Current >):" | tee -a $TestErrorLog/machine_diff_error.log
     
-    diff -u $MachineCheckLog/info_before.log $MachineCheckLog/info_after.log >> $TestErrorLog/machine_diff_error.log
+    diff -u "$fp_before" "$fp_after" >> $TestErrorLog/machine_diff_error.log
     
     echo "--------------------------------------------------" >> $TestErrorLog/machine_diff_error.log
     echo -e " ERROR: MachineCheck inconsistencies found at loop $loop. Check $TestErrorLog/machine_diff_error.log for details."
     
     # Also record to diff_all.log
     echo -e "\n--- Loop $loop Error Record ---" >> $MessageRecordLog/diff_all.log
-    diff -u $MachineCheckLog/info_before.log $MachineCheckLog/info_after.log >> $MessageRecordLog/diff_all.log
+    diff -u "$fp_before" "$fp_after" >> $MessageRecordLog/diff_all.log
+    rm -f "$fp_before" "$fp_after"
 }
 
 function diff_messages()
@@ -79,15 +94,22 @@ function diff_messages()
             cp -f $MachineCheckLog/info_after.log $MachineCheckLog/${loop}_machinecheck.log
         fi
         
-        # Log Diff Detection
+        # Whitelist field Diff Detection (disk/pcie_nvme/link/aer + counts)
         if [[ ! -f $MachineCheckLog/info_before.log ]] || [[ ! -f $MachineCheckLog/info_after.log ]]; then
             echo "Warning: Missing log files for diff comparison." | tee -a $Result_Dir/result.log
         else
-            if ! diff -q $MachineCheckLog/info_before.log $MachineCheckLog/info_after.log > /dev/null; then
+            local fp_before fp_after
+            fp_before=$(mktemp)
+            fp_after=$(mktemp)
+            machinecheck_fingerprint "$MachineCheckLog/info_before.log" > "$fp_before"
+            machinecheck_fingerprint "$MachineCheckLog/info_after.log" > "$fp_after"
+            if ! diff -q "$fp_before" "$fp_after" > /dev/null; then
+                rm -f "$fp_before" "$fp_after"
                 record_errorinfo
                 echo "diff finish" >$LogAd/diff.flag
                 return 3
             fi
+            rm -f "$fp_before" "$fp_after"
         fi
     fi
     echo "diff finish" >$LogAd/diff.flag

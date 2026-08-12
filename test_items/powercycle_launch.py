@@ -42,6 +42,8 @@ def trigger_background_fio(io_stress_dir, item, fio_args, wait_seconds=2):
             log_handle.write("{} [LAUNCH] command={}\n".format(ts(), command_text))
         with open(launch_log, "ab") as log_handle, open(os.devnull, "rb") as stdin_handle:
             env = os.environ.copy()
+            # Give Jenkins/pytest time to exit SSH cleanly before reboot lands.
+            env.setdefault("POWER_CYCLE_COMMAND_GRACE", "90")
             process = subprocess.Popen(
                 command,
                 cwd=io_stress_dir,

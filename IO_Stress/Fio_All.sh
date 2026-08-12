@@ -28,9 +28,8 @@ fi
 intializer
 #######################
 
-backup
-
-autologin
+# Stress paths (lawdisk/filesystem/mix) must not rewrite getty/tty login policy.
+# Reboot/dc use powercycle_direct.sh + autoopen instead.
 
 #install_HPL
 #install_fio

@@ -3,8 +3,9 @@ Smoke 测试 —— Reboot 电源循环（重启）压力测试。
 
 本用例完全自包含，不依赖任何共享辅助函数，读完本文件即可理解全部流程：
   1. 从环境变量（由 test_items.txt 注入）解析循环次数与错误处理策略；
-  2. 组装并以异步(setsid)方式触发 Fio_All.sh 的 reboot 流程。
-     重启会中断 SSH，因此触发后立即返回，避免连接断开被误判为失败。
+  2. 组装并以异步(setsid)方式触发 powercycle_direct.sh 的 reboot 流程。
+     重启会中断 SSH，因此本用例只验证到达 request start；
+     Jenkins 侧 ci/wait_powercycle_completion.sh 负责多圈完成闭环。
 """
 import os
 from datetime import datetime
@@ -54,4 +55,4 @@ def test_reboot_powercycle():
         print(f"{_ts()} [START] {cmd_str}")
         print("检测到重启任务，采用异步(setsid)触发模式...")
         trigger_background_fio(io_stress_dir, "reboot", fio_args)
-        print("测试已触发，安全退出 SSH 以防重启导致连接中断报错。")
+        print("测试已触发（request start）；多圈完成由 Jenkins wait_powercycle_completion 闭环。")

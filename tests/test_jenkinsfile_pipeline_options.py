@@ -103,7 +103,7 @@ def test_target_hang_times_out_and_keeps_pipeline_control():
     source = pipeline_sources()
 
     assert "TARGET_NODE_TIMEOUT_MINUTES" not in source
-    assert "TEST_IDLE_TIMEOUT_MINUTES = '15'" in source
+    assert "TEST_IDLE_TIMEOUT_MINUTES = '90'" in source
     assert "ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'" in source
     assert "ServerAliveInterval=30" in source
     assert "ServerAliveCountMax=3" in source
@@ -134,6 +134,11 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
     assert "restore RAID state before test" not in jenkinsfile
     assert "ci/clear_8p_csd_flash.sh" not in jenkinsfile
     assert "ci/restore_physical_raid_state.sh" not in jenkinsfile
+    assert "ci/install_dpraid_remote.sh" in jenkinsfile
+    assert "ci/wait_powercycle_completion.sh" in jenkinsfile
+    assert "RAID_CLI_REPO" in jenkinsfile
+    assert "install latest dpraid" in jenkinsfile
+    assert "RAID_CLI_COMMIT" in jenkinsfile
 
 
 def test_test_idle_watchdog_tracks_non_system_disk_io_progress():
