@@ -27,9 +27,9 @@
 # === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
 # reboot 1
 # dc 2
-lawdisk 3
-filesystem 4
-mix 5
+lawdisk 6
+filesystem 8
+mix 3
 # === END SELECTION ===
 
 
