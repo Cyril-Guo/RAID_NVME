@@ -72,33 +72,10 @@ function check_baseboardsn()
 
 function process_machinecheck_results() {
     local target_info_log=$1
-    local target_check_log=$2
-    local target_msg_log=$3
 
     if [[ -f $MachineCheck_Dir/Result/machinecheck.log ]]; then
-        cp -rf $MachineCheck_Dir/Result/machinecheck.log "$target_info_log"
+        cp -f $MachineCheck_Dir/Result/machinecheck.log "$target_info_log"
     fi
-    if [[ -f $MachineCheck_Dir/Result/information_record.log ]]; then
-        cp -rf $MachineCheck_Dir/Result/information_record.log "$target_msg_log"
-    fi
-    if [[ -f $MachineCheck_Dir/Result/error_disk_raw.log ]] && [[ -n $MachineCheckLog ]]; then
-        cp -rf $MachineCheck_Dir/Result/error_disk_raw.log $MachineCheckLog/error_disk_raw.log
-    fi
-
-    if [[ -f $MachineCheck_Dir/Result/check.log ]]; then
-        sed -i '/SSSTC.*171/d' $MachineCheck_Dir/Result/check.log
-        sed -i '/SSSTC.*172/d' $MachineCheck_Dir/Result/check.log
-        sed -i '/SSSTC.*175/d' $MachineCheck_Dir/Result/check.log
-        sed -i '/RSYE.*5/d' $MachineCheck_Dir/Result/check.log
-        sed -i '/RSYE.*171/d' $MachineCheck_Dir/Result/check.log
-        sed -i '/RSYE.*172/d' $MachineCheck_Dir/Result/check.log
-        sed -i '/RSYE.*184/d' $MachineCheck_Dir/Result/check.log
-        sed -i '/RSYE.*187/d' $MachineCheck_Dir/Result/check.log
-        if [[ -n $target_check_log ]]; then
-            cat $MachineCheck_Dir/Result/check.log > "$target_check_log"
-        fi
-    fi
-
 }
 
 function info_check(){
@@ -107,17 +84,12 @@ function info_check(){
    else
  	    show_produce_message "start first machinecheck"
       cd $MachineCheck_Dir >/dev/null
-      rm -rf $MachineCheck_Dir/Disk_info/* >/dev/null
       bash MachineCheck.sh
 
-      process_machinecheck_results "$MachineCheckLog/info_before.log" "$SmartErrorLog/CheckNoStop/check_nostop_before.log" "$MessageRecordLog/messages_record_before.log"
+      process_machinecheck_results "$MachineCheckLog/info_before.log"
       
       if [[ -f $MachineCheckLog/info_before.log ]]; then
           echo "Machinecheck finish" >> $MachineCheckLog/info_before.log
-      fi
-      if [ -f "$MachineCheck_Dir/upi_speed_illegal.flag" ]; then
-          echo "UPI Speed is slow,and exit now..."
-          exit 1
       fi
       cd - >/dev/null
       sleep 5

@@ -1,18 +1,23 @@
-#MachineCheck
-1.运行方式:
-sh MachineCheck.sh
-log保存在Result文件夹内
+# MachineCheck
 
-2.配置文件CheckList说明:
-共包含4种模式,0为不运行,1为运行并且结果记录在Result文件夹内machinecheck.log中.
-模式2和模式3针对power_cycle测试.
-模式2抓取的信息会进行比对,但不一致测试不停止.
-模式3只抓取测试信息,不进行比对.
+轻量机器信息采集，供 IO_Stress 测前/测后比对。
 
-3.工具安装:
-nvme-cli 等系统工具现在采用在线安装方式(apt/yum/dnf),不再依赖本地 tool 文件夹.
+## 运行
 
-特别说明:
-1.如需测试TPMCard,需根据《海光TPM2.0功能测试文档》安装并配置BIOS选项,并在Linux系统上安装 yum install tpm2-abrmd tpm2-abrmd-devel tpm2-tools openssl libss-devel 后再进行测试.
-2. "get_detail_pcie_info=0" 默认置0不做检查,若需要检查,请置3.
+```bash
+bash MachineCheck.sh
+```
 
+输出目录：`Result/machinecheck.log`（脚本每次运行会重建 `Result/`）。
+
+## 当前采集项
+
+- 工具版本：`nvme --version`（若无 `nvme`，首次运行会尝试在线安装 `nvme-cli`）
+- CPU model name / socket 数量（`lscpu`）
+- NVMe 设备数量（`nvme list`）
+
+IO_Stress 会把测前结果存为 `info_before.log`、测后存为 `info_after.log`，不一致时按 `IGNORE_ERROR` 决定是否停测。
+
+## 后续扩展
+
+新增检查项直接改 `MachineCheck.sh` 写入 `Result/machinecheck.log` 即可；前后比对逻辑无需改。

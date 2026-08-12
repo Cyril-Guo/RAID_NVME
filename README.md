@@ -20,7 +20,7 @@ RAID_NVME/
 ├── test_items.txt          # 测试项白名单 + 各用例独立参数
 ├── conftest.py             # Pytest 全局配置
 ├── IO_Stress/              # FIO 压力测试引擎（共用）：Fio_All.sh、lib/ 等
-├── MachineCheck/           # 硬件检查工具（共用）：MachineCheck.sh 等
+├── MachineCheck/           # 机器信息采集（共用）：MachineCheck.sh，测前/测后比对
 ├── Stress_Monitor/         # 后台压力监控工具（共用）
 └── test_items/             # 纯测试项：仅存放各 Pytest 测试用例
     └── test_smoke_*.py     # 各测试用例（各自独立、自包含）

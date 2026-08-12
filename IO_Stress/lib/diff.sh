@@ -65,16 +65,11 @@ function diff_messages()
         
         cd $MachineCheck_Dir >/dev/null
         show_produce_message "Start MachineCheck"
-        rm -rf $MachineCheck_Dir/Disk_Info_Before
-        mkdir -p $MachineCheck_Dir/Disk_Info_Before
-        if [[ -d $MachineCheck_Dir/Disk_Info ]]; then
-            mv $MachineCheck_Dir/Disk_Info $MachineCheckLog/${loop}_Disk_Info
-        fi
         bash MachineCheck.sh
 
         # compare_log
         if [[ -f $MachineCheck_Dir/Result/machinecheck.log ]]; then
-            process_machinecheck_results "$MachineCheckLog/info_after.log" "$SmartErrorLog/CheckNoStop/${loop}_check_nostop.log" "$MessageRecordLog/${loop}_messages_record.log"
+            process_machinecheck_results "$MachineCheckLog/info_after.log"
         else
             echo "Warning: MachineCheck.sh did not produce machinecheck.log" | tee -a $Result_Dir/result.log
         fi
