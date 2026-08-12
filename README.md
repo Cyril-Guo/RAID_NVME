@@ -90,7 +90,7 @@ MONITOR_RUNTIME = 1000
 - `FIO_CYCLES`：电源循环次数（仅 `reboot`/`dc` 有效；压测项循环由 CSV 与 runtime 决定，不使用此参数）。
 - `IGNORE_ERROR`：MachineCheck 结果不一致时是否继续 (yes/no)。
 - `FIO_DISKS`：指定数据盘 (如 `sdb,sdc`)，留空为全部数据盘。
-- `STRESS_MONITOR` / `MONITOR_RUNTIME`：后台压力监控开关与时长。
+- `STRESS_MONITOR` / `MONITOR_RUNTIME`：后台压力监控开关与时长（`lawdisk` / `filesystem` / `mix`；`reboot` / `dc` 不支持）。
 
 > 白名单为空时不跑任何用例（破坏性测试的安全默认）。停止/清理（restore）
 > 不再是测试项，已改由 Jenkins Web 的 `RESTORE` 选项随时触发（见下文）。

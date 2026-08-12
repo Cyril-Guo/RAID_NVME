@@ -38,15 +38,11 @@ filesystem
 FIO_CYCLES      = 10
 IGNORE_ERROR    = no
 FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME =
 
 [dc]
 FIO_CYCLES      = 5
 IGNORE_ERROR    = no
 FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME =
 
 [lawdisk]
 IGNORE_ERROR    = no
