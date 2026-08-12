@@ -29,29 +29,16 @@ RAID_NVME/
 > 说明：`IO_Stress`、`MachineCheck`、`Stress_Monitor` 为多个测试项共用的引擎/工具，
 > 统一放在根目录；`test_items/` 只保留纯粹的测试用例脚本，职责更清晰。
 
-## 🔑 SSH 免密登录配置 (重要)
+## 🔑 SSH 密码登录（当前方式）
 
-为了使 Jenkins 能够顺畅地部署和执行远程测试，必须确保 Jenkins 服务器能够免密登录到所有目标节点。请按照以下步骤操作：
+Jenkins 通过 **`sshpass` + 密码** 连接被测机，**不再依赖 SSH 免密公钥**。
 
-1.  **切换到 Jenkins 用户** (极其重要 ⚠️):
-    ```bash
-    sudo su -s /bin/bash jenkins
-    ```
-2.  **生成 SSH 密钥对**:
-    ```bash
-    ssh-keygen -t rsa -b 4096
-    # 一路回车即可，不要设置密码
-    ```
-3.  **将公钥分发给远端被测机**:
-    ```bash
-    ssh-copy-id root@<目标IP>
-    # 例如: ssh-copy-id root@192.168.1.100
-    ```
-4.  **测试免密登录是否生效**:
-    ```bash
-    ssh root@<目标IP>
-    # 如果不需要输入密码直接进入，则配置成功
-    ```
+- 默认用户：`root`（`TARGET_USER`）
+- 默认密码：`123456`（`TARGET_PASSWORD`，可在 Jenkins「Build with Parameters」覆盖）
+- SSH 选项强制密码认证：`PreferredAuthentications=password`，`PubkeyAuthentication=no`
+- Jenkins 节点首次准备时会执行 `ci/ensure_sshpass.sh` 安装 `sshpass`
+
+确认被测机已开启 root 的密码 SSH 登录即可，无需再配置 `ssh-keygen` / `ssh-copy-id`。
 
 ## 🚀 快速使用说明
 
