@@ -384,31 +384,15 @@ DG/VD  State  Consist TYPE
         ["dpraid", "/c0/v8", "delete"],
     ] + [["dpraid", f"/c0/eall/s{i}", "delete"] for i in range(15)]
     assert calls[: len(expected_cleanup)] == expected_cleanup
-    assert calls[len(expected_cleanup) : len(expected_cleanup) + 3] == [
-        ["rmmod", "draid"],
-        ["insmod", "kernel_driver/drivers/draid/draid.ko"],
-        ["nvme", "list"],
-    ]
+    assert ["rmmod", "draid"] not in calls
+    assert ["insmod", "kernel_driver/drivers/draid/draid.ko"] not in calls
+    assert calls[len(expected_cleanup)] == ["nvme", "list"]
     assert ["dpraid", "/c0", "add", "disk", "/dev/nvme0"] in calls
     assert len(disks) == 15
     assert [len(group) for group in groups] == [7, 8]
     assert vd_output == "vd output"
     assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "drives=0-6"] in calls
     assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "drives=7-14"] in calls
-
-
-def test_physical_basic_io_does_not_reload_draid_after_pd_delete(monkeypatch):
-    monkeypatch.delenv("QEMU_VM_TARGET", raising=False)
-    calls = []
-    monkeypatch.setattr(
-        basic_io_common,
-        "run_cmd",
-        lambda cmd, log, check=True, shell=False: calls.append(cmd),
-    )
-
-    basic_io_common.reload_draid_after_qemu_pd_delete(CommandLog())
-
-    assert calls == []
 
 
 def test_parse_lsblk_pairs_preserves_empty_parent_columns():

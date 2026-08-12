@@ -1,4 +1,3 @@
-import os
 import random
 import re
 import subprocess
@@ -332,15 +331,6 @@ def delete_existing_pds(log):
         run_cmd(["dpraid", f"/c0/eall/{slot}", "delete"], log, check=False)
 
 
-def reload_draid_after_qemu_pd_delete(log):
-    if os.environ.get("QEMU_VM_TARGET", "0") != "1":
-        return
-    module_path = "kernel_driver/drivers/draid/draid.ko"
-    log.write("Reload draid after releasing QEMU physical disks")
-    run_cmd(["rmmod", "draid"], log, check=True)
-    run_cmd(["insmod", module_path], log, check=True)
-
-
 def add_physical_disks(disks, log):
     for disk in disks:
         run_cmd(["dpraid", "/c0", "add", "disk", f"/dev/{disk.controller}"], log, check=True)
@@ -488,7 +478,6 @@ def verify_vd_count(log, expected=8):
 def prepare_basic_raid5_vds(log):
     delete_existing_vds(log)
     delete_existing_pds(log)
-    reload_draid_after_qemu_pd_delete(log)
     nvme_inventory_disks = nvme_inventory(log)
     for disk in nvme_inventory_disks:
         if disk.size_gb > 0:
