@@ -31,7 +31,7 @@ item_=$1
 show_produce_message "start do Fio $item_"
 sleep 3
 if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
-    # Temporarily skip FIO in power-cycle loops; only run reboot/dc + completion path.
+    # Temporarily skip FIO in power-cycle loops; MachineCheck compare still runs.
     # do_fio
     # fio_rc=$?
     # if [ $fio_rc -ne 0 ]; then
@@ -40,9 +40,9 @@ if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
     #     test_end
     #     exit $fio_rc
     # fi
-    #
-    # info_diff
-    echo "$(date '+%F %T') [RESUME] skip do_fio/info_diff for power-cycle (temporarily disabled)"
+    echo "$(date '+%F %T') [RESUME] skip do_fio for power-cycle (temporarily disabled)"
+
+    info_diff
 
     do_reboot
     reboot_rc=$?
