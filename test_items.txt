@@ -25,11 +25,11 @@
 # ============================================================
 
 # === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
-# reboot 1
+reboot 1
 # dc 2
-lawdisk 6
-filesystem 8
-mix 3
+# lawdisk 6
+# filesystem 8
+# mix 3
 # === END SELECTION ===
 
 
@@ -38,7 +38,7 @@ mix 3
 # ============================================================
 
 [reboot]
-FIO_CYCLES      = 10
+FIO_CYCLES      = 100
 IGNORE_ERROR    = no
 FIO_DISKS       =
 

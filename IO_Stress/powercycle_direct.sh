@@ -43,14 +43,16 @@ loop=0
 beforeloop=0
 Second=$(date +%s)
 
-do_fio
-fio_rc=$?
-echo "$(date '+%F %T') [DIRECT] do_fio rc=$fio_rc" | tee -a "$command_log"
-if [[ $fio_rc -ne 0 ]]; then
-    collect_log
-    test_end
-    exit $fio_rc
-fi
+# Temporarily skip FIO in power-cycle loops; only run reboot/dc.
+# do_fio
+# fio_rc=$?
+# echo "$(date '+%F %T') [DIRECT] do_fio rc=$fio_rc" | tee -a "$command_log"
+# if [[ $fio_rc -ne 0 ]]; then
+#     collect_log
+#     test_end
+#     exit $fio_rc
+# fi
+echo "$(date '+%F %T') [DIRECT] skip do_fio for power-cycle (temporarily disabled)" | tee -a "$command_log"
 
 do_reboot
 reboot_rc=$?

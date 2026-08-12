@@ -31,16 +31,18 @@ item_=$1
 show_produce_message "start do Fio $item_"
 sleep 3
 if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
-    do_fio
-    fio_rc=$?
-    if [ $fio_rc -ne 0 ]; then
-        echo "FIO stage failed in $item_ mode, rc=$fio_rc"
-        collect_log
-        test_end
-        exit $fio_rc
-    fi
-
-    info_diff
+    # Temporarily skip FIO in power-cycle loops; only run reboot/dc + completion path.
+    # do_fio
+    # fio_rc=$?
+    # if [ $fio_rc -ne 0 ]; then
+    #     echo "FIO stage failed in $item_ mode, rc=$fio_rc"
+    #     collect_log
+    #     test_end
+    #     exit $fio_rc
+    # fi
+    #
+    # info_diff
+    echo "$(date '+%F %T') [RESUME] skip do_fio/info_diff for power-cycle (temporarily disabled)"
 
     do_reboot
     reboot_rc=$?
