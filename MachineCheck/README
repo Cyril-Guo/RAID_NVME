@@ -12,12 +12,15 @@ bash MachineCheck.sh
 
 ## 当前采集项
 
-- 工具版本：`nvme --version`（若无 `nvme`，首次运行会尝试在线安装 `nvme-cli`）
+- 工具版本：`nvme` / `lspci`（缺工具时首次运行会尝试在线安装 `nvme-cli`、`pciutils`）
 - CPU model name / socket 数量（`lscpu`）
 - NVMe 设备数量（`nvme list`）
+- **盘符**：`lsblk` 中所有 `TYPE=disk`（只记名称，如 `nvme0n1`）
+- **PCIe**：`lspci` 中所有 `Non-Volatile memory controller`
+- **链路 / AER**：对每个 NVMe 控制器记录 `LnkCap`/`LnkSta` 速率带宽，以及 AER `UESta`/`CESta` 原始标志
 
-IO_Stress 会把测前结果存为 `info_before.log`、测后存为 `info_after.log`，不一致时按 `IGNORE_ERROR` 决定是否停测。
+以上均为**快照记录**，本脚本不做 OK/ERROR 判定。IO_Stress 每圈把测前 `info_before.log` 与测后 `info_after.log` 做 diff：一致则通过，不一致则产生 MachineCheck error（是否停测由 `IGNORE_ERROR` 决定）。
 
-## 后续扩展
+## 扩展
 
 新增检查项直接改 `MachineCheck.sh` 写入 `Result/machinecheck.log` 即可；前后比对逻辑无需改。
