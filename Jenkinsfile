@@ -354,13 +354,15 @@ pipeline {
                             }
                             def currentByIid = signatureByIid(currentSignatures)
                             def previousByIid = signatureByIid(previousSignatures)
-                            def existingMrShaChanged = currentByIid.any { iid, signature ->
-                                previousByIid.containsKey(iid) && previousByIid[iid] != signature
+                            def changedIids = []
+                            currentByIid.each { iid, signature ->
+                                if (previousByIid.containsKey(iid) && previousByIid[iid] != signature) {
+                                    changedIids.add(iid)
+                                } else if (!previousByIid.containsKey(iid) && (createdEpochByIid[iid] ?: 0L) > markerEpoch) {
+                                    changedIids.add(iid)
+                                }
                             }
-                            def newlyCreatedMr = currentByIid.any { iid, signature ->
-                                !previousByIid.containsKey(iid) && (createdEpochByIid[iid] ?: 0L) > markerEpoch
-                            }
-                            hasNewOpenMrEvent = existingMrShaChanged || newlyCreatedMr
+                            hasNewOpenMrEvent = !changedIids.isEmpty()
 
                             if (!hasNewOpenMrEvent) {
                                 if (currentMrSignature != 'none') {
@@ -378,11 +380,59 @@ pipeline {
                                 return
                             }
 
-                            kernelDriverRef = mrProps.MR_SOURCE_BRANCH ?: env.KERNEL_DRIVER_BRANCH
-                            kernelDriverMrIid = mrProps.MR_IID ?: ''
-                            kernelDriverMrTitle = mrProps.MR_TITLE ?: ''
-                            kernelDriverMrUpdatedAt = mrProps.MR_UPDATED_AT ?: ''
-                            kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
+                            // Prefer the MR whose code SHA actually changed / was newly opened,
+                            // not whichever open MR GitLab lists as most recently "updated".
+                            def selectedIid = changedIids.max { iid ->
+                                def epochText = mrProps["MR_${iid}_UPDATED_EPOCH"] ?: '0'
+                                (epochText ==~ /^[0-9]+$/) ? epochText.toLong() : 0L
+                            } as String
+
+                            kernelDriverRef = mrProps["MR_${selectedIid}_SOURCE_BRANCH"] ?: env.KERNEL_DRIVER_BRANCH
+                            kernelDriverMrIid = selectedIid
+                            kernelDriverMrTitle = mrProps["MR_${selectedIid}_TITLE"] ?: ''
+                            kernelDriverMrUpdatedAt = mrProps["MR_${selectedIid}_UPDATED_AT"] ?: ''
+                            kernelDriverMrUrl = mrProps["MR_${selectedIid}_WEB_URL"] ?: ''
+                            mrProps.MR_SHA = mrProps["MR_${selectedIid}_SHA"] ?: ''
+                            mrProps.MR_TARGET_BRANCH = mrProps["MR_${selectedIid}_TARGET_BRANCH"] ?: env.KERNEL_DRIVER_BRANCH
+                            def targetBranch = (mrProps.MR_TARGET_BRANCH ?: env.KERNEL_DRIVER_BRANCH).trim()
+                            def sourceBranch = (kernelDriverRef ?: '').trim()
+
+                            withCredentials([string(credentialsId: env.KERNEL_DRIVER_GITLAB_TOKEN_CRED, variable: 'GITLAB_TOKEN')]) {
+                                sh """
+                                set -eu
+                                python3 - <<'PY'
+from urllib.parse import quote
+import urllib.request
+import os
+
+api = "${KERNEL_DRIVER_GITLAB_API}"
+project = "${KERNEL_DRIVER_GITLAB_PROJECT}"
+token = os.environ["GITLAB_TOKEN"]
+source = ${groovy.json.JsonOutput.toJson(sourceBranch)}
+target = ${groovy.json.JsonOutput.toJson(targetBranch)}
+url = (
+    f"{api}/projects/{project}/repository/compare"
+    f"?from={quote(target, safe='')}&to={quote(source, safe='')}"
+)
+request = urllib.request.Request(url, headers={"PRIVATE-TOKEN": token})
+with urllib.request.urlopen(request) as response, open("kernel_driver_mr_compare.json", "wb") as out:
+    out.write(response.read())
+PY
+                                """
+                            }
+                            def hasCodeDelta = sh(
+                                returnStatus: true,
+                                script: 'python3 ci/gitlab_mr_has_code_delta.py kernel_driver_mr_compare.json'
+                            ) == 0
+                            if (!hasCodeDelta) {
+                                sh """
+                                mkdir -p '${jenkinsHome}/.raid_nvme'
+                                printf '%s\\n' '${currentMrSignature}' > '${markerPath}'
+                                """
+                                currentBuild.result = 'NOT_BUILT'
+                                echo "kernel_driver open MR !${selectedIid} has no code delta vs ${targetBranch} (source=${sourceBranch}). Skip smoke tests."
+                                return
+                            }
 
                             shouldRunTests = true
                             useQemuVmTarget = true
@@ -390,7 +440,7 @@ pipeline {
                             triggerSource = 'kernel_driver Merge Request'
 
                             if (kernelDriverMrIid) {
-                                echo "kernel_driver open MR !${kernelDriverMrIid} updated at ${kernelDriverMrUpdatedAt}: ${kernelDriverMrTitle}"
+                                echo "kernel_driver open MR !${kernelDriverMrIid} code changed at ${kernelDriverMrUpdatedAt}: ${kernelDriverMrTitle}"
                             } else {
                                 echo "GitLab MR polling has no MR IID. Fall back to ${kernelDriverRef}."
                             }

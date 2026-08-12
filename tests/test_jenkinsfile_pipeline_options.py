@@ -189,11 +189,16 @@ def test_automatic_mr_signature_only_tracks_code_sha():
     assert 'f"{mr.get(\'iid\')}:{mr.get(\'updated_at\')}:{mr.get(\'sha\')}"' not in source
     assert 'parts.size() >= 3 ? "${parts[0]}:${parts[-1]}" : signature' in source
     assert "MR_CREATED_EPOCH_SIGNATURE" in source
-    assert "existingMrShaChanged || newlyCreatedMr" in source
+    assert "changedIids" in source
+    assert "hasNewOpenMrEvent = !changedIids.isEmpty()" in source
     assert "createdEpochByIid[iid]" in source
     assert "stat -c %Y '${markerPath}'" in source
     assert "kernel_driver MR marker bootstrap initialized" in source
     assert "Existing open merge requests are recorded as baseline, skip tests." in source
+    assert "gitlab_mr_has_code_delta.py" in source
+    assert "has no code delta vs" in source
+    assert "latest = merge_requests[0]" not in source
+    assert 'emit_mr(mr, prefix=f"MR_{iid}")' in source
 
 
 def test_draid_module_reload_retries_and_reports_memory_on_insmod_failure():

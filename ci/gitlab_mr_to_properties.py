@@ -17,14 +17,16 @@ def epoch_value(value):
         return 0
 
 
-def emit_mr(mr):
-    print(f"MR_IID={prop_value(mr.get('iid'))}")
-    print(f"MR_TITLE={prop_value(mr.get('title'))}")
-    print(f"MR_SOURCE_BRANCH={prop_value(mr.get('source_branch'))}")
-    print(f"MR_TARGET_BRANCH={prop_value(mr.get('target_branch'))}")
-    print(f"MR_SHA={prop_value(mr.get('sha'))}")
-    print(f"MR_UPDATED_AT={prop_value(mr.get('updated_at'))}")
-    print(f"MR_WEB_URL={prop_value(mr.get('web_url'))}")
+def emit_mr(mr, prefix="MR"):
+    iid = prop_value(mr.get("iid"))
+    print(f"{prefix}_IID={iid}")
+    print(f"{prefix}_TITLE={prop_value(mr.get('title'))}")
+    print(f"{prefix}_SOURCE_BRANCH={prop_value(mr.get('source_branch'))}")
+    print(f"{prefix}_TARGET_BRANCH={prop_value(mr.get('target_branch'))}")
+    print(f"{prefix}_SHA={prop_value(mr.get('sha'))}")
+    print(f"{prefix}_UPDATED_AT={prop_value(mr.get('updated_at'))}")
+    print(f"{prefix}_UPDATED_EPOCH={epoch_value(mr.get('updated_at'))}")
+    print(f"{prefix}_WEB_URL={prop_value(mr.get('web_url'))}")
 
 
 def main():
@@ -47,21 +49,24 @@ def main():
     if not merge_requests:
         print("MR_COUNT=0")
         print("MR_SIGNATURE=none")
+        print("MR_IDS=")
         return
 
-    signature_parts = [
-        f"{mr.get('iid')}:{mr.get('sha')}"
-        for mr in sorted(merge_requests, key=lambda item: item.get("iid") or 0)
-    ]
+    # Stable signature order by iid; do not use "most recently updated" as the trigger target.
+    ordered = sorted(merge_requests, key=lambda item: item.get("iid") or 0)
+    signature_parts = [f"{mr.get('iid')}:{mr.get('sha')}" for mr in ordered]
     created_epoch_parts = [
-        f"{mr.get('iid')}:{epoch_value(mr.get('created_at'))}"
-        for mr in sorted(merge_requests, key=lambda item: item.get("iid") or 0)
+        f"{mr.get('iid')}:{epoch_value(mr.get('created_at'))}" for mr in ordered
     ]
-    latest = merge_requests[0]
-    print(f"MR_COUNT={len(merge_requests)}")
+    id_parts = [str(mr.get("iid") or "") for mr in ordered]
+
+    print(f"MR_COUNT={len(ordered)}")
     print(f"MR_SIGNATURE={prop_value('|'.join(signature_parts))}")
     print(f"MR_CREATED_EPOCH_SIGNATURE={prop_value('|'.join(created_epoch_parts))}")
-    emit_mr(latest)
+    print(f"MR_IDS={prop_value('|'.join(id_parts))}")
+    for mr in ordered:
+        iid = mr.get("iid")
+        emit_mr(mr, prefix=f"MR_{iid}")
 
 
 if __name__ == "__main__":
