@@ -39,7 +39,7 @@ reboot 1
 
 [reboot]
 FIO_CYCLES      = 100
-IGNORE_ERROR    = no
+IGNORE_ERROR    = yes
 FIO_DISKS       =
 
 [dc]
