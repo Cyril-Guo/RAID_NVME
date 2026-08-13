@@ -28,9 +28,21 @@ def remote_workspace_root(
         or os.environ.get("JOB_NAME")
         or "job"
     )
-    branch_name = sanitize_segment(
-        branch or os.environ.get("BRANCH_NAME") or os.environ.get("GIT_BRANCH") or "unknown"
-    )
+    raw_branch = (
+        branch
+        or os.environ.get("BRANCH_NAME")
+        or os.environ.get("GIT_BRANCH")
+        or os.environ.get("CHANGE_BRANCH")
+        or ""
+    ).strip()
+    if raw_branch.startswith("origin/"):
+        raw_branch = raw_branch[len("origin/") :]
+    if not raw_branch or raw_branch == "HEAD":
+        # Match Jenkinsfile: Pipeline jobs often omit branch env; fall back to job name.
+        raw_branch = (
+            os.environ.get("JOB_BASE_NAME") or os.environ.get("JOB_NAME") or "unknown"
+        )
+    branch_name = sanitize_segment(raw_branch)
     build = sanitize_segment(
         build_number or os.environ.get("BUILD_NUMBER") or "0",
         default="0",

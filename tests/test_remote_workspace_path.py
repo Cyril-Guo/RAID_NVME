@@ -36,3 +36,15 @@ def test_case_workdir_nests_under_build_root():
     assert case_workdir("/root/Cyril/Jenkins/CI/CI/build-9", "basic_io") == (
         "/root/Cyril/Jenkins/CI/CI/build-9/cases/basic_io"
     )
+
+
+def test_remote_workspace_root_falls_back_branch_to_job_name(monkeypatch):
+    monkeypatch.delenv("BRANCH_NAME", raising=False)
+    monkeypatch.delenv("GIT_BRANCH", raising=False)
+    monkeypatch.delenv("CHANGE_BRANCH", raising=False)
+    monkeypatch.setenv("JOB_BASE_NAME", "CI")
+    monkeypatch.setenv("BUILD_NUMBER", "10")
+
+    assert remote_workspace_root(job_name="CI", build_number="10") == (
+        "/root/Cyril/Jenkins/CI/CI/build-10"
+    )
