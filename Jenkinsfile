@@ -23,6 +23,39 @@ def hostScpCmd() {
     return "SSHPASS='${env.TARGET_PASSWORD}' sshpass -e scp ${env.SSH_OPTS}"
 }
 
+def sanitizePathSegment(value) {
+    def text = (value ?: 'unknown').toString().trim()
+    text = text.replaceAll('^origin/', '')
+    text = text.replaceAll('[^A-Za-z0-9._-]', '_')
+    if (!text) {
+        text = 'unknown'
+    }
+    return text
+}
+
+def resolveRaidNvmeBranch() {
+    def branch = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').toString().trim().replaceAll('^origin/', '')
+    if (!branch || branch == 'HEAD') {
+        branch = sh(
+            script: "git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown",
+            returnStdout: true
+        ).trim()
+    }
+    if (!branch || branch == 'HEAD') {
+        branch = 'unknown'
+    }
+    return branch
+}
+
+// DUT layout: /root/Cyril/Jenkins/<JOB>/<BRANCH>/<build|restore|physical>-<N>
+// Keeps CI/SMOKE, branches, and builds from mixing in one flat directory.
+def remoteWorkspaceRoot(kind = 'build') {
+    def job = sanitizePathSegment(env.JOB_BASE_NAME ?: env.JOB_NAME ?: 'job')
+    def branch = sanitizePathSegment(resolveRaidNvmeBranch())
+    def prefix = (kind == 'restore') ? 'restore' : ((kind == 'physical') ? 'physical' : 'build')
+    return "/root/Cyril/Jenkins/${job}/${branch}/${prefix}-${env.BUILD_NUMBER}"
+}
+
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     sh """
     chmod +x ci/deploy_workspace.sh
@@ -529,7 +562,7 @@ PY
 
                         restoreTasks["Restore_${ip}"] = {
                             stage("Restore on ${ip}") {
-                                def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_restore_${env.BUILD_NUMBER}"
+                                def remoteDir = remoteWorkspaceRoot('restore')
 
                                 def restoreSsh = hostSshCmd(ip)
 
@@ -596,7 +629,7 @@ PY
 
                         parallelTasks["Node_${ip}"] = {
                             stage("Test on ${ip}") {
-                                def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_${env.BUILD_NUMBER}"
+                                def remoteDir = remoteWorkspaceRoot('build')
                                 def envPrepareLog = "environment_prepare_${ip}.log"
                                 def qemuVmForNode = useQemuVmTarget
                                 def targetSsh = qemuVmForNode ?
@@ -734,16 +767,13 @@ ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
                                     }
                                 }
 
+                                echo "[${ip}] remote workspace: ${remoteDir}"
                                 echo "[${ip}] deploy workspace"
                                 runTimedEnvironmentStep(ip, 'deploy workspace', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail
 {
-echo "[${ip}] deploy workspace"
-if [ '${qemuEnv}' = '1' ]; then
-    ${targetSsh} 'mkdir -p /root/Cyril/Jenkins && find /root/Cyril/Jenkins -maxdepth 1 -type d -name '"'"'jenkins_nvme_*'"'"' -exec rm -rf {} + && mkdir -p ${remoteDir}'
-else
-    ${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
-fi
+echo "[${ip}] deploy workspace -> ${remoteDir}"
+${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
 chmod +x ci/deploy_workspace.sh
 NODE_IP='${ip}' \\
 TARGET_USER='${env.TARGET_USER}' \\
@@ -864,6 +894,8 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && QEM
  QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \
  QEMU_VM_WORKDIR='${env.QEMU_VM_WORKDIR}' \
  QEMU_VFIO_BIND_SCRIPT='${env.QEMU_VFIO_BIND_SCRIPT}' \
+ JOB_BASE_NAME='${env.JOB_BASE_NAME ?: env.JOB_NAME}' \
+ BRANCH_NAME='${env.BRANCH_NAME ?: env.GIT_BRANCH}' \
  BUILD_NUMBER='${env.BUILD_NUMBER}' \
  DPRAID_SOURCE='${raidCliDpraidPathForRun}' \
  TEST_IDLE_TIMEOUT_MINUTES='${env.TEST_IDLE_TIMEOUT_MINUTES}' \

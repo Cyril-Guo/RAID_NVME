@@ -35,6 +35,7 @@ ALL_PARAM_KEYS = sorted({key for keys in ITEM_PARAMS.values() for key in keys})
 ITEMS_FILE = "test_items.txt"
 ALLURE_DIR = "allure-results"
 JUNIT_FINAL = "report.xml"
+CASES_DIR = "cases"
 
 
 def parse_items_file(path):
@@ -77,15 +78,93 @@ def parse_items_file(path):
     return selected, params_map
 
 
-def run_single_item(item, params, clean_allure):
+def prepare_case_workdir(repo_root, item):
+    """Create an isolated per-case tree under cases/<item>.
+
+    Shared read-only content is symlinked; IO_Stress is copied so each case
+    keeps its own FIO/MachineCheck logs and does not overwrite siblings.
+    """
+    case_dir = os.path.join(repo_root, CASES_DIR, item)
+    if os.path.isdir(case_dir):
+        shutil.rmtree(case_dir)
+    os.makedirs(case_dir, exist_ok=True)
+
+    skip_names = {
+        CASES_DIR,
+        ".git",
+        ALLURE_DIR,
+        JUNIT_FINAL,
+        ".pytest_cache",
+        "__pycache__",
+    }
+    for name in sorted(os.listdir(repo_root)):
+        if name in skip_names:
+            continue
+        if name.startswith("report_") and name.endswith(".xml"):
+            continue
+        src = os.path.join(repo_root, name)
+        dst = os.path.join(case_dir, name)
+        if name == "IO_Stress":
+            shutil.copytree(
+                src,
+                dst,
+                ignore=shutil.ignore_patterns("log", "__pycache__", "*.pyc", ".pytest_cache"),
+                symlinks=True,
+            )
+            os.makedirs(os.path.join(dst, "log"), exist_ok=True)
+            continue
+        if os.path.isdir(src) or os.path.isfile(src):
+            try:
+                os.symlink(src, dst, target_is_directory=os.path.isdir(src))
+            except OSError:
+                # Windows without symlink privilege falls back to copy.
+                if os.path.isdir(src):
+                    shutil.copytree(
+                        src,
+                        dst,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache"),
+                        symlinks=True,
+                    )
+                else:
+                    shutil.copy2(src, dst)
+    return case_dir
+
+
+def collect_case_outputs(case_dir, repo_root, item):
+    """Copy per-case junit/allure artifacts back to the build root for Jenkins collect."""
+    src_report = os.path.join(case_dir, f"report_{item}.xml")
+    dst_report = os.path.join(repo_root, f"report_{item}.xml")
+    if os.path.isfile(src_report):
+        shutil.copy2(src_report, dst_report)
+
+    src_allure = os.path.join(case_dir, ALLURE_DIR)
+    dst_allure = os.path.join(repo_root, ALLURE_DIR)
+    if not os.path.isdir(src_allure):
+        return
+    os.makedirs(dst_allure, exist_ok=True)
+    for name in os.listdir(src_allure):
+        src = os.path.join(src_allure, name)
+        dst = os.path.join(dst_allure, name)
+        # Allure artifact names are UUID-based; keep names so attachment links stay valid.
+        if os.path.exists(dst):
+            continue
+        if os.path.isdir(src):
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy2(src, dst)
+
+
+def run_single_item(item, params, clean_allure, work_dir=None):
     test_file = TEST_ITEMS[item]
     allowed = ITEM_PARAMS.get(item, [])
+    work_dir = work_dir or os.getcwd()
 
     for key in ALL_PARAM_KEYS:
         os.environ.pop(key, None)
 
     print("\n" + "=" * 60)
     print(f"[ITEM] {item} -> {test_file}")
+    print(f"[ITEM] work_dir={work_dir}")
 
     for key, value in params.items():
         if key not in allowed:
@@ -98,13 +177,18 @@ def run_single_item(item, params, clean_allure):
     if importlib.util.find_spec("allure_pytest") is not None:
         pytest_args.append(f"--alluredir={ALLURE_DIR}")
     elif clean_allure:
-        shutil.rmtree(ALLURE_DIR, ignore_errors=True)
+        shutil.rmtree(os.path.join(work_dir, ALLURE_DIR), ignore_errors=True)
 
     if clean_allure and importlib.util.find_spec("allure_pytest") is not None:
         pytest_args.append("--clean-alluredir")
     pytest_args.extend([f"--junitxml=report_{item}.xml", test_file])
 
-    return int(pytest.main(pytest_args))
+    previous = os.getcwd()
+    try:
+        os.chdir(work_dir)
+        return int(pytest.main(pytest_args))
+    finally:
+        os.chdir(previous)
 
 
 def merge_junit_reports(items, out_path):
@@ -284,27 +368,39 @@ def main():
     exit_codes = []
     executed_items = []
     junit_final = os.path.join(base_dir, JUNIT_FINAL)
+    os.makedirs(os.path.join(base_dir, CASES_DIR), exist_ok=True)
     for index, item in enumerate(run_order):
         params = params_map.get(item, {})
         monitor_enabled = stress_monitor_enabled(params)
         print(f"[ITEM_START] {item}")
         exit_code = 2
+        case_dir = prepare_case_workdir(base_dir, item)
+        print(f"[ITEM] case workspace: {case_dir}")
         try:
             if monitor_enabled:
-                clean_monitor_log(base_dir)
-            exit_code = run_single_item(item, params, clean_allure=(index == 0))
+                clean_monitor_log(case_dir)
+            exit_code = run_single_item(item, params, clean_allure=True, work_dir=case_dir)
             print(f"[ITEM_END] {item} exit_code={exit_code}")
         finally:
             if monitor_enabled:
-                stop_monitor_for_item(base_dir)
+                stop_monitor_for_item(case_dir)
                 try:
-                    add_allure_monitor_archive(item, base_dir)
+                    add_allure_monitor_archive(item, case_dir)
                 except Exception as exc:
                     print(f"[WARN] Failed to archive monitor log for {item}: {exc}")
+            try:
+                collect_case_outputs(case_dir, base_dir, item)
+            except Exception as exc:
+                print(f"[WARN] Failed to collect outputs for {item}: {exc}")
             executed_items.append(item)
             exit_codes.append(exit_code)
             # Merge after every item so idle/external kills still keep completed reports.
-            merge_junit_reports(executed_items, junit_final)
+            previous = os.getcwd()
+            try:
+                os.chdir(base_dir)
+                merge_junit_reports(executed_items, junit_final)
+            finally:
+                os.chdir(previous)
 
         if exit_code != 0:
             print(f"[FAIL_FAST] Stop after {item} failed with exit_code={exit_code}")

@@ -16,6 +16,7 @@ tar \
   --exclude='./.git' \
   --exclude='./kernel_driver/.git' \
   --exclude='./raid_cli' \
+  --exclude='./cases' \
   --exclude='./.pytest_cache' \
   --exclude='./__pycache__' \
   --exclude='./allure-results' \

@@ -123,8 +123,14 @@ def test_main_stops_after_first_failed_item(monkeypatch):
     )
     monkeypatch.setattr(
         nvme_raid_test,
+        "prepare_case_workdir",
+        lambda repo_root, item: str(Path(repo_root) / "cases" / item),
+    )
+    monkeypatch.setattr(nvme_raid_test, "collect_case_outputs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        nvme_raid_test,
         "run_single_item",
-        lambda item, params, clean_allure: executed.append(item) or 1,
+        lambda item, params, clean_allure, work_dir=None: executed.append(item) or 1,
     )
     monkeypatch.setattr(
         nvme_raid_test,

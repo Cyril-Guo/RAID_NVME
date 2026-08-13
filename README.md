@@ -5,7 +5,7 @@
 ## 🌟 主要功能
 
 - **分布式并发执行**：通过 Jenkins 并发调度，可同时对 `target_ips.txt` 中配置的多个节点进行测试。
-- **自动化环境部署**：Jenkins Pipeline 通过 **SSH 密码登录**（`sshpass`）将测试代码部署到远端服务器（目录 `/root/Cyril/Jenkins/jenkins_nvme_<BUILD_NUMBER>`），并自动安装所需 Python 运行依赖、编译/加载 `draid` 驱动。
+- **自动化环境部署**：Jenkins Pipeline 通过 **SSH 密码登录**（`sshpass`）将测试代码部署到远端服务器，目录为 `/root/Cyril/Jenkins/<JOB>/<BRANCH>/build-<N>/` 分层（CI/SMOKE、分支、构建互不混杂）；各用例在 `cases/<item>/` 下隔离运行，并自动安装所需 Python 运行依赖、编译/加载 `draid` 驱动。
 - **Allure 监控报告合并**：自动从所有远端测试节点中回收测试产物（`.xml` 控制台日志和 `allure-results`），统一生成直观的 Allure UI 评估报告。
 - **飞书通知集成**：测试完成后，通过自定义飞书机器人 Webhook，自动实时推送详尽的测试结果与成功/失败数据到飞书群组。
 

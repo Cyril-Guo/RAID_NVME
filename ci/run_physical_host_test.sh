@@ -10,7 +10,15 @@ set -euo pipefail
 
 CONTROL_STEP_TIMEOUT_MINUTES=${CONTROL_STEP_TIMEOUT_MINUTES:-15}
 TARGET_PASSWORD=${TARGET_PASSWORD:-123456}
-host_remote_dir="/root/Cyril/Jenkins/jenkins_nvme_${BUILD_NUMBER}_physical"
+JOB_BASE_NAME=${JOB_BASE_NAME:-${JOB_NAME:-SMOKE}}
+BRANCH_NAME=${BRANCH_NAME:-SMOKE}
+host_remote_dir="$(
+    python3 ci/remote_workspace_path.py \
+        --kind physical \
+        --job "${JOB_BASE_NAME}" \
+        --branch "${BRANCH_NAME}" \
+        --build-number "${BUILD_NUMBER}"
+)"
 host_log="environment_prepare_${NODE_IP}_physical.log"
 
 # Prefer sshpass -e so the password is never embedded in a bash string that is
