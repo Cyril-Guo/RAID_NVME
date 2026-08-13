@@ -314,13 +314,17 @@ def test_qemu_vm_deploy_cleans_previous_remote_workspaces():
     assert "def prepareSmokeNodeEnvironment(" in source
     assert "def runSmokeNodeWorkloads(" in source
     assert "def markSmokeEnvironmentPrepareFailed(" in source
-    assert "runSmokeNodeTest(ip, raidCliDpraidPathForRun)" in source
+    assert "@Field def useQemuVmTarget = false" in source
+    assert "@Field def automaticMrTriggered = false" in source
+    assert "@Field def testExecutionAttempted = false" in source
+    assert "runSmokeNodeTest(ip, raidCliDpraidPathForRun, qemuVmForRun, physicalAfterQemuForRun)" in source
     # stage() must stay in the parallel closure, not inside runSmokeNodeTest().
     assert 'parallelTasks["Node_${ip}"] = {' in source
     assert 'stage("Test on ${ip}") {' in source
     run_smoke = source.split("def runSmokeNodeTest(", 1)[1].split("\npipeline {", 1)[0]
     assert 'stage("Test on ${ip}")' not in run_smoke
     assert "markSmokeEnvironmentPrepareFailed(ip, envPrepareLog, reason)" in run_smoke
+    assert "useQemuVmTarget" not in run_smoke
     assert "ENVIRONMENT_PREPARE_STATUS=failed" in source
     assert "Run Tests preflight failed:" in source
 

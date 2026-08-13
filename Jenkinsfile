@@ -1,3 +1,5 @@
+import groovy.transform.Field
+
 def targetIPs = []
 def kernelDriverCommit = ''
 def kernelDriverFullCommit = ''
@@ -11,8 +13,10 @@ def raidCliFullCommit = ''
 def raidCliDpraidPath = ''
 def triggerSource = ''
 def shouldRunTests = false
-def useQemuVmTarget = false
-def automaticMrTriggered = false
+// @Field so top-level helper methods (CPS) can read/write these; plain def is not on Binding.
+@Field def useQemuVmTarget = false
+@Field def automaticMrTriggered = false
+@Field def testExecutionAttempted = false
 
 def hostSshCmd(ip) {
     // Use sshpass -e so callers can also safely store/expand the command string.
@@ -390,7 +394,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
 """)
 }
 
-def runSmokeNodeWorkloads(ip, remoteDir, targetSsh, targetScp, qemuEnv, qemuVmForNode, raidCliDpraidPathForRun) {
+def runSmokeNodeWorkloads(ip, remoteDir, targetSsh, targetScp, qemuEnv, qemuVmForNode, raidCliDpraidPathForRun, runPhysicalAfterQemu) {
     echo "[${ip}] run nvme_raid_test.py and copy back reports"
     def testStatus = sh(
         returnStatus: true,
@@ -414,7 +418,7 @@ ci/run_remote_test_and_collect.sh
         error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"
     }
 
-    if (qemuVmForNode && automaticMrTriggered) {
+    if (qemuVmForNode && runPhysicalAfterQemu) {
         echo "[${ip}] QEMU test passed; stop QEMU VM, return NVMe devices, then run physical host test"
         def hostStatus = sh(
             returnStatus: true,
@@ -454,11 +458,11 @@ def markSmokeEnvironmentPrepareFailed(ip, envPrepareLog, reason) {
     """
 }
 
-def runSmokeNodeTest(ip, raidCliDpraidPathForRun) {
+def runSmokeNodeTest(ip, raidCliDpraidPathForRun, qemuVmForNode, runPhysicalAfterQemu) {
     // Keep stage() in the parallel closure (caller). Nested stage inside a
     // top-level method breaks CPS step allocation and can abort before any logs.
+    // Pass qemu flags as args — do not read script Binding vars from helpers.
     def envPrepareLog = "environment_prepare_${ip}.log"
-    def qemuVmForNode = useQemuVmTarget
     def targetSsh = smokeTargetSsh(ip, qemuVmForNode)
     def targetScp = smokeTargetScp(qemuVmForNode)
     def qemuEnv = qemuVmForNode ? '1' : '0'
@@ -475,7 +479,7 @@ def runSmokeNodeTest(ip, raidCliDpraidPathForRun) {
             ip, remoteDir, envPrepareLog, targetSsh, targetScp, qemuEnv, qemuVmForNode, raidCliDpraidPathForRun
         )
         runSmokeNodeWorkloads(
-            ip, remoteDir, targetSsh, targetScp, qemuEnv, qemuVmForNode, raidCliDpraidPathForRun
+            ip, remoteDir, targetSsh, targetScp, qemuEnv, qemuVmForNode, raidCliDpraidPathForRun, runPhysicalAfterQemu
         )
     } catch (Exception e) {
         def reason = (e?.message ?: e?.toString() ?: 'unknown error').toString().take(300)
@@ -1028,6 +1032,7 @@ PY
                         error "Run Tests preflight failed: ${reason}"
                     }
 
+                    testExecutionAttempted = true
                     env.TEST_EXECUTION_ATTEMPTED = 'true'
                     raidCliFullCommit = sh(
                         script: "git -C '${raidCliRepoPathForRun}' rev-parse HEAD 2>/dev/null || echo unknown",
@@ -1039,15 +1044,18 @@ PY
                     ).trim()
                     echo "Use dpraid artifact: ${raidCliDpraidPathForRun}"
                     echo "Use raid_cli(${env.RAID_CLI_BRANCH}) commit: ${raidCliCommit}"
+                    echo "QEMU VM target=${useQemuVmTarget}, physical-after-qemu=${automaticMrTriggered}"
 
                     def parallelTasks = [:]
+                    def qemuVmForRun = useQemuVmTarget
+                    def physicalAfterQemuForRun = automaticMrTriggered
 
                     for (int i = 0; i < targetIPs.size(); i++) {
                         def ip = targetIPs[i]
 
                         parallelTasks["Node_${ip}"] = {
                             stage("Test on ${ip}") {
-                                runSmokeNodeTest(ip, raidCliDpraidPathForRun)
+                                runSmokeNodeTest(ip, raidCliDpraidPathForRun, qemuVmForRun, physicalAfterQemuForRun)
                             }
                         }
                     }
@@ -1109,7 +1117,7 @@ PY
                 def endStr = new Date().format('yyyy-MM-dd HH:mm:ss')
                 def ipListStr = targetIPs.join(', ')
                 def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'
-                def testAttempted = (env.TEST_EXECUTION_ATTEMPTED == 'true')
+                def testAttempted = testExecutionAttempted || (env.TEST_EXECUTION_ATTEMPTED == 'true')
                 if (total == 0 && !hasFailureSummary) {
                     echo "Skip Feishu notification: no reportable test or environment prepare result was generated in this build. testAttempted=${testAttempted}, result=${buildResult}"
                     return
