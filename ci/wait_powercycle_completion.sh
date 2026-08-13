@@ -12,6 +12,14 @@ ITEMS_FILE="${TEST_ITEMS_FILE:-test_items.txt}"
 POLL_SECONDS="${POWER_CYCLE_POLL_SECONDS:-30}"
 RESULT_REL="IO_Stress/log/ResultLog"
 
+# Prefer per-case workdirs (cases/<item>/...), fall back to build-root IO_Stress.
+result_roots_for_item() {
+    local item="$1"
+    printf '%s\n' \
+        "${REMOTE_DIR}/cases/${item}/${RESULT_REL}" \
+        "${REMOTE_DIR}/${RESULT_REL}"
+}
+
 selected_items=()
 parse_selected_powercycle_items() {
     local in_selection=0
@@ -78,6 +86,15 @@ read_item_cycles() {
 
 remote_grep() {
     local pattern="$1"
+    local item="${2:-}"
+    local root
+    if [[ -n "${item}" ]]; then
+        while IFS= read -r root; do
+            # shellcheck disable=SC2086
+            eval ${REMOTE_SSH_COMMAND} "grep -R -F -e $(printf '%q' "${pattern}") ${root} 2>/dev/null" || true
+        done < <(result_roots_for_item "${item}")
+        return 0
+    fi
     # shellcheck disable=SC2086
     eval ${REMOTE_SSH_COMMAND} "grep -R -F -e $(printf '%q' "${pattern}") ${REMOTE_DIR}/${RESULT_REL} 2>/dev/null" || true
 }
@@ -89,35 +106,45 @@ remote_reachable() {
 
 item_completed() {
     local item="$1"
-    local log_name text
+    local log_name text root
     if [[ "${item}" == "reboot" ]]; then
         log_name="reboot_command.log"
     else
         log_name="dc_command.log"
     fi
-    # shellcheck disable=SC2086
-    text="$(eval ${REMOTE_SSH_COMMAND} "grep -F 'all power-cycle loops completed' ${REMOTE_DIR}/${RESULT_REL}/${log_name} 2>/dev/null" || true)"
-    if [[ -n "${text}" ]]; then
-        return 0
-    fi
-    # Resume path prints this after reboot_rc=2.
-    # shellcheck disable=SC2086
-    text="$(eval ${REMOTE_SSH_COMMAND} "grep -F 'Power-cycle test completed all' ${REMOTE_DIR}/${RESULT_REL}/powercycle_resume.log 2>/dev/null" || true)"
-    [[ -n "${text}" ]]
+    while IFS= read -r root; do
+        # shellcheck disable=SC2086
+        text="$(eval ${REMOTE_SSH_COMMAND} "grep -F 'all power-cycle loops completed' ${root}/${log_name} 2>/dev/null" || true)"
+        if [[ -n "${text}" ]]; then
+            return 0
+        fi
+        # Resume path prints this after reboot_rc=2.
+        # shellcheck disable=SC2086
+        text="$(eval ${REMOTE_SSH_COMMAND} "grep -F 'Power-cycle test completed all' ${root}/powercycle_resume.log 2>/dev/null" || true)"
+        if [[ -n "${text}" ]]; then
+            return 0
+        fi
+    done < <(result_roots_for_item "${item}")
+    return 1
 }
 
 item_triggered() {
     local item="$1"
-    local log_name pattern text
+    local log_name pattern text root
     if [[ "${item}" == "reboot" ]]; then
         log_name="reboot_command.log"
     else
         log_name="dc_command.log"
     fi
     pattern="request start"
-    # shellcheck disable=SC2086
-    text="$(eval ${REMOTE_SSH_COMMAND} "grep -F $(printf '%q' "${pattern}") ${REMOTE_DIR}/${RESULT_REL}/${log_name} 2>/dev/null" || true)"
-    [[ -n "${text}" ]]
+    while IFS= read -r root; do
+        # shellcheck disable=SC2086
+        text="$(eval ${REMOTE_SSH_COMMAND} "grep -F $(printf '%q' "${pattern}") ${root}/${log_name} 2>/dev/null" || true)"
+        if [[ -n "${text}" ]]; then
+            return 0
+        fi
+    done < <(result_roots_for_item "${item}")
+    return 1
 }
 
 wait_one_item() {

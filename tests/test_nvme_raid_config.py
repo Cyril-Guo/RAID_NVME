@@ -55,15 +55,15 @@ def test_repository_test_items_file_is_valid():
     assert [name for name, _order, _enabled in entries]
     assert set(name for name, _order, _enabled in entries) == set(catalog)
     assert all(name in catalog for name in selected)
-    assert selected == ["basic_io", "basic_rebuild_io"]
+    assert selected == ["basic_io", "mix"]
     assert "defaults" not in params
     assert "lawdisk" in params
     assert params["lawdisk"]["IGNORE_ERROR"] == "no"
     assert "FIO_CYCLES" not in params["lawdisk"]
     assert params["dc"]["FIO_CYCLES"] == "5"
     assert params["reboot"]["FIO_CYCLES"] == "100"
-    assert params["basic_io"]["STRESS_MONITOR"] == "yes"
-    assert params["basic_rebuild_io"]["STRESS_MONITOR"] == "yes"
+    assert params["basic_io"]["STRESS_MONITOR"] == "no"
+    assert params["basic_rebuild_io"]["STRESS_MONITOR"] == "no"
 
 
 def test_main_prints_item_boundaries():
@@ -219,7 +219,7 @@ FIO_CYCLES = 10
     assert selected == ["reboot", "lawdisk", "mix"]
 
 
-def test_run_single_item_omits_allure_args_without_plugin(monkeypatch):
+def test_run_single_item_omits_allure_args_without_plugin(monkeypatch, tmp_path):
     captured = {}
 
     def fake_pytest_main(args):
@@ -229,7 +229,9 @@ def test_run_single_item_omits_allure_args_without_plugin(monkeypatch):
     monkeypatch.setattr(nvme_raid_test.importlib.util, "find_spec", lambda name: None)
     monkeypatch.setattr(nvme_raid_test.pytest, "main", fake_pytest_main)
 
-    assert nvme_raid_test.run_single_item("lawdisk", {}, clean_allure=True) == 0
+    assert nvme_raid_test.run_single_item(
+        "lawdisk", {}, clean_allure=True, work_dir=str(tmp_path)
+    ) == 0
 
     args = captured["args"]
     assert "--clean-alluredir" not in args
@@ -237,7 +239,28 @@ def test_run_single_item_omits_allure_args_without_plugin(monkeypatch):
     assert "--junitxml=report_lawdisk.xml" in args
 
 
-def test_main_stops_after_first_failed_item(monkeypatch):
+def test_prepare_case_workdir_isolates_io_stress(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "nvme_raid_test.py").write_text("print('ok')\n", encoding="utf-8")
+    io_stress = repo / "IO_Stress"
+    io_stress.mkdir()
+    (io_stress / "Fio_All.sh").write_text("#!/bin/bash\n", encoding="utf-8")
+    (io_stress / "log").mkdir()
+    (io_stress / "log" / "old.log").write_text("old\n", encoding="utf-8")
+    (repo / "test_items").mkdir()
+    (repo / "cases").mkdir()
+
+    case_dir = Path(nvme_raid_test.prepare_case_workdir(str(repo), "mix"))
+
+    assert case_dir == repo / "cases" / "mix"
+    assert (case_dir / "nvme_raid_test.py").exists()
+    assert (case_dir / "IO_Stress" / "Fio_All.sh").is_file()
+    assert not (case_dir / "IO_Stress" / "log" / "old.log").exists()
+    assert (case_dir / "IO_Stress" / "log").is_dir()
+
+
+def test_main_stops_after_first_failed_item(monkeypatch, tmp_path):
     executed = []
     merged_calls = []
 
@@ -257,8 +280,14 @@ def test_main_stops_after_first_failed_item(monkeypatch):
     )
     monkeypatch.setattr(
         nvme_raid_test,
+        "prepare_case_workdir",
+        lambda repo_root, item: str(tmp_path / item),
+    )
+    monkeypatch.setattr(nvme_raid_test, "collect_case_outputs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        nvme_raid_test,
         "run_single_item",
-        lambda item, params, clean_allure, test_items=None: executed.append(item) or 1,
+        lambda item, params, clean_allure, test_items=None, work_dir=None: executed.append(item) or 1,
     )
     monkeypatch.setattr(
         nvme_raid_test,
@@ -274,7 +303,7 @@ def test_main_stops_after_first_failed_item(monkeypatch):
     assert merged_calls == [["lawdisk"]]
 
 
-def test_main_uses_whitelist_order_not_discovery_order(monkeypatch):
+def test_main_uses_whitelist_order_not_discovery_order(monkeypatch, tmp_path):
     executed = []
 
     monkeypatch.setattr(nvme_raid_test, "sync_selection_list", lambda path, catalog: False)
@@ -293,8 +322,14 @@ def test_main_uses_whitelist_order_not_discovery_order(monkeypatch):
     )
     monkeypatch.setattr(
         nvme_raid_test,
+        "prepare_case_workdir",
+        lambda repo_root, item: str(tmp_path / item),
+    )
+    monkeypatch.setattr(nvme_raid_test, "collect_case_outputs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        nvme_raid_test,
         "run_single_item",
-        lambda item, params, clean_allure, test_items=None: executed.append(item) or 0,
+        lambda item, params, clean_allure, test_items=None, work_dir=None: executed.append(item) or 0,
     )
     monkeypatch.setattr(nvme_raid_test, "merge_junit_reports", lambda items, out_path: None)
 

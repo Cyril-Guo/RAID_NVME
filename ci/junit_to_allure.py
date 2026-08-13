@@ -129,6 +129,28 @@ def attach_pending_monitor_logs(allure_dir):
     return attached
 
 
+FIO_FAILURE_LINE_RE = re.compile(
+    r"FIO (?:command failed|stage failed|stage abort).*model=.*elapsed=",
+    re.IGNORECASE,
+)
+
+
+def extract_fio_failure_details(text):
+    """Return structured FIO failure lines that include model + elapsed."""
+    lines = []
+    seen = set()
+    for raw in (text or "").splitlines():
+        line = re.sub(r"\s+", " ", raw).strip()
+        if not line or not FIO_FAILURE_LINE_RE.search(line):
+            continue
+        key = line.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(line)
+    return lines
+
+
 def write_result(allure_dir, suite_name, case, target_node="", target_kind=""):
     test_uuid = str(uuid.uuid4())
     status, detail = status_from_case(case)
@@ -159,10 +181,29 @@ def write_result(allure_dir, suite_name, case, target_node="", target_kind=""):
     if detail is not None:
         message = detail.attrib.get("message", "") or (detail.text or "").strip()
         trace = (detail.text or "").strip()
-        result["statusDetails"] = {
-            "message": message or status,
-            "trace": trace or message or status,
-        }
+        combined = "\n".join(part for part in (message, trace) if part)
+        fio_details = extract_fio_failure_details(combined)
+        if fio_details:
+            # Surface model/elapsed as the Allure error title for "查看报告".
+            result["statusDetails"] = {
+                "message": fio_details[0],
+                "trace": "\n".join(fio_details + ([trace] if trace else [])),
+            }
+            source = f"{uuid.uuid4()}-fio-failure-detail.txt"
+            with open(os.path.join(allure_dir, source), "w", encoding="utf-8") as handle:
+                handle.write("\n".join(fio_details) + "\n")
+            result["attachments"] = [
+                {
+                    "name": "FIO Failure Detail (model/elapsed)",
+                    "source": source,
+                    "type": "text/plain",
+                }
+            ]
+        else:
+            result["statusDetails"] = {
+                "message": message or status,
+                "trace": trace or message or status,
+            }
 
     with open(os.path.join(allure_dir, f"{test_uuid}-result.json"), "w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=False)
@@ -309,10 +350,14 @@ def write_failed_execution_results(allure_dir, existing_ids):
             dst.write(src.read())
 
         summary = extract_failure_lines(text)
+        fio_details = extract_fio_failure_details(text)
         if "TEST_EXECUTION_STATUS=failed" in text:
             default_message = "Remote test execution failed"
         else:
             default_message = "Remote test execution aborted or incomplete"
+        if fio_details:
+            default_message = fio_details[0]
+            summary = fio_details + [line for line in summary if line not in fio_details]
         label = context_label(target_kind)
         test_uuid = str(uuid.uuid4())
         result = {

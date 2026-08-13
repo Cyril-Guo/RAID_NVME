@@ -70,9 +70,10 @@ def test_failure_logs_are_added_to_allure_and_feishu_report():
     assert "failure_summary.txt" in jenkinsfile
     feishu = Path("ci/build_feishu_payload.py").read_text(encoding="utf-8")
     assert "查看MR" in feishu
-    assert "详细日志" in feishu
+    assert "详细日志" not in feishu
     assert "失败摘要" not in feishu
     assert "报告类型" not in feishu
+    assert "FIO Failure Detail" in Path("ci/junit_to_allure.py").read_text(encoding="utf-8")
 
 
 def test_manual_mr_iid_reruns_merge_request():
@@ -236,6 +237,8 @@ def test_run_tests_uses_password_host_ssh_without_qemu_ports():
     assert "${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'" in source
     assert "find /root/Cyril/Jenkins -maxdepth 1 -type d -name" not in source
     assert "jenkins_nvme_*" not in source
+    assert "def remoteWorkspaceRoot(" in source
+    assert "/root/Cyril/Jenkins/${job}/${branch}/${prefix}-${env.BUILD_NUMBER}" in source
     assert "QEMU_VM_SSH_PORT" not in source
 
 

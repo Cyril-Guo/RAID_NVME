@@ -141,6 +141,36 @@ def test_junit_to_allure_skips_per_item_junit_reports(tmp_path, monkeypatch):
     assert list(allure_dir.glob("*-result.json")) == []
 
 
+def test_junit_to_allure_surfaces_fio_model_elapsed_in_report(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    fio_line = (
+        "FIO command failed, model=randwrite bs=4k qd=64 runtime=30s (#2), "
+        "config=2-randwrite-4k-64-30.log, elapsed=12s(12s), planned_runtime=30s, rc=8"
+    )
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        f"""<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="pytest" tests="1" failures="1">
+  <testcase classname="test_items.test_smoke_03_lawdisk" name="test_lawdiskstress">
+    <failure message="FIO 脚本执行失败，返回码: 8&#10;{fio_line}">AssertionError</failure>
+  </testcase>
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+
+    result = json.loads(next(allure_dir.glob("*-result.json")).read_text(encoding="utf-8"))
+    assert "model=randwrite bs=4k qd=64 runtime=30s (#2)" in result["statusDetails"]["message"]
+    assert "elapsed=12s" in result["statusDetails"]["message"]
+    attachment = next(
+        item for item in result["attachments"] if item["name"] == "FIO Failure Detail (model/elapsed)"
+    )
+    assert "elapsed=12s" in (allure_dir / attachment["source"]).read_text(encoding="utf-8")
+
+
 def test_junit_to_allure_generates_broken_result_for_hung_test_without_junit(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"

@@ -3,3 +3,6 @@
 __pycache__/
 *.py[cod]
 *.pyo
+
+# Per-case DUT/local workspaces created by nvme_raid_test.py
+cases/

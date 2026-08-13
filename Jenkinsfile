@@ -24,6 +24,39 @@ def hostScpCmd() {
     return "SSHPASS='${env.TARGET_PASSWORD}' sshpass -e scp ${env.SSH_OPTS}"
 }
 
+def sanitizePathSegment(value) {
+    def text = (value ?: 'unknown').toString().trim()
+    text = text.replaceAll('^origin/', '')
+    text = text.replaceAll('[^A-Za-z0-9._-]', '_')
+    if (!text) {
+        text = 'unknown'
+    }
+    return text
+}
+
+def resolveRaidNvmeBranch() {
+    def branch = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').toString().trim().replaceAll('^origin/', '')
+    if (!branch || branch == 'HEAD') {
+        branch = sh(
+            script: "git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown",
+            returnStdout: true
+        ).trim()
+    }
+    if (!branch || branch == 'HEAD') {
+        branch = 'unknown'
+    }
+    return branch
+}
+
+// DUT layout: /root/Cyril/Jenkins/<JOB>/<BRANCH>/<build|restore>-<N>
+// Keeps CI/SMOKE, branches, and builds from mixing in one flat directory.
+def remoteWorkspaceRoot(kind = 'build') {
+    def job = sanitizePathSegment(env.JOB_BASE_NAME ?: env.JOB_NAME ?: 'job')
+    def branch = sanitizePathSegment(resolveRaidNvmeBranch())
+    def prefix = (kind == 'restore') ? 'restore' : 'build'
+    return "/root/Cyril/Jenkins/${job}/${branch}/${prefix}-${env.BUILD_NUMBER}"
+}
+
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     sh """
     chmod +x ci/deploy_workspace.sh
@@ -347,7 +380,7 @@ PY''',
 
                         restoreTasks["Restore_${ip}"] = {
                             stage("Restore on ${ip}") {
-                                def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_restore_${env.BUILD_NUMBER}"
+                                def remoteDir = remoteWorkspaceRoot('restore')
 
                                 def restoreSsh = hostSshCmd(ip)
 
@@ -419,18 +452,19 @@ PY''',
 
                         parallelTasks["Node_${ip}"] = {
                             stage("Test on ${ip}") {
-                                def remoteDir = "/root/Cyril/Jenkins/jenkins_nvme_${env.BUILD_NUMBER}"
+                                def remoteDir = remoteWorkspaceRoot('build')
                                 def envPrepareLog = "environment_prepare_${ip}.log"
                                 def targetSsh = hostSshCmd(ip)
                                 def targetScp = hostScpCmd()
 
                                 writeFile file: envPrepareLog, text: "[${ip}] Environment_Prepare started\n"
+                                echo "[${ip}] remote workspace: ${remoteDir}"
 
                                 echo "[${ip}] deploy workspace"
                                 runTimedEnvironmentStep(ip, 'deploy workspace', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail
 {
-echo "[${ip}] deploy workspace"
+echo "[${ip}] deploy workspace -> ${remoteDir}"
 ${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
 chmod +x ci/deploy_workspace.sh
 NODE_IP='${ip}' \\

@@ -116,6 +116,7 @@ def main():
             "type": "default",
         })
 
+    # Keep pass/fail stats on the card. Failure details (incl. FIO model/elapsed) go to Allure.
     stats_text = (
         f"通过 **{passed}**  失败 **{failed}**  错误 **{errors}**  Total: **{total}**\n"
         f"执行率: {exec_rate}   通过率: <font color=\"{font_color}\">{pass_rate}</font>"
@@ -139,18 +140,8 @@ def main():
             "tag": "div",
             "text": {"tag": "lark_md", "content": stats_text},
         },
+        {"tag": "action", "actions": actions},
     ]
-    if failure_summary:
-        # Escape plain backticks so Feishu markdown stays readable.
-        detail = failure_summary.replace("`", "'")
-        elements.append({
-            "tag": "div",
-            "text": {
-                "tag": "lark_md",
-                "content": f"**详细日志:**\n{detail}",
-            },
-        })
-    elements.append({"tag": "action", "actions": actions})
 
     payload = {
         "msg_type": "interactive",
