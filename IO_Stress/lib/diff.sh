@@ -307,7 +307,7 @@ function diff_messages()
             cp -f $MachineCheckLog/info_after.log $MachineCheckLog/${loop}_machinecheck.log
         fi
         
-        # Whitelist field Diff Detection (disk/pcie_nvme/link/aer + counts)
+        # Whitelist field differences (disk/pcie_nvme/link/aer + counts)
         if [[ ! -f $MachineCheckLog/info_before.log ]] || [[ ! -f $MachineCheckLog/info_after.log ]]; then
             echo "Warning: Missing log files for diff comparison." | tee -a $Result_Dir/result.log
         else
@@ -317,6 +317,7 @@ function diff_messages()
             machinecheck_fingerprint "$MachineCheckLog/info_before.log" > "$fp_before"
             machinecheck_fingerprint "$MachineCheckLog/info_after.log" > "$fp_after"
             if ! diff -q "$fp_before" "$fp_after" > /dev/null; then
+                echo "Whitelist field differences detected between MachineCheck before/after logs." | tee -a $Result_Dir/result.log
                 rm -f "$fp_before" "$fp_after"
                 record_errorinfo
                 echo "diff finish" >$LogAd/diff.flag
