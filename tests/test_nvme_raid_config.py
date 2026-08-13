@@ -28,8 +28,8 @@ def test_discover_test_items_finds_repository_smoke_cases():
     assert catalog["lawdisk"] == "test_items/test_smoke_03_lawdisk.py"
     assert catalog["filesystem"] == "test_items/test_smoke_04_filesystem.py"
     assert catalog["mix"] == "test_items/test_smoke_05_mix.py"
-    assert "basic_io" not in catalog
-    assert "basic_rebuild_io" not in catalog
+    assert catalog["basic_io"] == "test_items/test_smoke_06_basic_io.py"
+    assert catalog["basic_rebuild_io"] == "test_items/test_smoke_07_basic_rebuild_io.py"
 
 
 def test_discover_test_items_rejects_duplicate_names(tmp_path):
@@ -55,14 +55,15 @@ def test_repository_test_items_file_is_valid():
     assert [name for name, _order, _enabled in entries]
     assert set(name for name, _order, _enabled in entries) == set(catalog)
     assert all(name in catalog for name in selected)
-    assert selected == ["lawdisk", "filesystem", "mix"]
+    assert selected == ["basic_io", "basic_rebuild_io"]
     assert "defaults" not in params
     assert "lawdisk" in params
     assert params["lawdisk"]["IGNORE_ERROR"] == "no"
     assert "FIO_CYCLES" not in params["lawdisk"]
     assert params["dc"]["FIO_CYCLES"] == "5"
-    assert params["reboot"]["FIO_CYCLES"] == "10"
-    assert "basic_io" not in params
+    assert params["reboot"]["FIO_CYCLES"] == "100"
+    assert params["basic_io"]["STRESS_MONITOR"] == "yes"
+    assert params["basic_rebuild_io"]["STRESS_MONITOR"] == "yes"
 
 
 def test_main_prints_item_boundaries():

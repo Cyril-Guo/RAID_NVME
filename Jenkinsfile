@@ -11,6 +11,9 @@ def raidCliFullCommit = ''
 def raidCliDpraidPath = ''
 def triggerSource = ''
 def shouldRunTests = false
+// Only basic_io / basic_rebuild_io pull latest raid_cli+kernel_driver and refresh draid/dpraid.
+def needsPhysicalIoDriverPrep = false
+def selectedTestItems = []
 
 def hostSshCmd(ip) {
     // Use sshpass -e so callers can also safely store/expand the command string.
@@ -117,6 +120,29 @@ pipeline {
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
 
                     if (!params.RESTORE) {
+                        shouldRunTests = true
+                        def selectedRaw = sh(
+                            script: '''python3 - <<'PY'
+from nvme_raid_test import read_enabled_selection
+print(" ".join(read_enabled_selection("test_items.txt")))
+PY''',
+                            returnStdout: true
+                        ).trim()
+                        selectedTestItems = selectedRaw ? selectedRaw.split(' ') as List : []
+                        needsPhysicalIoDriverPrep = selectedTestItems.contains('basic_io') ||
+                            selectedTestItems.contains('basic_rebuild_io')
+                        echo "Selected test items: ${selectedTestItems}"
+                        echo "Pull latest raid_cli/kernel_driver and refresh draid/dpraid only for basic_io/basic_rebuild_io: ${needsPhysicalIoDriverPrep}"
+
+                        if (!needsPhysicalIoDriverPrep) {
+                            triggerSource = 'Manual Build'
+                            kernelDriverCommit = 'skipped'
+                            raidCliCommit = 'skipped'
+                            echo 'Skip raid_cli sync and kernel_driver checkout: basic_io / basic_rebuild_io not selected.'
+                            if ((params.MANUAL_MR_IID ?: '').trim() || (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()) {
+                                echo 'MANUAL_MR_IID / MANUAL_KERNEL_DRIVER_REF ignored because physical IO driver cases are not selected.'
+                            }
+                        } else {
                         // CI is manual-only: default kernel_driver/main; optional MANUAL_MR_IID or MANUAL_KERNEL_DRIVER_REF.
                         def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
                         def raidCliMarkerPath = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.commit"
@@ -184,8 +210,7 @@ pipeline {
 
                         def manualMrIid = (params.MANUAL_MR_IID ?: '').trim()
                         def manualKernelDriverRef = (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()
-                        shouldRunTests = true
-                        syncRaidCli('manual CI build')
+                        syncRaidCli('basic_io / basic_rebuild_io selected')
 
                         if (manualMrIid) {
                             if (manualKernelDriverRef) {
@@ -264,6 +289,15 @@ pipeline {
                             returnStdout: true
                         ).trim()
                         echo "kernel_driver(${kernelDriverRef}) commit: ${kernelDriverCommit}"
+
+                        // Stage dpraid into workspace so deploy packs it for per-case refresh only.
+                        sh """
+                        set -eu
+                        test -x '${raidCliDpraidPath}'
+                        mkdir -p artifacts
+                        install -m 0755 '${raidCliDpraidPath}' artifacts/dpraid
+                        """
+                        } // end needsPhysicalIoDriverPrep
                     }
                 }
 
@@ -290,14 +324,14 @@ pipeline {
         }
 
         stage('Kernel Driver Placeholder') {
-            when { expression { return !params.RESTORE && shouldRunTests } }
+            when { expression { return !params.RESTORE && shouldRunTests && needsPhysicalIoDriverPrep } }
             steps {
                 script {
                     echo "kernel_driver commit for this run: ${kernelDriverCommit ?: 'unknown'}"
                     if (kernelDriverMrIid) {
                         echo "kernel_driver MR for this run: !${kernelDriverMrIid} ${kernelDriverMrUrl}"
                     }
-                    echo 'This stage is still a placeholder. kernel_driver is only checked out and its commit is displayed.'
+                    echo 'kernel_driver/raid_cli were pulled because basic_io / basic_rebuild_io is selected.'
                 }
             }
         }
@@ -355,23 +389,28 @@ pipeline {
             steps {
                 script {
                     env.TEST_EXECUTION_ATTEMPTED = 'true'
-                    def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
-                    def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
-                    def raidCliRepoPathForRun = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo"
-                    def raidCliDpraidPathForRun = raidCliDpraidPath ?: "${raidCliRepoPathForRun}/dpraid"
+                    if (needsPhysicalIoDriverPrep) {
+                        def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
+                        def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
+                        def raidCliRepoPathForRun = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo"
+                        def raidCliDpraidPathForRun = raidCliDpraidPath ?: "${raidCliRepoPathForRun}/dpraid"
 
-                    sh "test -x '${raidCliDpraidPathForRun}'"
-                    raidCliFullCommit = sh(
-                        script: "git -C '${raidCliRepoPathForRun}' rev-parse HEAD 2>/dev/null || echo unknown",
-                        returnStdout: true
-                    ).trim()
-                    raidCliCommit = sh(
-                        script: "git -C '${raidCliRepoPathForRun}' rev-parse --short HEAD 2>/dev/null || echo unknown",
-                        returnStdout: true
-                    ).trim()
-                    echo "Use dpraid artifact: ${raidCliDpraidPathForRun}"
-                    echo "Use raid_cli(${env.RAID_CLI_BRANCH}) commit: ${raidCliCommit}"
-                    sh "test -d kernel_driver/drivers/draid && test -f kernel_driver/drivers/draid/Makefile"
+                        sh "test -x '${raidCliDpraidPathForRun}'"
+                        sh "test -x artifacts/dpraid"
+                        raidCliFullCommit = sh(
+                            script: "git -C '${raidCliRepoPathForRun}' rev-parse HEAD 2>/dev/null || echo unknown",
+                            returnStdout: true
+                        ).trim()
+                        raidCliCommit = sh(
+                            script: "git -C '${raidCliRepoPathForRun}' rev-parse --short HEAD 2>/dev/null || echo unknown",
+                            returnStdout: true
+                        ).trim()
+                        echo "Use dpraid artifact: ${raidCliDpraidPathForRun} (staged at artifacts/dpraid for basic_io / basic_rebuild_io)"
+                        echo "Use raid_cli(${env.RAID_CLI_BRANCH}) commit: ${raidCliCommit}"
+                        sh "test -d kernel_driver/drivers/draid && test -f kernel_driver/drivers/draid/Makefile"
+                    } else {
+                        echo 'Skip dpraid/kernel_driver requirements: basic_io / basic_rebuild_io not selected.'
+                    }
 
                     def parallelTasks = [:]
 
@@ -402,39 +441,15 @@ ci/deploy_workspace.sh
 } 2>&1 | tee -a ${envPrepareLog}
 """)
 
-                                echo "[${ip}] install latest dpraid"
-                                runTimedEnvironmentStep(ip, 'install latest dpraid', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
-set -o pipefail
-{
-echo "[${ip}] install latest dpraid"
-chmod +x ci/install_dpraid_remote.sh
-NODE_IP='${ip}' \\
-TARGET_USER='${env.TARGET_USER}' \\
-SSH_OPTS='${env.SSH_OPTS}' \\
-TARGET_PASSWORD='${env.TARGET_PASSWORD}' \\
-DPRAID_SOURCE='${raidCliDpraidPathForRun}' \\
-BUILD_NUMBER='${env.BUILD_NUMBER}' \\
-REMOTE_SSH_COMMAND="${targetSsh}" \\
-REMOTE_SCP_COMMAND="${targetScp}" \\
-ci/install_dpraid_remote.sh
-} 2>&1 | tee -a ${envPrepareLog}
-""")
-
-                                echo "[${ip}] build and reload draid kernel driver"
-                                runTimedEnvironmentStep(ip, 'build and reload draid kernel driver', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
-set -o pipefail
-{
-echo "[${ip}] build and reload draid kernel driver"
-chmod +x ci/prepare_draid_driver.sh
-NODE_IP='${ip}' \\
-TARGET_USER='${env.TARGET_USER}' \\
-SSH_OPTS='${env.SSH_OPTS}' \\
-TARGET_PASSWORD='${env.TARGET_PASSWORD}' \\
-REMOTE_DIR='${remoteDir}' \\
-BUILD_NUMBER='${env.BUILD_NUMBER}' \\
-ci/prepare_draid_driver.sh
-} 2>&1 | tee -a ${envPrepareLog}
-""")
+                                // draid/dpraid refresh is intentionally NOT done here for all cases.
+                                // Only basic_io / basic_rebuild_io refresh via ci/prepare_physical_io_case.sh.
+                                if (needsPhysicalIoDriverPrep) {
+                                    echo "[${ip}] physical IO cases selected: skip shared dpraid/draid prepare; cases refresh themselves"
+                                    sh "printf '%s\\n' '[${ip}] skip shared install_dpraid/prepare_draid; basic_io/basic_rebuild_io use per-case prepare_physical_io_case.sh' >> ${envPrepareLog}"
+                                } else {
+                                    echo "[${ip}] skip shared dpraid/draid prepare (basic_io / basic_rebuild_io not selected)"
+                                    sh "printf '%s\\n' '[${ip}] skip shared install_dpraid/prepare_draid' >> ${envPrepareLog}"
+                                }
 
                                 echo "[${ip}] install python dependencies"
                                 runTimedEnvironmentStep(ip, 'install python dependencies', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash

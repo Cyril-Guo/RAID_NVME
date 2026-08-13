@@ -124,20 +124,22 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
     assert "timeout(time: timeoutMinutes.toInteger(), unit: 'MINUTES')" in source
     for label in [
         "deploy workspace",
-        "install latest dpraid",
-        "build and reload draid kernel driver",
         "install python dependencies",
         "collect environment metadata",
     ]:
         assert f"runTimedEnvironmentStep(ip, '{label}'" in jenkinsfile
+    # Shared env prepare must not refresh draid/dpraid for every case.
+    assert "runTimedEnvironmentStep(ip, 'install latest dpraid'" not in jenkinsfile
+    assert "runTimedEnvironmentStep(ip, 'build and reload draid kernel driver'" not in jenkinsfile
+    assert "needsPhysicalIoDriverPrep" in jenkinsfile
+    assert "prepare_physical_io_case.sh" in jenkinsfile
+    assert "artifacts/dpraid" in jenkinsfile
     assert "clear dirty CSD flash before loading draid" not in jenkinsfile
     assert "restore RAID state before test" not in jenkinsfile
     assert "ci/clear_8p_csd_flash.sh" not in jenkinsfile
     assert "ci/restore_physical_raid_state.sh" not in jenkinsfile
-    assert "ci/install_dpraid_remote.sh" in jenkinsfile
     assert "ci/wait_powercycle_completion.sh" in jenkinsfile
     assert "RAID_CLI_REPO" in jenkinsfile
-    assert "install latest dpraid" in jenkinsfile
     assert "RAID_CLI_COMMIT" in jenkinsfile
 
 
@@ -163,7 +165,8 @@ def test_ci_is_manual_only_without_cron_or_auto_mr_trigger():
     assert "merge_requests?state=opened" not in source
     assert "kernel_driver_open_mrs" not in source
     assert "existingMrShaChanged || newlyCreatedMr" not in source
-    assert "manual CI build" in source
+    assert "CI is manual-only" in source
+    assert "Manual Build" in source
 
 
 def test_draid_module_reload_retries_and_reports_memory_on_insmod_failure():
@@ -257,8 +260,18 @@ def test_draid_driver_and_test_dependency_steps_target_physical_host_only():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
     assert "QEMU_VM_TARGET" not in source
-    assert "ci/prepare_draid_driver.sh" in source
     assert "ci/install_test_dependencies.sh" in source
+    assert "needsPhysicalIoDriverPrep" in source
+    assert "basic_io" in source and "basic_rebuild_io" in source
+
+
+def test_physical_io_driver_pull_and_prep_only_for_basic_io_cases():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "read_enabled_selection" in source
+    assert "Skip raid_cli sync and kernel_driver checkout" in source
+    assert "skip shared install_dpraid/prepare_draid" in source
+    assert "when { expression { return !params.RESTORE && shouldRunTests && needsPhysicalIoDriverPrep } }" in source
 
 
 def test_run_remote_test_reports_error_without_qemu_scene_keep_message():

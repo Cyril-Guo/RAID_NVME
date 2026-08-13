@@ -22,4 +22,11 @@ fi
 
 remote_tmp="/tmp/dpraid_${BUILD_NUMBER}${TMP_SUFFIX}"
 eval "${REMOTE_SCP_COMMAND} '${DPRAID_SOURCE}' '${TARGET_USER}@${NODE_IP}:${remote_tmp}'"
-eval "${REMOTE_SSH_COMMAND} 'install -m 0755 ${remote_tmp} /usr/bin/dpraid && rm -f ${remote_tmp} && /usr/bin/dpraid --help >/dev/null 2>&1 || true'"
+# Install to /usr/bin; when REMOTE_DIR is set, also stage a copy for per-case refresh.
+if [ -n "${REMOTE_DIR:-}" ]; then
+    eval "${REMOTE_SSH_COMMAND}" \
+        "install -m 0755 '${remote_tmp}' /usr/bin/dpraid && mkdir -p '${REMOTE_DIR}/artifacts' && install -m 0755 '${remote_tmp}' '${REMOTE_DIR}/artifacts/dpraid' && rm -f '${remote_tmp}' && /usr/bin/dpraid --help >/dev/null 2>&1 || true"
+else
+    eval "${REMOTE_SSH_COMMAND}" \
+        "install -m 0755 '${remote_tmp}' /usr/bin/dpraid && rm -f '${remote_tmp}' && /usr/bin/dpraid --help >/dev/null 2>&1 || true"
+fi

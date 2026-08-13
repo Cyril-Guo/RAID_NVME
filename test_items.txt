@@ -25,11 +25,13 @@
 # ============================================================
 
 # === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
-reboot 1
+# reboot 1
 # dc 2
-# lawdisk 6
-# filesystem 8
-# mix 3
+# lawdisk 3
+# filesystem 4
+# mix 5
+basic_io 6
+basic_rebuild_io 7
 # === END SELECTION ===
 
 
@@ -64,3 +66,15 @@ IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME =
+
+[basic_io]
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = yes
+MONITOR_RUNTIME = 1000
+
+[basic_rebuild_io]
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = yes
+MONITOR_RUNTIME = 1000
