@@ -7,6 +7,11 @@ import xml.etree.ElementTree as ET
 
 
 FAILURE_PATTERNS = (
+    # Prefer structured FIO model/elapsed failure lines in the summary.
+    re.compile(
+        r"FIO (?:command failed|stage failed|stage abort).*model=.*elapsed=",
+        re.IGNORECASE,
+    ),
     re.compile(r"\b(?:idle watchdog|hung|timed? out|timeout)\b", re.IGNORECASE),
     re.compile(r"\b(?:traceback|assertionerror|fatal|panic)\b", re.IGNORECASE),
     re.compile(r"\b(?:error|failed|failure|exit code|not found|no such file)\b", re.IGNORECASE),

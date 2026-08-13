@@ -65,7 +65,7 @@ elif [ "$item_" = "LAWDISKSTRESS" ] || [ "$item_" = "FILESYSTEMSTRESS" ];then
     do_fio
     fio_rc=$?
     if [ $fio_rc -ne 0 ]; then
-        echo "FIO stage failed in $item_ mode, rc=$fio_rc"
+        echo "FIO stage failed in $item_ mode, model=${FIO_LAST_MODEL:-unknown}, config=${FIO_LAST_CONFIG:-unknown}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, planned_runtime=${FIO_LAST_PLANNED_RUNTIME:-?}s, rc=$fio_rc"
         collect_log
         test_end
         exit $fio_rc

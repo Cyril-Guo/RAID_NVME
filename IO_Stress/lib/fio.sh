@@ -1210,6 +1210,57 @@ fio_io_progress_signature()
     done | sort
 }
 
+# Config name: N-mode-bs-qd-runtime.log -> human model label + planned runtime seconds.
+fio_model_label()
+{
+    local configuration="$1"
+    local base mode bs qd rt
+    base=$(basename "${configuration}" .log)
+    base=${base%% *}
+    if [[ "$base" =~ ^([0-9]+)-([A-Za-z0-9_]+)-([A-Za-z0-9.]+)-([0-9]+)-([0-9]+)$ ]]; then
+        mode="${BASH_REMATCH[2]}"
+        bs="${BASH_REMATCH[3]}"
+        qd="${BASH_REMATCH[4]}"
+        rt="${BASH_REMATCH[5]}"
+        printf '%s bs=%s qd=%s runtime=%ss (#%s)' "$mode" "$bs" "$qd" "$rt" "${BASH_REMATCH[1]}"
+        return
+    fi
+    printf '%s' "$base"
+}
+
+fio_planned_runtime_seconds()
+{
+    local configuration="$1"
+    local base
+    base=$(basename "${configuration}" .log)
+    base=${base%% *}
+    if [[ "$base" =~ ^[0-9]+-[A-Za-z0-9_]+-[A-Za-z0-9.]+-[0-9]+-([0-9]+)$ ]]; then
+        printf '%s' "${BASH_REMATCH[1]}"
+        return
+    fi
+    printf 'unknown'
+}
+
+format_elapsed_hms()
+{
+    local total="$1"
+    local hours minutes seconds
+    if ! [[ "$total" =~ ^[0-9]+$ ]]; then
+        printf '%s' "$total"
+        return
+    fi
+    hours=$((total / 3600))
+    minutes=$(((total % 3600) / 60))
+    seconds=$((total % 60))
+    if [[ "$hours" -gt 0 ]]; then
+        printf '%dh%02dm%02ds' "$hours" "$minutes" "$seconds"
+    elif [[ "$minutes" -gt 0 ]]; then
+        printf '%dm%02ds' "$minutes" "$seconds"
+    else
+        printf '%ds' "$seconds"
+    fi
+}
+
 run_fio_with_watchdog()
 {
     local configuration="$1"
@@ -1225,13 +1276,19 @@ run_fio_with_watchdog()
     local current_io_signature
     local now_ts
     local idle_timed_out=0
+    local start_ts end_ts elapsed
+    local model_label planned_runtime elapsed_hms config_name
     shift 2
 
     idle_timeout_seconds=$(fio_idle_timeout_seconds)
-    echo "$(date '+%F %T') [FIO] start config=${configuration} idle_watchdog=${idle_timeout_seconds}s" >> "$output_file"
+    start_ts=$(date +%s)
+    model_label=$(fio_model_label "$configuration")
+    planned_runtime=$(fio_planned_runtime_seconds "$configuration")
+    config_name=$(basename "$configuration")
+    echo "$(date '+%F %T') [FIO] start model=${model_label} config=${config_name} planned_runtime=${planned_runtime}s idle_watchdog=${idle_timeout_seconds}s" | tee -a "$output_file"
     setsid bash -c 'fio "$@"' fio_runner "$configuration" "$@" >> "$output_file" 2>&1 &
     fio_pid=$!
-    last_progress_ts=$(date +%s)
+    last_progress_ts=$start_ts
     last_output_size=$(wc -c < "$output_file" 2>/dev/null || echo 0)
     last_io_signature=$(fio_io_progress_signature | sha256sum | awk '{print $1}')
 
@@ -1251,7 +1308,9 @@ run_fio_with_watchdog()
         fi
         if [[ $((now_ts - last_progress_ts)) -ge $idle_timeout_seconds ]]; then
             idle_timed_out=1
-            echo "$(date '+%F %T') [FIO] idle watchdog timeout after ${idle_timeout_seconds}s without output or non-system disk IO progress, config=${configuration}" | tee -a "$output_file" "$Result_Dir/result.log"
+            elapsed=$((now_ts - start_ts))
+            elapsed_hms=$(format_elapsed_hms "$elapsed")
+            echo "$(date '+%F %T') [FIO] idle watchdog timeout after ${idle_timeout_seconds}s without output or non-system disk IO progress, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s" | tee -a "$output_file" "$Result_Dir/result.log"
             kill -TERM "-${fio_pid}" 2>/dev/null || kill -TERM "$fio_pid" 2>/dev/null || true
             sleep 5
             kill -KILL "-${fio_pid}" 2>/dev/null || kill -KILL "$fio_pid" 2>/dev/null || true
@@ -1266,7 +1325,18 @@ run_fio_with_watchdog()
         wait "$fio_pid"
         fio_rc=$?
     fi
-    echo "$(date '+%F %T') [FIO] finish config=${configuration} rc=${fio_rc}" >> "$output_file"
+    end_ts=$(date +%s)
+    elapsed=$((end_ts - start_ts))
+    elapsed_hms=$(format_elapsed_hms "$elapsed")
+    FIO_LAST_MODEL="$model_label"
+    FIO_LAST_CONFIG="$config_name"
+    FIO_LAST_ELAPSED_SECONDS="$elapsed"
+    FIO_LAST_PLANNED_RUNTIME="$planned_runtime"
+    FIO_LAST_RC="$fio_rc"
+    echo "$(date '+%F %T') [FIO] finish model=${model_label} config=${config_name} rc=${fio_rc} elapsed=${elapsed}s(${elapsed_hms}) planned_runtime=${planned_runtime}s" | tee -a "$output_file"
+    if [[ $fio_rc -ne 0 ]]; then
+        echo "FIO command failed, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file" "$Result_Dir/result.log"
+    fi
     return $fio_rc
 }
 
@@ -1306,7 +1376,7 @@ do
       run_fio_with_watchdog "$configuration" "$Result_Dir/detresult/${loop}_$jobnum.txt"
       local fio_rc=$?
       if [[ $fio_rc -ne 0 ]]; then
-          echo "FIO command failed on disk ${str1}, config ${configuration}, rc=${fio_rc}" | tee -a $Result_Dir/result.log
+          echo "FIO command failed on disk ${str1}, model=${FIO_LAST_MODEL:-unknown}, config=${FIO_LAST_CONFIG:-$(basename "$configuration")}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, planned_runtime=${FIO_LAST_PLANNED_RUNTIME:-?}s, rc=${fio_rc}" | tee -a $Result_Dir/result.log
           return $fio_rc
       fi
 
@@ -1356,7 +1426,7 @@ function run_all()
             run_fio_with_watchdog "$configuration" "$Result_Dir/detresult/${loop}_$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio
             local fio_rc=$?
             if [[ $fio_rc -ne 0 ]]; then
-                echo "FIO command failed, config ${configuration}, rc=${fio_rc}" | tee -a $Result_Dir/result.log
+                echo "FIO stage abort, model=${FIO_LAST_MODEL:-unknown}, config=${FIO_LAST_CONFIG:-$(basename "$configuration")}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, planned_runtime=${FIO_LAST_PLANNED_RUNTIME:-?}s, rc=${fio_rc}" | tee -a $Result_Dir/result.log
                 return $fio_rc
             fi
 
@@ -1392,7 +1462,7 @@ function run_all()
             wait $fio_pid2; local fio_rc2=$?
             wait $fio_pid3; local fio_rc3=$?
             if [[ $fio_rc1 -ne 0 || $fio_rc2 -ne 0 || $fio_rc3 -ne 0 || $fio_rc4 -ne 0 ]]; then
-                echo "FIO command failed in MIX mode job ${jobnum}, rc=${fio_rc1}/${fio_rc2}/${fio_rc3}/${fio_rc4}" | tee -a $Result_Dir/result.log
+                echo "FIO command failed in MIX mode job ${jobnum}, model=${FIO_LAST_MODEL:-mix-job-${jobnum}}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, rc=${fio_rc1}/${fio_rc2}/${fio_rc3}/${fio_rc4}" | tee -a $Result_Dir/result.log
                 return 1
             fi
        
@@ -1424,7 +1494,7 @@ function run_suball()
         run_fio_with_watchdog "$configuration" "$Result_Dir/detresult/${loop}_$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio
         local fio_rc=$?
         if [[ $fio_rc -ne 0 ]]; then
-            echo "FIO command failed, config ${configuration}, rc=${fio_rc}" | tee -a $Result_Dir/result.log
+            echo "FIO stage abort, model=${FIO_LAST_MODEL:-unknown}, config=${FIO_LAST_CONFIG:-$(basename "$configuration")}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, planned_runtime=${FIO_LAST_PLANNED_RUNTIME:-?}s, rc=${fio_rc}" | tee -a $Result_Dir/result.log
             return $fio_rc
         fi
 

@@ -53,3 +53,17 @@ def test_main_writes_summary_file(tmp_path, monkeypatch):
 
     assert extract_failure_summary.main([]) == 0
     assert "insmod ./draid.ko failed" in (tmp_path / "failure_summary.txt").read_text(encoding="utf-8")
+
+
+def test_failure_summary_prioritizes_fio_model_elapsed_lines():
+    text = (
+        "Job 2/4 is Running..\n"
+        "some other error happened\n"
+        "FIO command failed, model=randwrite bs=4k qd=64 runtime=30s (#2), "
+        "config=2-randwrite-4k-64-30.log, elapsed=12s(12s), planned_runtime=30s, rc=8\n"
+    )
+
+    lines = extract_failure_summary.extract_failure_lines(text, limit=2)
+
+    assert lines[0].startswith("FIO command failed, model=randwrite")
+    assert "elapsed=12s" in lines[0]

@@ -15,7 +15,7 @@ def remove_stale_payload(path="feishu_payload.json"):
         pass
 
 
-def load_failure_summary(path="failure_summary.txt", max_length=1800):
+def load_failure_summary(path="failure_summary.txt", max_length=2200):
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as handle:
             summary = handle.read().strip()
@@ -116,7 +116,6 @@ def main():
             "type": "default",
         })
 
-    # Keep pass/fail stats (including env/execution items). Detail logs stay in Allure.
     stats_text = (
         f"通过 **{passed}**  失败 **{failed}**  错误 **{errors}**  Total: **{total}**\n"
         f"执行率: {exec_rate}   通过率: <font color=\"{font_color}\">{pass_rate}</font>"
@@ -140,8 +139,18 @@ def main():
             "tag": "div",
             "text": {"tag": "lark_md", "content": stats_text},
         },
-        {"tag": "action", "actions": actions},
     ]
+    if failure_summary:
+        # Escape plain backticks so Feishu markdown stays readable.
+        detail = failure_summary.replace("`", "'")
+        elements.append({
+            "tag": "div",
+            "text": {
+                "tag": "lark_md",
+                "content": f"**详细日志:**\n{detail}",
+            },
+        })
+    elements.append({"tag": "action", "actions": actions})
 
     payload = {
         "msg_type": "interactive",

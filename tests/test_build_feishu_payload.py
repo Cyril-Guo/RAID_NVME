@@ -60,14 +60,14 @@ def test_failed_build_result_marks_feishu_card_failed(tmp_path, monkeypatch):
     assert "50.0%" in stats
     body = "\n".join(str(element) for element in payload["card"]["elements"])
     assert "报告类型" not in body
-    assert "失败摘要" not in body
+    assert "详细日志" not in body
     actions = payload["card"]["elements"][-1]["actions"]
     assert [action["text"]["content"] for action in actions] == ["查看报告", "查看MR"]
     assert actions[0]["url"] == "http://jenkins/job/SMOKE/17010/allure/"
     assert actions[1]["url"] == "http://192.168.21.185:8081/raid_max/kernel_driver/-/commit/86245fc34"
 
 
-def test_infra_failure_card_shows_stats_without_summary(tmp_path, monkeypatch):
+def test_infra_failure_card_includes_detail_log(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "failure_summary.txt").write_text(
         "- environment_prepare_192.168.22.125.log: ERROR: draid kernel module load failed\n",
@@ -101,10 +101,44 @@ def test_infra_failure_card_shows_stats_without_summary(tmp_path, monkeypatch):
     assert "通过 **0**  失败 **0**  错误 **2**  Total: **2**" in stats
     assert "通过率:" in stats
     assert "0.0%" in stats
-    body = "\n".join(str(element) for element in payload["card"]["elements"])
-    assert "环境准备/远端执行失败" not in body
-    assert "失败摘要" not in body
-    assert "draid kernel module load failed" not in body
+    detail = payload["card"]["elements"][2]["text"]["content"]
+    assert "详细日志" in detail
+    assert "draid kernel module load failed" in detail
     actions = payload["card"]["elements"][-1]["actions"]
     assert [action["text"]["content"] for action in actions] == ["查看报告", "查看MR"]
     assert actions[1]["url"] == "http://192.168.21.185:8081/raid_max/kernel_driver/-/merge_requests/141"
+
+
+def test_fio_model_failure_appears_in_feishu_detail_log(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "failure_summary.txt").write_text(
+        "- test_execution_192.168.22.134.log: FIO command failed, "
+        "model=randwrite bs=4k qd=64 runtime=30s (#2), "
+        "config=2-randwrite-4k-64-30.log, elapsed=12s(12s), planned_runtime=30s, rc=8\n",
+        encoding="utf-8",
+    )
+    for key, value in {
+        "TOTAL": "1",
+        "FAILED": "1",
+        "ERRORS": "0",
+        "SKIPPED": "0",
+        "REPORT_KIND": "tests",
+        "BUILD_RESULT": "FAILURE",
+        "START_STR": "2026-08-13 14:00:00",
+        "END_STR": "2026-08-13 14:10:00",
+        "IP_LIST": "192.168.22.134",
+        "TRIGGER_SOURCE": "Manual Build",
+        "KERNEL_DRIVER_COMMIT": "skipped",
+        "JOB_NAME": "CI",
+        "BUILD_NUMBER": "12",
+        "BUILD_URL": "http://jenkins/job/CI/12/",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    build_feishu_payload.main()
+
+    payload = json.loads((tmp_path / "feishu_payload.json").read_text(encoding="utf-8"))
+    detail = payload["card"]["elements"][2]["text"]["content"]
+    assert "详细日志" in detail
+    assert "model=randwrite bs=4k qd=64 runtime=30s (#2)" in detail
+    assert "elapsed=12s" in detail
