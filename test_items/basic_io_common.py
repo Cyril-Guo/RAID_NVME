@@ -444,17 +444,7 @@ def create_raid5_vds(groups, log):
             failed_result = None
             for _ in range(VDS_PER_GROUP):
                 result = run_cmd(
-                    [
-                        "dpraid",
-                        "/c0",
-                        "add",
-                        "vd",
-                        "r=5",
-                        f"Size={size_gb}GB",
-                        "Strip=4",
-                        "LogicalBlockSize=512",
-                        f"drives={expr}",
-                    ],
+                    ["dpraid", "/c0", "add", "vd", "r=5", f"Size={size_gb}GB", "Strip=4", f"drives={expr}"],
                     log,
                     check=False,
                 )
@@ -467,8 +457,7 @@ def create_raid5_vds(groups, log):
             output = failed_result.stdout or ""
             if "Cannot allocate memory" not in output:
                 raise AssertionError(
-                    f"Command failed rc={failed_result.returncode}: "
-                    f"dpraid /c0 add vd r=5 Size={size_gb}GB Strip=4 LogicalBlockSize=512 drives={expr}"
+                    f"Command failed rc={failed_result.returncode}: dpraid /c0 add vd r=5 Size={size_gb}GB Strip=4 drives={expr}"
                 )
             if attempt == VD_SIZE_RETRY_LIMIT:
                 raise AssertionError(

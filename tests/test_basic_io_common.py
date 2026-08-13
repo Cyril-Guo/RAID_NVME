@@ -212,10 +212,10 @@ def test_create_raid5_vds_splits_15_disks_into_7_and_8_disk_groups(monkeypatch):
     add_vd_commands = [cmd for cmd in commands if cmd[:4] == ["dpraid", "/c0", "add", "vd"]]
     assert len(add_vd_commands) == 8
     assert add_vd_commands[:4] == [
-        ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "LogicalBlockSize=512", "drives=0-6"]
+        ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "drives=0-6"]
     ] * 4
     assert add_vd_commands[4:] == [
-        ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=512", "drives=7-14"]
+        ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "drives=7-14"]
     ] * 4
 
 
@@ -244,8 +244,8 @@ def test_dpraid_show_dids_are_used_for_raid5_creation(monkeypatch):
 
     assert [disk.did for disk in disks] == list(range(15))
     add_vd_commands = [cmd for cmd in commands if cmd[:4] == ["dpraid", "/c0", "add", "vd"]]
-    assert add_vd_commands[0] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "LogicalBlockSize=512", "drives=0-6"]
-    assert add_vd_commands[4] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=512", "drives=7-14"]
+    assert add_vd_commands[0] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "drives=0-6"]
+    assert add_vd_commands[4] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "drives=7-14"]
 
 
 def test_create_raid5_vds_retries_with_smaller_size_after_allocation_failure(monkeypatch):
@@ -279,9 +279,9 @@ def test_create_raid5_vds_retries_with_smaller_size_after_allocation_failure(mon
     create_raid5_vds([group], CommandLog())
 
     add_vd_commands = [cmd for cmd in commands if cmd[:4] == ["dpraid", "/c0", "add", "vd"]]
-    assert add_vd_commands[0] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=6854GB", "Strip=4", "LogicalBlockSize=512", "drives=0-5"]
+    assert add_vd_commands[0] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=6854GB", "Strip=4", "drives=0-5"]
     assert add_vd_commands[1:] == [
-        ["dpraid", "/c0", "add", "vd", "r=5", "Size=6512GB", "Strip=4", "LogicalBlockSize=512", "drives=0-5"]
+        ["dpraid", "/c0", "add", "vd", "r=5", "Size=6512GB", "Strip=4", "drives=0-5"]
     ] * 4
 
 
@@ -391,8 +391,8 @@ DG/VD  State  Consist TYPE
     assert len(disks) == 15
     assert [len(group) for group in groups] == [7, 8]
     assert vd_output == "vd output"
-    assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "LogicalBlockSize=512", "drives=0-6"] in calls
-    assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=512", "drives=7-14"] in calls
+    assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "drives=0-6"] in calls
+    assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "drives=7-14"] in calls
 
 
 def test_parse_lsblk_pairs_preserves_empty_parent_columns():
