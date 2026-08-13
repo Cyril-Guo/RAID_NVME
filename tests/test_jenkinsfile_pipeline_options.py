@@ -48,7 +48,7 @@ def test_feishu_skips_empty_reports_when_no_reportable_result_exists():
 
     assert "TEST_EXECUTION_ATTEMPTED = 'false'" in source
     assert "env.TEST_EXECUTION_ATTEMPTED = 'true'" in source
-    assert "def testAttempted = (env.TEST_EXECUTION_ATTEMPTED == 'true')" in source
+    assert "def testAttempted = testExecutionAttempted || (env.TEST_EXECUTION_ATTEMPTED == 'true')" in source
     assert "if (total == 0 && !hasFailureSummary)" in source
     assert "Skip Feishu notification: no reportable test or environment prepare result was generated in this build." in source
     assert "fileExists('feishu_payload.json')" in source
@@ -348,7 +348,7 @@ def test_automatic_mr_runs_qemu_then_physical_host():
     source = pipeline_sources()
 
     assert "automaticMrTriggered = true" in source
-    assert "if (qemuVmForNode && automaticMrTriggered)" in source
+    assert "if (qemuVmForNode && runPhysicalAfterQemu)" in source
     assert "Physical Environment_Prepare started after QEMU VM test" in source
     assert "QEMU_VM_TARGET=0" in source
     assert "REPORT_SUFFIX='_physical'" in source
