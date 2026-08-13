@@ -149,11 +149,19 @@ def test_junit_to_allure_surfaces_fio_model_elapsed_in_report(tmp_path, monkeypa
         "FIO command failed, model=randwrite bs=4k qd=64 runtime=30s (#2), "
         "config=2-randwrite-4k-64-30.log, elapsed=12s(12s), planned_runtime=30s, rc=8"
     )
+    fio_detail = (
+        "----- FIO error detail begin (log=2-randwrite-4k-64-30.log model=randwrite rc=8) -----&#10;"
+        "fio: io_u error on file /dev/dp0-vd1: Invalid argument: read offset=0, buflen=1024&#10;"
+        "fio: first direct IO errored. File system may not support direct IO, or iomem_align= is bad, "
+        "or invalid block size. Try setting direct=0.&#10;"
+        "err=22/file:io_u.c:1845, func=io_u error, error=Invalid argument&#10;"
+        "----- FIO error detail end (lines=3) -----"
+    )
     (tmp_path / "report_192.168.22.134.xml").write_text(
         f"""<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1" failures="1">
   <testcase classname="test_items.test_smoke_03_lawdisk" name="test_lawdiskstress">
-    <failure message="FIO 脚本执行失败，返回码: 8&#10;{fio_line}">AssertionError</failure>
+    <failure message="FIO 脚本执行失败，返回码: 8&#10;{fio_line}&#10;{fio_detail}">AssertionError</failure>
   </testcase>
 </testsuite>
 """,
@@ -166,9 +174,13 @@ def test_junit_to_allure_surfaces_fio_model_elapsed_in_report(tmp_path, monkeypa
     assert "model=randwrite bs=4k qd=64 runtime=30s (#2)" in result["statusDetails"]["message"]
     assert "elapsed=12s" in result["statusDetails"]["message"]
     attachment = next(
-        item for item in result["attachments"] if item["name"] == "FIO Failure Detail (model/elapsed)"
+        item for item in result["attachments"] if item["name"] == "FIO Failure Detail"
     )
-    assert "elapsed=12s" in (allure_dir / attachment["source"]).read_text(encoding="utf-8")
+    detail_text = (allure_dir / attachment["source"]).read_text(encoding="utf-8")
+    assert "elapsed=12s" in detail_text
+    assert "io_u error" in detail_text
+    assert "Invalid argument" in detail_text
+    assert "io_u error" in result["statusDetails"]["trace"]
 
 
 def test_junit_to_allure_generates_broken_result_for_hung_test_without_junit(tmp_path, monkeypatch):

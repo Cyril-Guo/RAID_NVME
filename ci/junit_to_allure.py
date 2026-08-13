@@ -136,12 +136,35 @@ FIO_FAILURE_LINE_RE = re.compile(
 
 
 def extract_fio_failure_details(text):
-    """Return structured FIO failure lines that include model + elapsed."""
+    """Return FIO summary lines plus concrete fio error detail blocks when present."""
     lines = []
     seen = set()
+    in_detail = False
     for raw in (text or "").splitlines():
         line = re.sub(r"\s+", " ", raw).strip()
-        if not line or not FIO_FAILURE_LINE_RE.search(line):
+        if not line:
+            continue
+        if "----- FIO error detail begin" in line:
+            in_detail = True
+            key = line.lower()
+            if key not in seen:
+                seen.add(key)
+                lines.append(line)
+            continue
+        if "----- FIO error detail end" in line:
+            key = line.lower()
+            if key not in seen:
+                seen.add(key)
+                lines.append(line)
+            in_detail = False
+            continue
+        if in_detail:
+            key = line.lower()
+            if key not in seen:
+                seen.add(key)
+                lines.append(line)
+            continue
+        if not FIO_FAILURE_LINE_RE.search(line):
             continue
         key = line.lower()
         if key in seen:
@@ -194,7 +217,7 @@ def write_result(allure_dir, suite_name, case, target_node="", target_kind=""):
                 handle.write("\n".join(fio_details) + "\n")
             result["attachments"] = [
                 {
-                    "name": "FIO Failure Detail (model/elapsed)",
+                    "name": "FIO Failure Detail",
                     "source": source,
                     "type": "text/plain",
                 }

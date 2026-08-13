@@ -1424,8 +1424,45 @@ run_fio_with_watchdog()
     echo "$(date '+%F %T') [FIO] finish model=${model_label} config=${config_name} rc=${fio_rc} elapsed=${elapsed}s(${elapsed_hms}) planned_runtime=${planned_runtime}s" | tee -a "$output_file"
     if [[ $fio_rc -ne 0 ]]; then
         echo "FIO command failed, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file" "$Result_Dir/result.log"
+        # FIO stdout/stderr only lands in output_file; echo concrete feedback to console + result.log
+        # so pytest/Allure failures show io_u / Invalid argument style detail (not only the summary).
+        append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
     fi
     return $fio_rc
+}
+
+# Extract concrete fio error lines from a job log and tee them to console + result.log.
+append_fio_error_detail()
+{
+    local log_file="$1"
+    local model_label="${2:-unknown}"
+    local fio_rc="${3:-?}"
+    local log_name
+    local matched=""
+    local line_count=0
+
+    log_name=$(basename "${log_file:-unknown.log}")
+    {
+        echo "----- FIO error detail begin (log=${log_name} model=${model_label} rc=${fio_rc}) -----"
+        if [[ -n "$log_file" && -f "$log_file" ]]; then
+            matched=$(
+                grep -E \
+                    'fio:|io_u error|err=|error=|Invalid argument|I/O error|Input/output error|No such device|direct IO errored|failed to|errno=' \
+                    "$log_file" 2>/dev/null | tail -n 60 || true
+            )
+            if [[ -n "$matched" ]]; then
+                printf '%s\n' "$matched"
+                line_count=$(printf '%s\n' "$matched" | wc -l | tr -d ' ')
+            else
+                echo "(no fio error keywords matched; last 40 lines of ${log_name}:)"
+                tail -n 40 "$log_file" 2>/dev/null || true
+                line_count=40
+            fi
+        else
+            echo "(fio log missing: ${log_file:-})"
+        fi
+        echo "----- FIO error detail end (lines=${line_count}) -----"
+    } | tee -a "${log_file:-/dev/null}" "$Result_Dir/result.log"
 }
 
 

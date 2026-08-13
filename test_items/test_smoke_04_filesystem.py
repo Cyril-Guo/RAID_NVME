@@ -33,8 +33,30 @@ def _collect_failure_lines(text):
         "ERROR: MachineCheck",
         "test fail occur",
         "idle watchdog timeout",
+        "----- FIO error detail",
+        "fio:",
+        "io_u error",
+        "err=",
+        "Invalid argument",
+        "direct IO errored",
     )
-    return [line.strip() for line in text.splitlines() if any(marker in line for marker in markers)]
+    lines = []
+    in_detail = False
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if "----- FIO error detail begin" in line:
+            in_detail = True
+            lines.append(line)
+            continue
+        if "----- FIO error detail end" in line:
+            lines.append(line)
+            in_detail = False
+            continue
+        if in_detail or any(marker in line for marker in markers):
+            lines.append(line)
+    return lines
 
 
 def test_filesystemstress():
@@ -110,10 +132,10 @@ def test_filesystemstress():
             print(f"{_ts()} [ERROR] 脚本执行失败，退出码: {exit_code}")
             detail = ""
             if output_failures:
-                detail = "\n" + "\n".join(output_failures[:10])
+                detail = "\n" + "\n".join(output_failures[:50])
             pytest.fail(f"FIO 脚本执行失败，返回码: {exit_code}{detail}")
         if output_failures:
-            pytest.fail("FIO 输出中检测到失败关键字:\n" + "\n".join(output_failures[:10]))
+            pytest.fail("FIO 输出中检测到失败关键字:\n" + "\n".join(output_failures[:50]))
         print(f"{_ts()} [SUCCESS] 脚本执行完成")
 
     # ---------- 7. 结果汇总 ----------
@@ -124,4 +146,4 @@ def test_filesystemstress():
         allure.attach(res_content, name="测试结果汇总", attachment_type=allure.attachment_type.TEXT)
         result_failures = _collect_failure_lines(res_content)
         if "Fail" in res_content or result_failures:
-            pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:10] or ["Fail"]))
+            pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50] or ["Fail"]))

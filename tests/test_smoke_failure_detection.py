@@ -44,3 +44,23 @@ def test_collect_failure_lines_ignores_normal_output():
     assert filesystem_failures(sample) == []
     assert lawdisk_failures(sample) == []
     assert mix_failures(sample) == []
+
+
+def test_collect_failure_lines_includes_fio_error_detail_block():
+    sample = """
+    FIO command failed, model=rw, bs=1k, qd=32, runtime=30s, config=config-1-rw-1k-32-30.log, elapsed=30s(30s), planned_runtime=30s, rc=8
+    ----- FIO error detail begin (log=config-1-rw-1k-32-30.log model=rw rc=8) -----
+    fio: io_u error on file /dev/dp0-vd1: Invalid argument: read offset=0, buflen=1024
+    fio: first direct IO errored. File system may not support direct IO, or iomem_align= is bad, or invalid block size. Try setting direct=0.
+    err=22/file:io_u.c:1845, func=io_u error, error=Invalid argument
+    ----- FIO error detail end (lines=3) -----
+    """
+
+    lines = mix_failures(sample)
+    assert any("FIO command failed" in line for line in lines)
+    assert any("io_u error" in line for line in lines)
+    assert any("Invalid argument" in line for line in lines)
+    assert any("FIO error detail begin" in line for line in lines)
+    assert any("FIO error detail end" in line for line in lines)
+    assert lawdisk_failures(sample) == lines
+    assert filesystem_failures(sample) == lines
