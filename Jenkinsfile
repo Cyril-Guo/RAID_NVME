@@ -394,17 +394,30 @@ ci/run_physical_host_test.sh
     }
 }
 
+def markSmokeEnvironmentPrepareFailed(ip, envPrepareLog, reason) {
+    // Ensure post/Allure/Feishu can always count a failed Environment_Prepare item.
+    sh """
+    mkdir -p .
+    if [ ! -f '${envPrepareLog}' ]; then
+      printf '%s\\n' '[${ip}] Environment_Prepare started' > '${envPrepareLog}'
+    fi
+    printf '%s\\n%s\\n' '[${ip}] ERROR: ${reason}' 'ENVIRONMENT_PREPARE_STATUS=failed' >> '${envPrepareLog}'
+    """
+}
+
 def runSmokeNodeTest(ip, raidCliDpraidPathForRun) {
-    stage("Test on ${ip}") {
+    // Keep stage() in the parallel closure (caller). Nested stage inside a
+    // top-level method breaks CPS step allocation and can abort before any logs.
+    def envPrepareLog = "environment_prepare_${ip}.log"
+    def qemuVmForNode = useQemuVmTarget
+    def targetSsh = smokeTargetSsh(ip, qemuVmForNode)
+    def targetScp = smokeTargetScp(qemuVmForNode)
+    def qemuEnv = qemuVmForNode ? '1' : '0'
+
+    writeFile file: envPrepareLog, text: "[${ip}] Environment_Prepare started\n"
+
+    try {
         def remoteDir = remoteWorkspaceRoot('build')
-        def envPrepareLog = "environment_prepare_${ip}.log"
-        def qemuVmForNode = useQemuVmTarget
-        def targetSsh = smokeTargetSsh(ip, qemuVmForNode)
-        def targetScp = smokeTargetScp(qemuVmForNode)
-        def qemuEnv = qemuVmForNode ? '1' : '0'
-
-        writeFile file: envPrepareLog, text: "[${ip}] Environment_Prepare started\n"
-
         if (qemuVmForNode) {
             prepareSmokeQemuScene(ip, envPrepareLog, raidCliDpraidPathForRun)
         }
@@ -415,6 +428,14 @@ def runSmokeNodeTest(ip, raidCliDpraidPathForRun) {
         runSmokeNodeWorkloads(
             ip, remoteDir, targetSsh, targetScp, qemuEnv, qemuVmForNode, raidCliDpraidPathForRun
         )
+    } catch (Exception e) {
+        def reason = (e?.message ?: e?.toString() ?: 'unknown error').toString().take(300)
+        def alreadyMarked = fileExists(envPrepareLog) &&
+            readFile(envPrepareLog).contains('ENVIRONMENT_PREPARE_STATUS=')
+        if (!alreadyMarked) {
+            markSmokeEnvironmentPrepareFailed(ip, envPrepareLog, reason)
+        }
+        throw e
     }
 }
 
@@ -942,13 +963,33 @@ PY
             when { expression { return !params.RESTORE && shouldRunTests } }
             steps {
                 script {
-                    env.TEST_EXECUTION_ATTEMPTED = 'true'
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
                     def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
                     def raidCliRepoPathForRun = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo"
                     def raidCliDpraidPathForRun = raidCliDpraidPath ?: "${raidCliRepoPathForRun}/dpraid"
 
-                    sh "test -x '${raidCliDpraidPathForRun}'"
+                    def dpraidReady = sh(
+                        script: "test -x '${raidCliDpraidPathForRun}'; echo \$?",
+                        returnStdout: true
+                    ).trim() == '0'
+                    def draidTreeReady = sh(
+                        script: "test -d kernel_driver/drivers/draid && test -f kernel_driver/drivers/draid/Makefile; echo \$?",
+                        returnStdout: true
+                    ).trim() == '0'
+
+                    if (!dpraidReady || !draidTreeReady) {
+                        def reason = !dpraidReady
+                            ? "dpraid artifact missing or not executable: ${raidCliDpraidPathForRun}"
+                            : 'kernel_driver/drivers/draid tree or Makefile missing'
+                        echo "ERROR: Run Tests preflight failed: ${reason}"
+                        for (int i = 0; i < targetIPs.size(); i++) {
+                            def ip = targetIPs[i]
+                            markSmokeEnvironmentPrepareFailed(ip, "environment_prepare_${ip}.log", reason)
+                        }
+                        error "Run Tests preflight failed: ${reason}"
+                    }
+
+                    env.TEST_EXECUTION_ATTEMPTED = 'true'
                     raidCliFullCommit = sh(
                         script: "git -C '${raidCliRepoPathForRun}' rev-parse HEAD 2>/dev/null || echo unknown",
                         returnStdout: true
@@ -959,7 +1000,6 @@ PY
                     ).trim()
                     echo "Use dpraid artifact: ${raidCliDpraidPathForRun}"
                     echo "Use raid_cli(${env.RAID_CLI_BRANCH}) commit: ${raidCliCommit}"
-                    sh "test -d kernel_driver/drivers/draid && test -f kernel_driver/drivers/draid/Makefile"
 
                     def parallelTasks = [:]
 
@@ -967,7 +1007,9 @@ PY
                         def ip = targetIPs[i]
 
                         parallelTasks["Node_${ip}"] = {
-                            runSmokeNodeTest(ip, raidCliDpraidPathForRun)
+                            stage("Test on ${ip}") {
+                                runSmokeNodeTest(ip, raidCliDpraidPathForRun)
+                            }
                         }
                     }
 
