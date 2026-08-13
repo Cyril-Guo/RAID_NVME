@@ -10,7 +10,6 @@ Smoke 测试 —— DC 电源循环（掉电）压力测试。
 import os
 from datetime import datetime
 
-import pytest
 import allure
 
 from test_items.case_paths import io_stress_dir
@@ -44,10 +43,6 @@ def test_dc_powercycle():
         f"掉电电源循环压力测试，循环 {loops} 次；"
         f"出现 MachineCheck 错误时{'不停止' if ignore_error else '停止'}。"
     )
-
-    # ---------- 4. 破坏性写入权限开关 ----------
-    if os.environ.get("ALLOW_DESTRUCTIVE_FIO", "0") != "1":
-        pytest.skip("ALLOW_DESTRUCTIVE_FIO 未开启，跳过破坏性 IO 测试")
 
     # ---------- 5. 异步触发（掉电会中断 SSH，触发后立即返回）----------
     stress_dir = io_stress_dir()

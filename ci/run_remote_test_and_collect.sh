@@ -8,7 +8,6 @@ set -euo pipefail
 : "${REMOTE_SCP_COMMAND:?REMOTE_SCP_COMMAND is required}"
 : "${TEST_IDLE_TIMEOUT_MINUTES:?TEST_IDLE_TIMEOUT_MINUTES is required}"
 
-allow_fio="${ALLOW_DESTRUCTIVE_FIO:-YES}"
 report_suffix="${REPORT_SUFFIX:-}"
 log_suffix="${LOG_SUFFIX:-}"
 test_label="${TEST_LABEL:-nvme_raid_test.py}"
@@ -26,7 +25,7 @@ collect_io_signature() {
 
 echo "[${NODE_IP}] run ${test_label}"
 set +e
-remote_test_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && ALLOW_DESTRUCTIVE_FIO=${allow_fio} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} sudo -E python3 nvme_raid_test.py\""
+remote_test_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} sudo -E python3 nvme_raid_test.py\""
 setsid bash -c "set -o pipefail; ${remote_test_command} 2>&1 | awk '{ print strftime(\"[%Y-%m-%d %H:%M:%S]\"), \$0; fflush() }' | tee '${execution_log}'" &
 test_pid=$!
 last_progress_ts=$(date +%s)

@@ -101,11 +101,7 @@ def test_filesystemstress():
         f"出现 MachineCheck 错误时{'不停止' if ignore_error else '停止'}。"
     )
 
-    # ---------- 5. 破坏性写入权限开关 ----------
-    if os.environ.get("ALLOW_DESTRUCTIVE_FIO", "0") != "1":
-        pytest.skip("ALLOW_DESTRUCTIVE_FIO 未开启，跳过破坏性 IO 测试")
-
-    # ---------- 6. 同步执行并实时透传输出 ----------
+    # ---------- 5. 同步执行并实时透传输出 ----------
     stress_dir = io_stress_dir()
     cmd_str = f"bash ./Fio_All.sh {' '.join(fio_args)}"
     with allure.step(f"执行 FIO 指令: {cmd_str}"):

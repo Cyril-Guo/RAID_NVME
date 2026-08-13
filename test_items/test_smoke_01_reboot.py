@@ -10,7 +10,6 @@ Smoke 测试 —— Reboot 电源循环（重启）压力测试。
 import os
 from datetime import datetime
 
-import pytest
 import allure
 
 from test_items.case_paths import io_stress_dir
@@ -45,11 +44,7 @@ def test_reboot_powercycle():
         f"出现 MachineCheck 错误时{'不停止' if ignore_error else '停止'}。"
     )
 
-    # ---------- 4. 破坏性写入权限开关 ----------
-    if os.environ.get("ALLOW_DESTRUCTIVE_FIO", "0") != "1":
-        pytest.skip("ALLOW_DESTRUCTIVE_FIO 未开启，跳过破坏性 IO 测试")
-
-    # ---------- 5. 异步触发（重启会中断 SSH，触发后立即返回）----------
+    # ---------- 4. 异步触发（重启会中断 SSH，触发后立即返回）----------
     stress_dir = io_stress_dir()
     cmd_str = f"bash ./powercycle_direct.sh {' '.join(fio_args)}"
     with allure.step(f"异步触发 FIO 指令: {cmd_str}"):

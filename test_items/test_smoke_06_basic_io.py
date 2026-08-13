@@ -1,7 +1,4 @@
-import os
-
 import allure
-import pytest
 
 from test_items.basic_io_common import CommandLog, prepare_basic_raid5_vds, prepare_physical_io_case
 from test_items import test_smoke_03_lawdisk as lawdisk_case
@@ -13,9 +10,6 @@ def test_basic_io():
         "Per-case prep (CSD clear / dpraid update / draid rmmod-insmod / VD-PD clear), "
         "then create eight RAID5 VDs and run lawdisk FIO on healthy VDs."
     )
-
-    if os.environ.get("ALLOW_DESTRUCTIVE_FIO", "0") != "1":
-        pytest.skip("ALLOW_DESTRUCTIVE_FIO is not enabled; skip destructive basic IO test")
 
     log = CommandLog()
     try:

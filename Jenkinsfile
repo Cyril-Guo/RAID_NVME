@@ -153,7 +153,6 @@ pipeline {
         FEISHU_WEBHOOK = credentials('feishu-webhook')
         TARGET_USER = 'root'
         TARGET_PASSWORD = "${params.TARGET_PASSWORD?.trim() ?: '123456'}"
-        ALLOW_DESTRUCTIVE_FIO = '1'
         TEST_IDLE_TIMEOUT_MINUTES = '90'
         ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
         TEST_EXECUTION_ATTEMPTED = 'false'
@@ -492,7 +491,7 @@ PY''',
 
                                 echo "[${ip}] deploy workspace"
                                 runTimedEnvironmentStep(ip, 'deploy workspace', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
-set -o pipefail
+set -euo pipefail
 {
 echo "[${ip}] deploy workspace -> ${remoteDir}"
 ${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
@@ -517,19 +516,19 @@ ci/deploy_workspace.sh
 
                                 echo "[${ip}] install python dependencies"
                                 runTimedEnvironmentStep(ip, 'install python dependencies', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
-set -o pipefail
+set -euo pipefail
 {
 echo "[${ip}] install python dependencies"
 ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && ci/install_test_dependencies.sh'
 } 2>&1 | tee -a ${envPrepareLog}
 """)
-                                sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=passed' >> ${envPrepareLog}"
 
                                 echo "[${ip}] collect environment metadata"
                                 runTimedEnvironmentStep(ip, 'collect environment metadata', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
-                                set -e
-                                ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && NODE_IP=${ip} REMOTE_DIR=${remoteDir} PREFIX=Node_${ip} ci/collect_environment_metadata.sh'
-                                """)
+set -euo pipefail
+${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && NODE_IP=${ip} REMOTE_DIR=${remoteDir} PREFIX=Node_${ip} ci/collect_environment_metadata.sh'
+""")
+                                sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=passed' >> ${envPrepareLog}"
 
                                 echo "[${ip}] run nvme_raid_test.py and copy back reports"
                                 def testStatus = sh(
@@ -542,7 +541,6 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && ci/
  REMOTE_SSH_COMMAND="${targetSsh}" \
  REMOTE_SCP_COMMAND="${targetScp}" \
  TEST_IDLE_TIMEOUT_MINUTES='${env.TEST_IDLE_TIMEOUT_MINUTES}' \
- ALLOW_DESTRUCTIVE_FIO='${env.ALLOW_DESTRUCTIVE_FIO}' \
  ci/run_remote_test_and_collect.sh
  """
                                 )
@@ -559,11 +557,13 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && ci/
  ci/wait_powercycle_completion.sh
  """
                                 )
-                                if (powercycleWaitStatus != 0) {
-                                    error "[${ip}] powercycle completion wait failed with exit code ${powercycleWaitStatus}"
-                                }
+                                // Prefer the pytest/collection failure so fail-fast is not masked by
+                                // powercycle wait when reboot/dc never started.
                                 if (testStatus != 0) {
                                     error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"
+                                }
+                                if (powercycleWaitStatus != 0) {
+                                    error "[${ip}] powercycle completion wait failed with exit code ${powercycleWaitStatus}"
                                 }
 
                             }
@@ -615,12 +615,30 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && ci/
                 def metricsOutput = sh(script: "python3 ci/report_metrics.py", returnStdout: true).trim()
                 sh 'python3 ci/extract_failure_summary.py --output failure_summary.txt || true'
 
-                def metrics = metricsOutput.split(' ')
-                def total = metrics[0].toInteger()
-                def failed = metrics[1].toInteger()
-                def errors = metrics[2].toInteger()
-                def skipped = metrics[3].toInteger()
-                def reportKind = metrics.size() > 4 ? metrics[4] : 'tests'
+                def metrics = metricsOutput ? metricsOutput.split(/\s+/) : [] as String[]
+                def total = 0
+                def failed = 0
+                def errors = 0
+                def skipped = 0
+                def reportKind = 'empty'
+                if (metrics.size() >= 4) {
+                    try {
+                        total = metrics[0].toInteger()
+                        failed = metrics[1].toInteger()
+                        errors = metrics[2].toInteger()
+                        skipped = metrics[3].toInteger()
+                        reportKind = metrics.size() > 4 ? metrics[4] : 'tests'
+                    } catch (Exception parseEx) {
+                        echo "WARN: failed to parse report_metrics output '${metricsOutput}': ${parseEx}"
+                        total = 0
+                        failed = 0
+                        errors = 0
+                        skipped = 0
+                        reportKind = 'empty'
+                    }
+                } else {
+                    echo "WARN: unexpected report_metrics output '${metricsOutput}'"
+                }
                 def hasFailureSummary = fileExists('failure_summary.txt') && readFile('failure_summary.txt').trim()
 
                 def startStr = new Date(currentBuild.startTimeInMillis).format('yyyy-MM-dd HH:mm:ss')
@@ -686,7 +704,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && ci/
                 if (params.DEBUG_NO_FEISHU) {
                     echo 'DEBUG_NO_FEISHU=true, skip Feishu notification.'
                 } else {
-                    sh "curl -s -X POST -H 'Content-Type: application/json' -d @feishu_payload.json ${env.FEISHU_WEBHOOK}"
+                    sh "curl -fsS -X POST -H 'Content-Type: application/json' -d @feishu_payload.json ${env.FEISHU_WEBHOOK}"
                 }
             }
         }

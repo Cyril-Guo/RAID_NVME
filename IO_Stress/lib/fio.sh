@@ -270,13 +270,16 @@ collect_log()
 
 test_end()
 {
+    # Optional exit status (default 0). MachineCheck STOP should pass a non-zero rc.
+    local rc=${1:-0}
     echo ""
     echo "=========================================="
     echo "********** ALL TESTS COMPLETE **********"
     echo "=========================================="
     echo "********** NVME RAID Test Engine Exit **********"
-    exit 0
+    exit "${rc}"
 }
+
 
 bmc_reset()
 {

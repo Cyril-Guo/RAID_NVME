@@ -10,3 +10,5 @@ def test_powercycle_completion_has_success_path():
     assert "reboot_rc -eq 2" in run_source
     assert "Power-cycle test completed all $LOOP loops." in run_source
     assert "test_end" in run_source
+    assert "local rc=${1:-0}" in fio_source
+    assert 'exit "${rc}"' in fio_source

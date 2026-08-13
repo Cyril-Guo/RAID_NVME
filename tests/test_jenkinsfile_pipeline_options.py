@@ -284,6 +284,30 @@ def test_run_remote_test_reports_error_without_qemu_scene_keep_message():
     assert "keep VM/vfio devices for failure analysis" not in source
     assert "Next triggered run will reclaim them in pre-test cleanup" not in source
     assert 'error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"' in source
+    # Fail-fast pytest errors must surface before powercycle wait failures.
+    test_error_idx = source.index(
+        'error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"'
+    )
+    wait_error_idx = source.index(
+        'error "[${ip}] powercycle completion wait failed with exit code ${powercycleWaitStatus}"'
+    )
+    assert test_error_idx < wait_error_idx
+
+
+def test_environment_prepare_uses_errexit_and_marks_passed_after_metadata():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "set -euo pipefail" in source
+    passed_idx = source.index("ENVIRONMENT_PREPARE_STATUS=passed")
+    metadata_idx = source.index("collect environment metadata")
+    assert metadata_idx < passed_idx
+
+
+def test_report_metrics_parse_is_tolerant_of_unexpected_output():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "unexpected report_metrics output" in source
+    assert "failed to parse report_metrics output" in source
 
 
 def test_junit_glob_only_collects_node_level_reports():

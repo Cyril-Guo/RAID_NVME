@@ -309,22 +309,23 @@ function diff_messages()
         
         # Whitelist field differences (disk/pcie_nvme/link/aer + counts)
         if [[ ! -f $MachineCheckLog/info_before.log ]] || [[ ! -f $MachineCheckLog/info_after.log ]]; then
-            echo "Warning: Missing log files for diff comparison." | tee -a $Result_Dir/result.log
-        else
-            local fp_before fp_after
-            fp_before=$(mktemp)
-            fp_after=$(mktemp)
-            machinecheck_fingerprint "$MachineCheckLog/info_before.log" > "$fp_before"
-            machinecheck_fingerprint "$MachineCheckLog/info_after.log" > "$fp_after"
-            if ! diff -q "$fp_before" "$fp_after" > /dev/null; then
-                echo "Whitelist field differences detected between MachineCheck before/after logs." | tee -a $Result_Dir/result.log
-                rm -f "$fp_before" "$fp_after"
-                record_errorinfo
-                echo "diff finish" >$LogAd/diff.flag
-                return 3
-            fi
-            rm -f "$fp_before" "$fp_after"
+            echo "ERROR: Missing log files for MachineCheck diff comparison." | tee -a $Result_Dir/result.log
+            echo "diff finish" >$LogAd/diff.flag
+            return 3
         fi
+        local fp_before fp_after
+        fp_before=$(mktemp)
+        fp_after=$(mktemp)
+        machinecheck_fingerprint "$MachineCheckLog/info_before.log" > "$fp_before"
+        machinecheck_fingerprint "$MachineCheckLog/info_after.log" > "$fp_after"
+        if ! diff -q "$fp_before" "$fp_after" > /dev/null; then
+            echo "Whitelist field differences detected between MachineCheck before/after logs." | tee -a $Result_Dir/result.log
+            rm -f "$fp_before" "$fp_after"
+            record_errorinfo
+            echo "diff finish" >$LogAd/diff.flag
+            return 3
+        fi
+        rm -f "$fp_before" "$fp_after"
     fi
     echo "diff finish" >$LogAd/diff.flag
     return 1
@@ -345,13 +346,13 @@ function info_diff()
         if [ $flag == "STOP" ];then
             echo "stop_flag is STOP,so exit"
             collect_log
-            test_end
+            test_end 3
         elif [ "$flag" == "NON-STOP" ];then
             echo "stop_flag is NON-STOP, ignore error and continue..."
             return 0
         else
             echo "Unsupport stop flag, and it shoule be STOP or NON-STOP, exit..."
-            exit
+            exit 2
         fi
     fi
 }  

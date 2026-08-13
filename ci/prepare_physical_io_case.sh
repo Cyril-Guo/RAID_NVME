@@ -27,7 +27,8 @@ else
     echo "[${NODE_IP}] ERROR: dpraid not available (${DPRAID_STAGED} or /usr/bin/dpraid)" >&2
     exit 1
 fi
-/usr/bin/dpraid --help >/dev/null 2>&1 || true
+/usr/bin/dpraid --help >/dev/null
+
 
 echo "[${NODE_IP}] (3/4) rebuild and reload draid (rmmod/insmod)"
 test -d "${DRAID_DIR}" || {

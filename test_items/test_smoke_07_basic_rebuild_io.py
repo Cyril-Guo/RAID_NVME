@@ -1,7 +1,4 @@
-import os
-
 import allure
-import pytest
 
 from test_items.basic_io_common import (
     CommandLog,
@@ -19,9 +16,6 @@ def test_basic_rebuild_io():
         "Per-case prep (CSD clear / dpraid update / draid rmmod-insmod / VD-PD clear), "
         "create eight RAID5 VDs, drop one disk per group to degraded, then run lawdisk FIO."
     )
-
-    if os.environ.get("ALLOW_DESTRUCTIVE_FIO", "0") != "1":
-        pytest.skip("ALLOW_DESTRUCTIVE_FIO is not enabled; skip destructive basic rebuild IO test")
 
     log = CommandLog()
     try:
