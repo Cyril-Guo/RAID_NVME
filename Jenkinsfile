@@ -34,15 +34,45 @@ def sanitizePathSegment(value) {
 }
 
 def resolveRaidNvmeBranch() {
-    def branch = (env.BRANCH_NAME ?: env.GIT_BRANCH ?: '').toString().trim().replaceAll('^origin/', '')
+    // Prefer Jenkins-provided branch envs, then scm config, then git, then job name.
+    // Freestyle/Pipeline jobs often lack BRANCH_NAME and check out detached HEAD.
+    def branch = (
+        env.BRANCH_NAME ?: env.GIT_BRANCH ?: env.CHANGE_BRANCH ?: ''
+    ).toString().trim().replaceAll('^origin/', '')
+
+    if (!branch || branch == 'HEAD') {
+        try {
+            def scmBranch = scm?.branches ? scm.branches[0]?.name?.toString() : ''
+            branch = (scmBranch ?: '')
+                .replaceAll('^\\*/', '')
+                .replaceAll('^origin/', '')
+                .trim()
+        } catch (Exception ignored) {
+            branch = ''
+        }
+    }
+
     if (!branch || branch == 'HEAD') {
         branch = sh(
-            script: "git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown",
+            script: '''
+set +e
+b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+if [ -n "$b" ] && [ "$b" != "HEAD" ]; then printf '%s\\n' "$b"; exit 0; fi
+b=$(git name-rev --name-only --exclude='tags/*' HEAD 2>/dev/null \\
+    | sed -e 's#^remotes/origin/##' -e 's#^origin/##' -e 's#\\^0$##')
+if [ -n "$b" ] && [ "$b" != "undefined" ] && [ "$b" != "HEAD" ] && [[ "$b" != *"~"* ]]; then
+    printf '%s\\n' "$b"
+    exit 0
+fi
+printf '\\n'
+''',
             returnStdout: true
         ).trim()
     }
+
     if (!branch || branch == 'HEAD') {
-        branch = 'unknown'
+        // Job CI/SMOKE is named after the RAID_NVME branch it tracks.
+        branch = (env.JOB_BASE_NAME ?: env.JOB_NAME ?: 'unknown').toString().trim()
     }
     return branch
 }
