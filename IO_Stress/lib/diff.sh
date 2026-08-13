@@ -12,28 +12,241 @@ machinecheck_fingerprint() {
     ' | sort
 }
 
+# Human-readable whitelist diff: show only changed keys / AER flag bits / link attrs.
+# Args: golden_fp current_fp
+format_machinecheck_diff() {
+    local golden="$1"
+    local current="$2"
+    awk -f - "$golden" "$current" <<'AWK'
+function trim(s) {
+    sub(/^[[:space:]]+/, "", s)
+    sub(/[[:space:]]+$/, "", s)
+    return s
+}
+
+function line_key(line,   n, a) {
+    sub(/\r$/, "", line)
+    n = split(line, a, /[[:space:]]+/)
+    if (n < 1) return line
+    if (a[1] == "aer:" || a[1] == "link:" || a[1] == "pcie_nvme:" || a[1] == "disk:")
+        return a[1] " " a[2]
+    if (a[1] == "disk" && a[2] == "count:")
+        return "disk count:"
+    if (a[1] == "pcie_nvme" && a[2] == "count:")
+        return "pcie_nvme count:"
+    return line
+}
+
+function line_payload(line, key,   p) {
+    p = line
+    if (index(p, key) == 1)
+        p = substr(p, length(key) + 1)
+    return trim(p)
+}
+
+function clear_map(m,   k) {
+    for (k in m) delete m[k]
+}
+
+# AER: "UESta=DLP- SDES- ... CESta=RxErr- ... AdvNonFatalErr+" -> flag -> polarity
+function parse_aer_flags(payload, out,   n, a, i, tok, name, pol, section) {
+    clear_map(out)
+    n = split(payload, a, /[[:space:]]+/)
+    section = ""
+    for (i = 1; i <= n; i++) {
+        tok = a[i]
+        if (tok ~ /^UESta=/) {
+            section = "UESta"
+            sub(/^UESta=/, "", tok)
+        } else if (tok ~ /^CESta=/) {
+            section = "CESta"
+            sub(/^CESta=/, "", tok)
+        }
+        if (tok ~ /[+-]$/) {
+            pol = substr(tok, length(tok), 1)
+            name = substr(tok, 1, length(tok) - 1)
+            if (name != "") {
+                if (section != "")
+                    out[section "." name] = pol
+                else
+                    out[name] = pol
+            }
+        }
+    }
+}
+
+# link / generic KEY=VALUE tokens
+function parse_kv(payload, out,   n, a, i, eq, k, v) {
+    clear_map(out)
+    n = split(payload, a, /[[:space:]]+/)
+    for (i = 1; i <= n; i++) {
+        eq = index(a[i], "=")
+        if (eq > 1) {
+            k = substr(a[i], 1, eq - 1)
+            v = substr(a[i], eq + 1)
+            out[k] = v
+        }
+    }
+}
+
+function print_map_diff(gmap, cmap,   k, nchg, keys, kn, i, j, t) {
+    nchg = 0
+    for (k in gmap) if (!(k in cmap) || gmap[k] != cmap[k]) nchg++
+    for (k in cmap) if (!(k in gmap)) nchg++
+    if (nchg == 0) {
+        print "  (payload text differs; no parseable flag/attr pairs)"
+        return
+    }
+    kn = 0
+    for (k in gmap) keys[++kn] = k
+    for (k in cmap) if (!(k in gmap)) keys[++kn] = k
+    for (i = 2; i <= kn; i++) {
+        t = keys[i]
+        j = i - 1
+        while (j >= 1 && keys[j] > t) {
+            keys[j + 1] = keys[j]
+            j--
+        }
+        keys[j + 1] = t
+    }
+    for (i = 1; i <= kn; i++) {
+        k = keys[i]
+        if (k in gmap && k in cmap) {
+            if (gmap[k] != cmap[k])
+                print "  " k ": " gmap[k] " -> " cmap[k]
+        } else if (k in gmap) {
+            print "  " k ": " gmap[k] " -> (missing)"
+        } else {
+            print "  " k ": (missing) -> " cmap[k]
+        }
+    }
+}
+
+BEGIN {
+    # ARGV[1]=golden ARGV[2]=current; read manually
+}
+
+FNR == NR {
+    sub(/\r$/, "", $0)
+    gkey = line_key($0)
+    golden[gkey] = $0
+    gorder[++gn] = gkey
+    next
+}
+
+{
+    sub(/\r$/, "", $0)
+    ckey = line_key($0)
+    current[ckey] = $0
+    corder[++cn] = ckey
+}
+
+END {
+    changed = 0
+    only_g = 0
+    only_c = 0
+
+    print "Changed fields (Golden -> Current):"
+    print ""
+
+    for (i = 1; i <= gn; i++) {
+        k = gorder[i]
+        if (!(k in seen_g)) {
+            seen_g[k] = 1
+            glist[++glistn] = k
+        }
+    }
+    for (i = 1; i <= cn; i++) {
+        k = corder[i]
+        if (!(k in seen_c)) {
+            seen_c[k] = 1
+            clist[++clistn] = k
+        }
+    }
+
+    for (i = 1; i <= glistn; i++) {
+        k = glist[i]
+        if (!(k in current)) {
+            only_g++
+            print "[ONLY GOLDEN] " golden[k]
+            print ""
+            continue
+        }
+        if (golden[k] == current[k]) continue
+        changed++
+        print "[" k "]"
+        gp = line_payload(golden[k], k)
+        cp = line_payload(current[k], k)
+        if (k ~ /^aer:/) {
+            parse_aer_flags(gp, gflags)
+            parse_aer_flags(cp, cflags)
+            print_map_diff(gflags, cflags)
+        } else if (k ~ /^link:/) {
+            parse_kv(gp, gflags)
+            parse_kv(cp, cflags)
+            print_map_diff(gflags, cflags)
+        } else if (k == "disk count:" || k == "pcie_nvme count:") {
+            print "  " gp " -> " cp
+        } else if (k ~ /^pcie_nvme:/) {
+            parse_kv(gp, gflags)
+            parse_kv(cp, cflags)
+            # desc-only lines may have no kv; fall back
+            nkv = 0
+            for (x in gflags) nkv++
+            for (x in cflags) nkv++
+            if (nkv > 0)
+                print_map_diff(gflags, cflags)
+            else {
+                print "  golden : " gp
+                print "  current: " cp
+            }
+        } else {
+            print "  golden : " gp
+            print "  current: " cp
+        }
+        print ""
+    }
+
+    for (i = 1; i <= clistn; i++) {
+        k = clist[i]
+        if (!(k in golden)) {
+            only_c++
+            print "[ONLY CURRENT] " current[k]
+            print ""
+        }
+    }
+
+    print "Summary: " changed " changed, " only_g " only-in-golden, " only_c " only-in-current"
+}
+AWK
+}
+
 function record_errorinfo(){
-    local fp_before fp_after
+    local fp_before fp_after formatted
     fp_before=$(mktemp)
     fp_after=$(mktemp)
+    formatted=$(mktemp)
     machinecheck_fingerprint "$MachineCheckLog/info_before.log" > "$fp_before"
     machinecheck_fingerprint "$MachineCheckLog/info_after.log" > "$fp_after"
+    format_machinecheck_diff "$fp_before" "$fp_after" > "$formatted"
 
-    echo "ERROR: MachineCheck Log Inconsistency Detected!" | tee -a $TestErrorLog/machine_diff_error.log
-    echo "==================================================" | tee -a $TestErrorLog/machine_diff_error.log
-    echo "Current Loop: $loop" | tee -a $TestErrorLog/machine_diff_error.log
-    echo "Time: $(date)" | tee -a $TestErrorLog/machine_diff_error.log
-    echo "Whitelist field differences (Golden < vs Current >):" | tee -a $TestErrorLog/machine_diff_error.log
-    
-    diff -u "$fp_before" "$fp_after" >> $TestErrorLog/machine_diff_error.log
-    
-    echo "--------------------------------------------------" >> $TestErrorLog/machine_diff_error.log
+    {
+        echo "ERROR: MachineCheck Log Inconsistency Detected!"
+        echo "=================================================="
+        echo "Current Loop: $loop"
+        echo "Time: $(date)"
+        cat "$formatted"
+        echo "--------------------------------------------------"
+    } | tee -a "$TestErrorLog/machine_diff_error.log"
+
     echo -e " ERROR: MachineCheck inconsistencies found at loop $loop. Check $TestErrorLog/machine_diff_error.log for details."
-    
+
     # Also record to diff_all.log
-    echo -e "\n--- Loop $loop Error Record ---" >> $MessageRecordLog/diff_all.log
-    diff -u "$fp_before" "$fp_after" >> $MessageRecordLog/diff_all.log
-    rm -f "$fp_before" "$fp_after"
+    {
+        echo -e "\n--- Loop $loop Error Record ---"
+        cat "$formatted"
+    } >> "$MessageRecordLog/diff_all.log"
+    rm -f "$fp_before" "$fp_after" "$formatted"
 }
 
 function diff_messages()
