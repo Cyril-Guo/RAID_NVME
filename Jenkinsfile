@@ -93,6 +93,55 @@ def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     """
 }
 
+// Shallow branch clone often lacks the exact MR SHA ("reference is not a tree").
+// Fetch the commit (or merge-requests/<iid>/head) before detach checkout.
+def checkoutKernelDriverAtMr(String ref, String mrIid, String mrSha) {
+    checkout scm: [
+        $class: 'GitSCM',
+        branches: [[name: "*/${ref}"]],
+        userRemoteConfigs: [[
+            url: env.KERNEL_DRIVER_REPO,
+            credentialsId: env.KERNEL_DRIVER_CRED
+        ]],
+        extensions: [
+            [$class: 'RelativeTargetDirectory', relativeTargetDir: 'kernel_driver'],
+            [$class: 'CloneOption', shallow: true, depth: 50, noTags: true, timeout: 30]
+        ]
+    ], poll: false, changelog: false
+
+    if (!(mrSha ==~ /^[0-9a-f]{40}$/)) {
+        return
+    }
+
+    def status = sh(
+        returnStatus: true,
+        script: """#!/bin/bash
+set -eu
+cd kernel_driver
+if git cat-file -e '${mrSha}^{commit}' 2>/dev/null; then
+  git checkout --detach '${mrSha}'
+  exit 0
+fi
+echo "MR SHA ${mrSha} missing from shallow clone; fetching commit..."
+if git fetch --depth=1 origin '${mrSha}'; then
+  git checkout --detach '${mrSha}'
+  exit 0
+fi
+if [ -n '${mrIid}' ]; then
+  echo "Fetch by SHA failed; trying refs/merge-requests/${mrIid}/head"
+  git fetch --depth=1 origin "refs/merge-requests/${mrIid}/head:refs/remotes/origin/mr-${mrIid}"
+  git checkout --detach "refs/remotes/origin/mr-${mrIid}"
+  exit 0
+fi
+echo "ERROR: cannot resolve kernel_driver MR commit ${mrSha}" >&2
+exit 1
+"""
+    )
+    if (status != 0) {
+        error "Failed to checkout kernel_driver MR commit ${mrSha} (MR !${mrIid ?: 'n/a'}, branch ${ref})"
+    }
+}
+
 def runTimedEnvironmentStep(ip, label, envPrepareLog, timeoutMinutes, scriptText) {
     def stepStatus = 0
     try {
@@ -765,6 +814,7 @@ pipeline {
                                     """
                                 }
                                 if (hasRaidCliUpdate) {
+                                    currentBuild.result = 'NOT_BUILT'
                                     echo "raid_cli was updated for the test environment. No kernel_driver MR event, so skip smoke tests."
                                     return
                                 }
@@ -839,23 +889,12 @@ PY
                             }
                         }
 
-                        checkout scm: [
-                            $class: 'GitSCM',
-                            branches: [[name: "*/${kernelDriverRef}"]],
-                            userRemoteConfigs: [[
-                                url: env.KERNEL_DRIVER_REPO,
-                                credentialsId: env.KERNEL_DRIVER_CRED
-                            ]],
-                            extensions: [
-                                [$class: 'RelativeTargetDirectory', relativeTargetDir: 'kernel_driver'],
-                                [$class: 'CloneOption', shallow: true, depth: 50, noTags: true, timeout: 30]
-                            ]
-                        ], poll: false, changelog: false
-
                         def mrSha = mrProps.MR_SHA ?: ''
-                        if (mrSha ==~ /^[0-9a-f]{40}$/) {
-                            sh "git -C kernel_driver checkout --detach '${mrSha}'"
-                        }
+                        checkoutKernelDriverAtMr(
+                            kernelDriverRef ?: env.KERNEL_DRIVER_BRANCH,
+                            (kernelDriverMrIid ?: '').toString(),
+                            mrSha
+                        )
 
                         kernelDriverFullCommit = sh(
                             script: "git -C kernel_driver rev-parse HEAD 2>/dev/null || echo unknown",

@@ -199,6 +199,15 @@ def test_automatic_mr_signature_only_tracks_code_sha():
     assert "has no code delta vs" in source
     assert "latest = merge_requests[0]" not in source
     assert 'emit_mr(mr, prefix=f"MR_{iid}")' in source
+    # Auto MR trigger must resolve SHA even when shallow clone lacks the commit.
+    assert "def checkoutKernelDriverAtMr(" in source
+    assert "checkoutKernelDriverAtMr(" in source
+    assert "refs/merge-requests/${mrIid}/head" in source
+    assert 'git checkout --detach \'${mrSha}\'' in source
+    assert "sh \"git -C kernel_driver checkout --detach '${mrSha}'\"" not in source
+    assert "No kernel_driver MR event, so skip smoke tests." in source
+    # raid_cli-only updates must mark NOT_BUILT, not leave a failed/aborted result.
+    assert source.count("currentBuild.result = 'NOT_BUILT'") >= 3
 
 
 def test_draid_module_reload_retries_and_reports_memory_on_insmod_failure():
