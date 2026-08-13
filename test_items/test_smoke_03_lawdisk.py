@@ -15,6 +15,8 @@ from datetime import datetime
 import pytest
 import allure
 
+from test_items.case_paths import io_stress_dir, stress_monitor_dir
+
 
 def _ts():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -69,7 +71,7 @@ def test_lawdiskstress():
 
     # ---------- 2. 按需后台启动压力监控 ----------
     if os.environ.get("STRESS_MONITOR", "").strip().lower() == "yes":
-        monitor_dir = os.path.join(os.path.dirname(__file__), "..", "Stress_Monitor")
+        monitor_dir = stress_monitor_dir()
         monitor_main = os.path.join(monitor_dir, "main.py")
         if os.path.exists(monitor_main):
             monitor_cmd = [sys.executable, monitor_main]
@@ -104,13 +106,13 @@ def test_lawdiskstress():
         pytest.skip("ALLOW_DESTRUCTIVE_FIO 未开启，跳过破坏性 IO 测试")
 
     # ---------- 6. 同步执行并实时透传输出 ----------
-    io_stress_dir = os.path.join(os.path.dirname(__file__), "..", "IO_Stress")
+    stress_dir = io_stress_dir()
     cmd_str = f"bash ./Fio_All.sh {' '.join(fio_args)}"
     with allure.step(f"执行 FIO 指令: {cmd_str}"):
-        print(f"{_ts()} [START] {cmd_str}")
+        print(f"{_ts()} [START] cwd={stress_dir} {cmd_str}")
         process = subprocess.Popen(
             ["bash", "./Fio_All.sh"] + fio_args,
-            cwd=io_stress_dir,
+            cwd=stress_dir,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1, universal_newlines=True,
         )
@@ -139,7 +141,7 @@ def test_lawdiskstress():
         print(f"{_ts()} [SUCCESS] 脚本执行完成")
 
     # ---------- 7. 结果汇总 ----------
-    result_log = os.path.join(io_stress_dir, "log", "ResultLog", "result.log")
+    result_log = os.path.join(stress_dir, "log", "ResultLog", "fio_result", "result.log")
     if os.path.exists(result_log):
         with open(result_log, "r") as f:
             res_content = f.read()

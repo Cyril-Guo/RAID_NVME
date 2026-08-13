@@ -413,11 +413,19 @@ def run_single_item(item, params, clean_allure, test_items=None, work_dir=None):
     pytest_args.extend([f"--junitxml=report_{item}.xml", test_file])
 
     previous = os.getcwd()
+    previous_case_root = os.environ.get("RAID_NVME_CASE_ROOT")
     try:
         os.chdir(work_dir)
+        # Smoke tests must not resolve IO_Stress via dirname(__file__): test_items is
+        # symlinked into cases/<item>/, so __file__ points at the shared tree.
+        os.environ["RAID_NVME_CASE_ROOT"] = os.path.abspath(work_dir)
         return int(pytest.main(pytest_args))
     finally:
         os.chdir(previous)
+        if previous_case_root is None:
+            os.environ.pop("RAID_NVME_CASE_ROOT", None)
+        else:
+            os.environ["RAID_NVME_CASE_ROOT"] = previous_case_root
 
 
 def merge_junit_reports(items, out_path):

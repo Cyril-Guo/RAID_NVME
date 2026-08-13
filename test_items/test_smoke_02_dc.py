@@ -13,6 +13,7 @@ from datetime import datetime
 import pytest
 import allure
 
+from test_items.case_paths import io_stress_dir
 from test_items.powercycle_launch import trigger_background_fio
 
 
@@ -49,10 +50,10 @@ def test_dc_powercycle():
         pytest.skip("ALLOW_DESTRUCTIVE_FIO 未开启，跳过破坏性 IO 测试")
 
     # ---------- 5. 异步触发（掉电会中断 SSH，触发后立即返回）----------
-    io_stress_dir = os.path.join(os.path.dirname(__file__), "..", "IO_Stress")
+    stress_dir = io_stress_dir()
     cmd_str = f"bash ./powercycle_direct.sh {' '.join(fio_args)}"
     with allure.step(f"异步触发 FIO 指令: {cmd_str}"):
-        print(f"{_ts()} [START] {cmd_str}")
+        print(f"{_ts()} [START] cwd={stress_dir} {cmd_str}")
         print("检测到掉电任务，采用异步(setsid)触发模式...")
-        trigger_background_fio(io_stress_dir, "dc", fio_args)
+        trigger_background_fio(stress_dir, "dc", fio_args)
         print("测试已触发（request start）；多圈完成由 Jenkins wait_powercycle_completion 闭环。")
