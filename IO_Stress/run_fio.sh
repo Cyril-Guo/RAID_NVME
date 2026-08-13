@@ -44,6 +44,9 @@ if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
 
     info_diff
 
+    collect_powercycle_dmesg
+    echo "$(date '+%F %T') [RESUME] dmesg captured for loop=${loop:-0}"
+
     do_reboot
     reboot_rc=$?
     if [ $reboot_rc -eq 2 ]; then

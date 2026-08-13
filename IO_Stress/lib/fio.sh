@@ -145,6 +145,89 @@ overtime()
 
 
 
+update_dmesg_summary()
+{
+    mkdir -p "$SystemLog" >/dev/null 2>&1 || true
+    local summary="$SystemLog/dmesg_summary.log"
+    local tmp
+    tmp=$(mktemp "${SystemLog}/dmesg_summary.XXXXXX") || return 0
+    local stamp
+    stamp=$(date '+%F %T')
+    {
+        echo "################################################################################"
+        echo "# Powercycle dmesg summary"
+        echo "# item=${item:-unknown} planned_loops=${LOOP:-?} updated_at=${stamp}"
+        echo "# Per-loop files: ${SystemLog}/dmesg_loop_<N>.log"
+        echo "################################################################################"
+    } > "$tmp"
+
+    local -a ids=()
+    local f base id
+    for f in "$SystemLog"/dmesg_loop_*.log; do
+        [[ -e "$f" ]] || continue
+        base=$(basename "$f")
+        id=${base#dmesg_loop_}
+        id=${id%.log}
+        case "$id" in
+            ''|*[!0-9]*) continue ;;
+        esac
+        ids+=("$id")
+    done
+
+    if ((${#ids[@]})); then
+        local sorted
+        sorted=$(printf '%s\n' "${ids[@]}" | sort -n)
+        while IFS= read -r id; do
+            [[ -n "$id" ]] || continue
+            f="$SystemLog/dmesg_loop_${id}.log"
+            {
+                echo
+                echo "########## LOOP ${id} ##########"
+                cat "$f"
+                echo "########## END LOOP ${id} ##########"
+            } >> "$tmp"
+        done <<< "$sorted"
+    else
+        echo "# (no per-loop dmesg files yet)" >> "$tmp"
+    fi
+
+    mv -f "$tmp" "$summary"
+}
+
+# Capture reboot/dc dmesg for the current loop and refresh the summary file.
+# loop 0 = initial boot before the first power-cycle; loop N = after the N-th cycle.
+collect_powercycle_dmesg()
+{
+    if [[ "$item" != "REBOOT" && "$item" != "DC" ]]; then
+        return 0
+    fi
+
+    mkdir -p "$SystemLog" >/dev/null 2>&1 || true
+    local loop_id="${loop:-0}"
+    case "$loop_id" in
+        ''|*[!0-9]*) loop_id=0 ;;
+    esac
+
+    local out="$SystemLog/dmesg_loop_${loop_id}.log"
+    local stamp
+    stamp=$(date '+%F %T')
+    local power_log="$ResultLog/reboot_command.log"
+    if [[ "$item" == "DC" ]]; then
+        power_log="$ResultLog/dc_command.log"
+    fi
+
+    {
+        echo "===== dmesg loop ${loop_id} ====="
+        echo "item=${item} LOOP=${LOOP:-?} collected_at=${stamp}"
+        echo "host=$(hostname 2>/dev/null || true)"
+        echo "================================"
+        timeout 30 dmesg -T 2>/dev/null || timeout 30 dmesg 2>/dev/null || true
+    } > "$out"
+
+    update_dmesg_summary
+    echo "$(date '+%F %T') [DMESG] saved loop=${loop_id} file=${out} summary=${SystemLog}/dmesg_summary.log" | tee -a "$power_log"
+}
+
 collect_log()
 {
 	echo "**********" `date +%m-%d" "%H:%M:%S` "Collecting logs **********"
@@ -169,7 +252,12 @@ collect_log()
 	    timeout 30 bash -c "cat '$messages_log' > '$SystemLog/messages_${suffix}.log'" 2>/dev/null
     fi
 	echo "  - Collecting dmesg..."
-	timeout 30 bash -c "dmesg -T > '$SystemLog/dmesg_${suffix}.log'" 2>/dev/null
+    if [[ "$item" == "REBOOT" || "$item" == "DC" ]]; then
+        # Keep a labeled per-loop file + rolling summary for power-cycle tests.
+        collect_powercycle_dmesg
+    else
+	    timeout 30 bash -c "dmesg -T > '$SystemLog/dmesg_${suffix}.log'" 2>/dev/null
+    fi
 
     # Add IPMI SEL collection as requested
     if command -v ipmitool >/dev/null 2>&1; then

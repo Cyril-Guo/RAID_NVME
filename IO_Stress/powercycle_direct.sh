@@ -58,6 +58,9 @@ echo "$(date '+%F %T') [DIRECT] skip do_fio for power-cycle (temporarily disable
 info_diff
 echo "$(date '+%F %T') [DIRECT] machinecheck after/diff finished" | tee -a "$command_log"
 
+collect_powercycle_dmesg
+echo "$(date '+%F %T') [DIRECT] dmesg captured for loop=${loop:-0}" | tee -a "$command_log"
+
 do_reboot
 reboot_rc=$?
 echo "$(date '+%F %T') [DIRECT] do_reboot rc=$reboot_rc" | tee -a "$command_log"
