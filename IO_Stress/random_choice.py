@@ -7,7 +7,7 @@ temp_dict = {
     "1m": 2, "2m": 2, "4m": 2, "8m": 2, "16m": 2
 }
 
-proportion_dict = {k: int(v * 0.01 * 1400) for k, v in temp_dict.items()}
+proportion_dict = {k: int(v * 0.01 * 2800) for k, v in temp_dict.items()}
 
 random_p = {}
 for k, v in proportion_dict.items():
@@ -34,7 +34,7 @@ def parse_dict(d):
     return new_d
 
 bs = []
-total = 1400
+total = 2800
 
 for i in range(total):
     proportion_dict = parse_dict(proportion_dict)
