@@ -46,6 +46,8 @@ def test_fio_runs_under_watchdog_timeout():
     assert 'timeout --kill-after=60s "${timeout_seconds}s" fio' not in source
     assert "FIO command failed in MIX mode" in source
     assert source.count("run_fio_with_watchdog") >= 6
+    assert 'watch_interval_seconds="${FIO_WATCH_INTERVAL_SECONDS:-1}"' in source
+    assert "if ! kill -0 \"$fio_pid\" 2>/dev/null; then" in source
     assert "append_fio_error_detail" in source
     assert "----- FIO error detail begin" in source
     assert "io_u error" in source

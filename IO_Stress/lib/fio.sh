@@ -1357,10 +1357,14 @@ run_fio_with_watchdog()
     local configuration="$1"
     local output_file="$2"
     local idle_timeout_seconds
-    local watch_interval_seconds=30
+    # Poll for FIO exit every 1s. A 30s sleep here used to add a second full
+    # interval after runtime=30s jobs, so mix jobs reported elapsed~61s.
+    local watch_interval_seconds="${FIO_WATCH_INTERVAL_SECONDS:-1}"
+    local io_check_interval_seconds="${FIO_IO_CHECK_INTERVAL_SECONDS:-30}"
     local fio_pid
     local fio_rc
     local last_progress_ts
+    local last_io_check_ts
     local last_output_size
     local last_io_signature
     local current_output_size
@@ -1380,22 +1384,28 @@ run_fio_with_watchdog()
     setsid bash -c 'fio "$@"' fio_runner "$configuration" "$@" >> "$output_file" 2>&1 &
     fio_pid=$!
     last_progress_ts=$start_ts
+    last_io_check_ts=$start_ts
     last_output_size=$(wc -c < "$output_file" 2>/dev/null || echo 0)
     last_io_signature=$(fio_io_progress_signature | sha256sum | awk '{print $1}')
 
     while kill -0 "$fio_pid" 2>/dev/null; do
         sleep "$watch_interval_seconds"
+        if ! kill -0 "$fio_pid" 2>/dev/null; then
+            break
+        fi
         now_ts=$(date +%s)
         current_output_size=$(wc -c < "$output_file" 2>/dev/null || echo 0)
-        current_io_signature=$(fio_io_progress_signature | sha256sum | awk '{print $1}')
-
         if [[ "$current_output_size" != "$last_output_size" ]]; then
             last_progress_ts=$now_ts
             last_output_size=$current_output_size
         fi
-        if [[ -n "$current_io_signature" && "$current_io_signature" != "$last_io_signature" ]]; then
-            last_progress_ts=$now_ts
-            last_io_signature=$current_io_signature
+        if [[ $((now_ts - last_io_check_ts)) -ge $io_check_interval_seconds ]]; then
+            last_io_check_ts=$now_ts
+            current_io_signature=$(fio_io_progress_signature | sha256sum | awk '{print $1}')
+            if [[ -n "$current_io_signature" && "$current_io_signature" != "$last_io_signature" ]]; then
+                last_progress_ts=$now_ts
+                last_io_signature=$current_io_signature
+            fi
         fi
         if [[ $((now_ts - last_progress_ts)) -ge $idle_timeout_seconds ]]; then
             idle_timed_out=1
