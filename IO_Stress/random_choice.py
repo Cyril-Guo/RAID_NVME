@@ -49,5 +49,5 @@ with open("random_choice.csv", "w") as fp:
     for b in bs:
         random_p_v = random_p[b].pop()
         read_p_v = read_p[b].pop()
-        fp.write(f"{b},{random_p_v},{read_p_v},32,30,1,0\n")
+        fp.write(f"{b},{random_p_v},{read_p_v},32,30,4,0\n")
     fp.write("End\n")
