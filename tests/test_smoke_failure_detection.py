@@ -64,3 +64,23 @@ def test_collect_failure_lines_includes_fio_error_detail_block():
     assert any("FIO error detail end" in line for line in lines)
     assert lawdisk_failures(sample) == lines
     assert filesystem_failures(sample) == lines
+
+
+def test_collect_failure_lines_records_machinecheck_unless_ignored():
+    sample = """
+    ERROR: MachineCheck inconsistencies found at loop 0. Check machine_diff_error.log for details.
+    Whitelist field differences detected between MachineCheck before/after logs.
+    FIO command failed, model=randwrite bs=4k qd=64 runtime=30s (#2), config=2-randwrite-4k-64-30.log, elapsed=12s(12s), planned_runtime=30s, rc=8
+    """
+
+    mc_and_fio = lawdisk_failures(sample)
+    assert any("MachineCheck inconsistencies found" in line for line in mc_and_fio)
+    assert any("FIO command failed" in line for line in mc_and_fio)
+
+    fio_only = lawdisk_failures(sample, ignore_machinecheck=True)
+    assert fio_only == [
+        "FIO command failed, model=randwrite bs=4k qd=64 runtime=30s (#2), "
+        "config=2-randwrite-4k-64-30.log, elapsed=12s(12s), planned_runtime=30s, rc=8"
+    ]
+    assert filesystem_failures(sample, ignore_machinecheck=True) == fio_only
+    assert mix_failures(sample, ignore_machinecheck=True) == fio_only
