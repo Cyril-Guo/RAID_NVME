@@ -59,7 +59,7 @@ def test_repository_test_items_file_is_valid():
     assert [name for name, _order, _enabled in entries]
     assert set(name for name, _order, _enabled in entries) == set(catalog)
     assert all(name in catalog for name in selected)
-    assert selected == ["mix"]
+    assert selected == ["basic_io", "random_io"]
     assert "defaults" not in params
     assert "lawdisk" in params
     assert params["lawdisk"]["IGNORE_ERROR"] == "no"
