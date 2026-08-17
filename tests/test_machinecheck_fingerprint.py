@@ -71,6 +71,7 @@ def test_diff_sh_uses_whitelist_fingerprint():
     assert "diff -q $MachineCheckLog/info_before.log $MachineCheckLog/info_after.log" not in source
     assert "ERROR: Missing log files for MachineCheck diff comparison." in source
     assert "test_end 3" in source
+    assert 'tee -a "$TestErrorLog/machine_diff_error.log" "$Result_Dir/result.log"' in source
 
 
 def test_fio_all_skips_autologin_for_stress():

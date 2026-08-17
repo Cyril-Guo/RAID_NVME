@@ -16,7 +16,7 @@ import pytest
 import allure
 
 from test_items.case_paths import io_stress_dir, stress_monitor_dir
-from test_items.fio_allure import attach_terminal_output
+from test_items.fio_allure import attach_machinecheck_records, attach_terminal_output
 
 
 def _ts():
@@ -109,25 +109,14 @@ def _collect_machinecheck_lines(text):
 
 
 def _record_machinecheck_only(text, ignore_error):
-    mc_lines = _collect_machinecheck_lines(text)
-    if not mc_lines:
-        return
-    allure.attach(
-        "\n".join(mc_lines),
-        name="MachineCheck 差异记录",
-        attachment_type=allure.attachment_type.TEXT,
-    )
-    if ignore_error:
-        print(f"{_ts()} [WARN] IGNORE_ERROR=yes, record MachineCheck without failing:")
-        for line in mc_lines[:50]:
-            print(f"{_ts()} [WARN] {line}")
+    attach_machinecheck_records(io_stress_dir(), text=text, ignore_error=ignore_error)
 
 
 def test_filesystemstress():
     # ---------- 1. 解析运行参数（全部来自 test_items.txt 注入的环境变量）----------
     # 说明：压测项的循环由 IO_Stress 的 CSV 配置与 runtime 决定，
     # 底层 Fio_All.sh 会将 LOOP 固定为 1，故此处不再使用 FIO_CYCLES。
-    # IGNORE_ERROR=yes：MachineCheck 只记录不判失败；no：MachineCheck 作为失败
+    # IGNORE_ERROR=yes：MachineCheck 仍记录，但不判失败；no：记录并判失败
     ignore_error = os.environ.get("IGNORE_ERROR", "").strip().lower() == "yes"
     flag_val = "NON-STOP" if ignore_error else "STOP"
 
@@ -160,7 +149,7 @@ def test_filesystemstress():
     allure.dynamic.title("FIO 测试: filesystemstress")
     allure.dynamic.description(
         f"文件系统 FIO 压力测试；"
-        f"出现 MachineCheck 差异时{'只记录、不判失败' if ignore_error else '判失败并停止'}。"
+        f"出现 MachineCheck 差异时始终记录；{'不判失败' if ignore_error else '判失败并停止'}。"
     )
 
     # ---------- 5. 同步执行并实时透传输出 ----------
@@ -187,9 +176,20 @@ def test_filesystemstress():
             ignore_machinecheck=ignore_error,
             ignore_fio_job_errors=(exit_code == 0),
         )
-        _record_machinecheck_only(output_text, ignore_error)
-
         attach_terminal_output(output_text)
+
+        res_content = ""
+        result_log = os.path.join(stress_dir, "log", "ResultLog", "fio_result", "result.log")
+        if os.path.exists(result_log):
+            with open(result_log, "r") as f:
+                res_content = f.read()
+            allure.attach(res_content, name="测试结果汇总", attachment_type=allure.attachment_type.TEXT)
+        attach_machinecheck_records(
+            stress_dir,
+            text=output_text + "\n" + res_content,
+            ignore_error=ignore_error,
+        )
+
         if exit_code != 0:
             print(f"{_ts()} [ERROR] 脚本执行失败，退出码: {exit_code}")
             detail = ""
@@ -198,15 +198,6 @@ def test_filesystemstress():
             pytest.fail(f"FIO 脚本执行失败，返回码: {exit_code}{detail}")
         if output_failures:
             pytest.fail("FIO 输出中检测到失败关键字:\n" + "\n".join(output_failures[:50]))
-        print(f"{_ts()} [SUCCESS] 脚本执行完成")
-
-    # ---------- 7. 结果汇总 ----------
-    result_log = os.path.join(stress_dir, "log", "ResultLog", "fio_result", "result.log")
-    if os.path.exists(result_log):
-        with open(result_log, "r") as f:
-            res_content = f.read()
-        allure.attach(res_content, name="测试结果汇总", attachment_type=allure.attachment_type.TEXT)
-        _record_machinecheck_only(res_content, ignore_error)
         result_failures = _collect_failure_lines(
             res_content,
             ignore_machinecheck=ignore_error,
@@ -214,5 +205,6 @@ def test_filesystemstress():
         )
         if result_failures:
             pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50]))
-        if (not ignore_error) and "Fail" in res_content:
+        if res_content and (not ignore_error) and "Fail" in res_content:
             pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50] or ["Fail"]))
+        print(f"{_ts()} [SUCCESS] 脚本执行完成")

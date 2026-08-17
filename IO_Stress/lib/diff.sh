@@ -237,9 +237,9 @@ function record_errorinfo(){
         echo "Time: $(date)"
         cat "$formatted"
         echo "--------------------------------------------------"
-    } | tee -a "$TestErrorLog/machine_diff_error.log"
+    } | tee -a "$TestErrorLog/machine_diff_error.log" "$Result_Dir/result.log"
 
-    echo -e " ERROR: MachineCheck inconsistencies found at loop $loop. Check $TestErrorLog/machine_diff_error.log for details."
+    echo -e " ERROR: MachineCheck inconsistencies found at loop $loop. Check $TestErrorLog/machine_diff_error.log for details." | tee -a "$Result_Dir/result.log"
 
     # Also record to diff_all.log
     {

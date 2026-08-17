@@ -1,4 +1,5 @@
 import gzip
+import os
 
 _JOB_RUNNING = " is Running.."
 _ERROR_MARKERS = (
@@ -71,3 +72,64 @@ def attach_terminal_output(output_text, name="终端完整输出"):
         attachment_type="application/gzip",
         extension="gz",
     )
+
+
+_MACHINECHECK_DETAIL_FILES = (
+    ("MachineCheck 差异记录", os.path.join("log", "TestErrorLog", "machine_diff_error.log")),
+    ("MachineCheck diff_all", os.path.join("log", "RawLog", "MachineCheckLog", "MessagesRecord", "diff_all.log")),
+)
+
+
+def _read_text_file(path):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            return handle.read().strip()
+    except OSError:
+        return ""
+
+
+def attach_machinecheck_records(stress_dir, text="", ignore_error=False):
+    import allure
+    from datetime import datetime
+
+    parts = []
+    attached_files = []
+    for name, relpath in _MACHINECHECK_DETAIL_FILES:
+        content = _read_text_file(os.path.join(stress_dir, relpath))
+        if not content:
+            continue
+        allure.attach(content, name=name, attachment_type=allure.attachment_type.TEXT)
+        attached_files.append(name)
+        if name == "MachineCheck 差异记录":
+            parts.append(content)
+
+    if not parts and text:
+        markers = (
+            "MachineCheck inconsistencies found",
+            "ERROR: MachineCheck",
+            "MachineCheck Log Inconsistency",
+            "Whitelist field differences",
+        )
+        marker_lines = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip() and any(marker in line for marker in markers)
+        ]
+        if marker_lines:
+            parts.append("\n".join(marker_lines))
+            allure.attach(
+                "\n".join(marker_lines),
+                name="MachineCheck 差异记录",
+                attachment_type=allure.attachment_type.TEXT,
+            )
+
+    if not parts:
+        return False
+
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"{ts} [INFO] MachineCheck differences recorded ({', '.join(attached_files) or 'stdout markers'})")
+    if ignore_error:
+        print(f"{ts} [WARN] IGNORE_ERROR=yes, record MachineCheck without failing")
+    else:
+        print(f"{ts} [INFO] IGNORE_ERROR=no, MachineCheck differences will fail the case")
+    return True
