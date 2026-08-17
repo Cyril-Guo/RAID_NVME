@@ -84,3 +84,38 @@ def test_collect_failure_lines_records_machinecheck_unless_ignored():
     ]
     assert filesystem_failures(sample, ignore_machinecheck=True) == fio_only
     assert mix_failures(sample, ignore_machinecheck=True) == fio_only
+
+
+def test_collect_failure_lines_ignores_partial_disk_fio_errors_when_script_ok():
+    sample = """
+    [FIO] finish model=randwrite bs=4k qd=64 runtime=30s (#1) config=1-randwrite-4k-64-30.log rc=4 elapsed=30s(30s) planned_runtime=30s
+    [FIO] partial disk failure recorded, model=randwrite bs=4k qd=64 runtime=30s (#1) config=1-randwrite-4k-64-30.log rc=4 elapsed=30s(30s); at least one disk had IO, continue
+    ----- FIO error detail begin (log=1.txt model=randwrite rc=4) -----
+    fio: io_u error on file /dev/dp0-vd2: Input/output error
+    err=5/file:io_u.c:1845, func=io_u error, error=Input/output error
+    ----- FIO error detail end (lines=2) -----
+    [FIO] MIX job 1 recorded stream failure rc=4/0/0/0; at least one disk had IO, continue
+    """
+
+    ignored = mix_failures(sample, ignore_fio_job_errors=True)
+    assert ignored == []
+    assert lawdisk_failures(sample, ignore_fio_job_errors=True) == []
+    assert filesystem_failures(sample, ignore_fio_job_errors=True) == []
+
+    kept = mix_failures(sample)
+    assert any("io_u error" in line for line in kept)
+    assert any("FIO error detail begin" in line for line in kept)
+
+
+def test_collect_failure_lines_still_keeps_guard_failures_when_ignoring_fio_job_errors():
+    sample = """
+    Fail to detect system disk. Refuse to run to avoid any IO on OS disk. Exit.
+    fio: io_u error on file /dev/dp0-vd2: Invalid argument
+    """
+
+    lines = lawdisk_failures(sample, ignore_fio_job_errors=True)
+    assert lines == [
+        "Fail to detect system disk. Refuse to run to avoid any IO on OS disk. Exit.",
+    ]
+    assert filesystem_failures(sample, ignore_fio_job_errors=True) == lines
+    assert mix_failures(sample, ignore_fio_job_errors=True) == lines

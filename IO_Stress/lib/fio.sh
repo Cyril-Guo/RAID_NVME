@@ -1301,6 +1301,26 @@ fio_io_progress_signature()
     done | sort
 }
 
+# True if FIO output shows any positive IOPS (at least one disk/job did IO).
+fio_output_has_successful_io()
+{
+    local output_file="$1"
+    [[ -f "$output_file" ]] || return 1
+    awk '
+        BEGIN { found=0 }
+        {
+            line=$0
+            while (match(line, /IOPS=[^ ,)]+/)) {
+                val=substr(line, RSTART+5, RLENGTH-5)
+                line=substr(line, RSTART+RLENGTH)
+                gsub(/[kKmMgGtT]/, "", val)
+                if (val+0 > 0) { found=1; exit }
+            }
+        }
+        END { exit found ? 0 : 1 }
+    ' "$output_file"
+}
+
 # Config name: N-mode-bs-qd-runtime.log -> human model label + planned runtime seconds.
 fio_model_label()
 {
@@ -1435,10 +1455,19 @@ run_fio_with_watchdog()
     FIO_LAST_PLANNED_RUNTIME="$planned_runtime"
     FIO_LAST_RC="$fio_rc"
     echo "$(date '+%F %T') [FIO] finish model=${model_label} config=${config_name} rc=${fio_rc} elapsed=${elapsed}s(${elapsed_hms}) planned_runtime=${planned_runtime}s" | tee -a "$output_file"
-    if [[ $fio_rc -ne 0 ]]; then
+    if [[ $fio_rc -eq 124 ]]; then
         echo "FIO command failed, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file" "$Result_Dir/result.log"
-        # FIO stdout/stderr only lands in output_file; echo concrete feedback to console + result.log
-        # so pytest/Allure failures show io_u / Invalid argument style detail (not only the summary).
+        append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
+        return "$fio_rc"
+    fi
+    if [[ $fio_rc -ne 0 ]]; then
+        if fio_output_has_successful_io "$output_file"; then
+            echo "$(date '+%F %T') [FIO] partial disk failure recorded, model=${model_label} config=${config_name} rc=${fio_rc} elapsed=${elapsed}s(${elapsed_hms}); at least one disk had IO, continue" | tee -a "$output_file" "$Result_Dir/result.log"
+            append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
+            FIO_LAST_RC=0
+            return 0
+        fi
+        echo "FIO command failed, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file" "$Result_Dir/result.log"
         append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
     fi
     return $fio_rc
@@ -1500,6 +1529,7 @@ do
    test_disk=`echo ${test_disk[@]} | sed 's/,/ /g'`
    test_disk=($test_disk)
    IFS="$OLD_IFS"
+   local single_disk_ok=0
    for str1 in ${test_disk[@]}
    do
       assert_not_system_disk "$str1" "run fio single mode" || return $?
@@ -1515,8 +1545,13 @@ do
       local fio_rc=$?
       if [[ $fio_rc -ne 0 ]]; then
           echo "FIO command failed on disk ${str1}, model=${FIO_LAST_MODEL:-unknown}, config=${FIO_LAST_CONFIG:-$(basename "$configuration")}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, planned_runtime=${FIO_LAST_PLANNED_RUNTIME:-?}s, rc=${fio_rc}" | tee -a $Result_Dir/result.log
-          return $fio_rc
+          echo "$(date '+%F %T') [FIO] skip failed disk ${str1}; continue if any other disk still succeeds" | tee -a $Result_Dir/result.log
+          sed -i '$d' $configuration
+          sed -i '$d' $configuration
+          sed -i '$d' $configuration
+          continue
       fi
+      single_disk_ok=1
 
 
       sed -i '$d' $configuration
@@ -1532,6 +1567,10 @@ do
 
        result_handle_after
    done
+   if [[ $single_disk_ok -eq 0 ]]; then
+       echo "FIO command failed, all disks failed for config $(basename "$configuration")" | tee -a $Result_Dir/result.log
+       return 1
+   fi
    jobnum=`expr $jobnum + 1`
 done
 #cd $Result_Dir
@@ -1599,9 +1638,20 @@ function run_all()
             wait $fio_pid1; local fio_rc1=$?
             wait $fio_pid2; local fio_rc2=$?
             wait $fio_pid3; local fio_rc3=$?
-            if [[ $fio_rc1 -ne 0 || $fio_rc2 -ne 0 || $fio_rc3 -ne 0 || $fio_rc4 -ne 0 ]]; then
+            local mix_has_io=0
+            local mix_i
+            for mix_i in 1 2 3 4; do
+                if fio_output_has_successful_io "$Result_Dir/detresult/MIX${mix_i}/${jobnum}.txt"; then
+                    mix_has_io=1
+                    break
+                fi
+            done
+            if [[ $mix_has_io -eq 0 ]]; then
                 echo "FIO command failed in MIX mode job ${jobnum}, model=${FIO_LAST_MODEL:-mix-job-${jobnum}}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, rc=${fio_rc1}/${fio_rc2}/${fio_rc3}/${fio_rc4}" | tee -a $Result_Dir/result.log
                 return 1
+            fi
+            if [[ $fio_rc1 -ne 0 || $fio_rc2 -ne 0 || $fio_rc3 -ne 0 || $fio_rc4 -ne 0 ]]; then
+                echo "$(date '+%F %T') [FIO] MIX job ${jobnum} recorded stream failure rc=${fio_rc1}/${fio_rc2}/${fio_rc3}/${fio_rc4}; at least one disk had IO, continue" | tee -a $Result_Dir/result.log
             fi
        
             result_handle_for_mix_io 

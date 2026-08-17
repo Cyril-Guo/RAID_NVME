@@ -45,6 +45,10 @@ def test_fio_runs_under_watchdog_timeout():
     assert "without output or non-system disk IO progress" in source
     assert 'timeout --kill-after=60s "${timeout_seconds}s" fio' not in source
     assert "FIO command failed in MIX mode" in source
+    assert "fio_output_has_successful_io" in source
+    assert "partial disk failure recorded" in source
+    assert "at least one disk had IO, continue" in source
+    assert "all disks failed for config" in source
     assert source.count("run_fio_with_watchdog") >= 6
     assert 'watch_interval_seconds="${FIO_WATCH_INTERVAL_SECONDS:-1}"' in source
     assert "if ! kill -0 \"$fio_pid\" 2>/dev/null; then" in source
@@ -309,3 +313,39 @@ def test_fio_system_disk_detection_parses_jenkins_source_line_under_set_e():
     )
 
     assert result.stdout.splitlines() == ["nvme3n1"]
+
+
+def test_fio_output_has_successful_io_detects_any_positive_iops(tmp_path):
+    ok_log = tmp_path / "ok.txt"
+    ok_log.write_text(
+        "read: IOPS=0, BW=0KiB/s\n"
+        "write: IOPS=12.3k, BW=48.1MiB/s\n",
+        encoding="utf-8",
+    )
+    fail_log = tmp_path / "fail.txt"
+    fail_log.write_text(
+        "read: IOPS=0, BW=0KiB/s\n"
+        "write: IOPS=0, BW=0KiB/s\n"
+        "fio: io_u error on file /dev/dp0-vd1: Invalid argument\n",
+        encoding="utf-8",
+    )
+    missing = tmp_path / "missing.txt"
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            "source IO_Stress/lib/fio.sh; "
+            f"fio_output_has_successful_io '{ok_log.as_posix()}' && echo ok_has_io=yes; "
+            f"fio_output_has_successful_io '{fail_log.as_posix()}' || echo fail_has_io=no; "
+            f"fio_output_has_successful_io '{missing.as_posix()}' || echo missing_has_io=no",
+        ],
+        cwd=Path.cwd(),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert "ok_has_io=yes" in result.stdout
+    assert "fail_has_io=no" in result.stdout
+    assert "missing_has_io=no" in result.stdout

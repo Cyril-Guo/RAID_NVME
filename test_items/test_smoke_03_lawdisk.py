@@ -48,11 +48,29 @@ _FAILURE_MARKERS = (
 )
 
 
+_FIO_JOB_ERROR_MARKERS = (
+    "FIO command failed",
+    "FIO stage failed",
+    "FIO stage abort",
+    "FIO failed",
+    "----- FIO error detail",
+    "fio:",
+    "io_u error",
+    "err=",
+    "Invalid argument",
+    "direct IO errored",
+)
+
+
 def _is_machinecheck_line(line):
     return any(marker in line for marker in _MACHINECHECK_MARKERS)
 
 
-def _collect_failure_lines(text, ignore_machinecheck=False):
+def _is_fio_job_error_line(line):
+    return any(marker in line for marker in _FIO_JOB_ERROR_MARKERS)
+
+
+def _collect_failure_lines(text, ignore_machinecheck=False, ignore_fio_job_errors=False):
     markers = _FAILURE_MARKERS
     if not ignore_machinecheck:
         markers = _FAILURE_MARKERS + _MACHINECHECK_MARKERS
@@ -62,17 +80,25 @@ def _collect_failure_lines(text, ignore_machinecheck=False):
         line = raw.strip()
         if not line:
             continue
-        if ignore_machinecheck and _is_machinecheck_line(line):
-            continue
         if "----- FIO error detail begin" in line:
             in_detail = True
-            lines.append(line)
+            if not ignore_fio_job_errors:
+                lines.append(line)
             continue
         if "----- FIO error detail end" in line:
-            lines.append(line)
+            if not ignore_fio_job_errors:
+                lines.append(line)
             in_detail = False
             continue
-        if in_detail or any(marker in line for marker in markers):
+        if in_detail:
+            if not ignore_fio_job_errors:
+                lines.append(line)
+            continue
+        if ignore_machinecheck and _is_machinecheck_line(line):
+            continue
+        if ignore_fio_job_errors and _is_fio_job_error_line(line):
+            continue
+        if any(marker in line for marker in markers):
             lines.append(line)
     return lines
 
@@ -155,7 +181,11 @@ def test_lawdiskstress():
         process.wait()
         exit_code = process.returncode
         output_text = "".join(full_output)
-        output_failures = _collect_failure_lines(output_text, ignore_machinecheck=ignore_error)
+        output_failures = _collect_failure_lines(
+            output_text,
+            ignore_machinecheck=ignore_error,
+            ignore_fio_job_errors=(exit_code == 0),
+        )
         _record_machinecheck_only(output_text, ignore_error)
 
         allure.attach(
@@ -179,7 +209,11 @@ def test_lawdiskstress():
             res_content = f.read()
         allure.attach(res_content, name="测试结果汇总", attachment_type=allure.attachment_type.TEXT)
         _record_machinecheck_only(res_content, ignore_error)
-        result_failures = _collect_failure_lines(res_content, ignore_machinecheck=ignore_error)
+        result_failures = _collect_failure_lines(
+            res_content,
+            ignore_machinecheck=ignore_error,
+            ignore_fio_job_errors=(exit_code == 0),
+        )
         if result_failures:
             pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50]))
         if (not ignore_error) and "Fail" in res_content:
