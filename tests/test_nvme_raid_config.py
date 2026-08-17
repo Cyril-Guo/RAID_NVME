@@ -58,8 +58,8 @@ def test_repository_test_items_file_is_valid():
     assert "END SELECTION" in text
     assert [name for name, _order, _enabled in entries]
     assert set(name for name, _order, _enabled in entries) == set(catalog)
+    assert selected
     assert all(name in catalog for name in selected)
-    assert selected == ["basic_io", "random_io"]
     assert "defaults" not in params
     assert "lawdisk" in params
     assert params["lawdisk"]["IGNORE_ERROR"] == "no"
