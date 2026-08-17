@@ -71,6 +71,13 @@ def attach_named_text(content, name):
     )
 
 
+def attach_case_terminal_output(output_text):
+    if not (output_text or "").strip():
+        return False
+    attach_named_text(output_text, CONSOLE_ATTACHMENT_NAME)
+    return True
+
+
 def attach_case_fio_summary(output_text):
     summary = extract_fio_job_summary(output_text)
     job_count = 0

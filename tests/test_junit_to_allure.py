@@ -56,7 +56,12 @@ def test_junit_to_allure_attaches_console_snapshot(tmp_path, monkeypatch):
         encoding="utf-8",
     )
     (tmp_path / "jenkins_console.log").write_text(
-        "[Pipeline] stage\nall console output\n",
+        "[Pipeline] stage\n"
+        "[ITEM_START] basic_io\n"
+        "[ITEM] basic_io -> test_items/test_smoke_06_basic_io.py\n"
+        "all console output\n"
+        "[ITEM_END] basic_io exit_code=0\n"
+        "[Pipeline] echo\n",
         encoding="utf-8",
     )
 
@@ -67,7 +72,10 @@ def test_junit_to_allure_attaches_console_snapshot(tmp_path, monkeypatch):
     console_attachment = next(
         item for item in result["attachments"] if item["name"] == "终端输出"
     )
-    assert "all console output" in (allure_dir / console_attachment["source"]).read_text(encoding="utf-8")
+    console_text = (allure_dir / console_attachment["source"]).read_text(encoding="utf-8")
+    assert "all console output" in console_text
+    assert "[Pipeline] stage" not in console_text
+    assert "[Pipeline] echo" not in console_text
     assert "links" not in result
 
 
@@ -82,7 +90,10 @@ def test_junit_to_allure_large_console_uses_english_hint(tmp_path, monkeypatch):
 """,
         encoding="utf-8",
     )
-    (tmp_path / "jenkins_console.log").write_text("x" * (1024 * 1024 + 8), encoding="utf-8")
+    (tmp_path / "jenkins_console.log").write_text(
+        "[ITEM_START] basic_io\n" + ("x" * (1024 * 1024 + 8)) + "\n[ITEM_END] basic_io exit_code=0\n",
+        encoding="utf-8",
+    )
 
     assert junit_to_allure.main() == 0
 
@@ -111,7 +122,13 @@ def test_junit_to_allure_does_not_copy_global_fio_summary_onto_every_case(tmp_pa
         encoding="utf-8",
     )
     (tmp_path / "test_execution_192.168.23.94.log").write_text(
-        "Job 1/2800 is Running..\nJob 2800/2800 is Running..\n",
+        "[ITEM_START] mix\n"
+        "mix only line\n"
+        "Job 1/2800 is Running..\n"
+        "[ITEM_END] mix exit_code=0\n"
+        "[ITEM_START] basic_io\n"
+        "basic io only line\n"
+        "[ITEM_END] basic_io exit_code=0\n",
         encoding="utf-8",
     )
     (tmp_path / "jenkins_console.log").write_text(
@@ -123,14 +140,105 @@ def test_junit_to_allure_does_not_copy_global_fio_summary_onto_every_case(tmp_pa
 
     results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
     assert len(results) == 2
+    by_name = {result["name"]: result for result in results}
+    mix = by_name["[Physical 192.168.23.94] test_mix_stress"]
+    basic = by_name["[Physical 192.168.23.94] test_basic_io"]
     for result in results:
         names = [item["name"] for item in result.get("attachments") or []]
         assert "FIO 任务摘要" not in names
         assert "测试结果汇总" not in names
         assert "MachineCheck 差异记录" not in names
         assert "终端输出" in names
-        console = next(item for item in result["attachments"] if item["name"] == "终端输出")
-        assert "all cases share this console" in (allure_dir / console["source"]).read_text(encoding="utf-8")
+    mix_console = next(item for item in mix["attachments"] if item["name"] == "终端输出")
+    basic_console = next(item for item in basic["attachments"] if item["name"] == "终端输出")
+    mix_text = (allure_dir / mix_console["source"]).read_text(encoding="utf-8")
+    basic_text = (allure_dir / basic_console["source"]).read_text(encoding="utf-8")
+    assert "mix only line" in mix_text
+    assert "basic io only line" not in mix_text
+    assert "all cases share this console" not in mix_text
+    assert "basic io only line" in basic_text
+    assert "mix only line" not in basic_text
+    assert "all cases share this console" not in basic_text
+
+
+def test_junit_to_allure_does_not_copy_full_jenkins_console_onto_pytest_case(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="test_items.test_smoke_05_mix" name="test_mix_stress" />
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "jenkins_console.log").write_text(
+        "[Pipeline] stage\nthis is the full Jenkins console\n",
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+
+    result = json.loads(next(allure_dir.glob("*-result.json")).read_text(encoding="utf-8"))
+    names = [item["name"] for item in result.get("attachments") or []]
+    assert "终端输出" not in names
+
+
+def test_junit_to_allure_keeps_existing_pytest_terminal_output(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    source = "case-terminal.log"
+    (allure_dir / source).write_text("this case stdout only\n", encoding="utf-8")
+    result = {
+        "name": "FIO 测试: mix (混合 IO)",
+        "historyId": "192.168.23.94::physical::test_items.test_smoke_05_mix::test_mix_stress",
+        "fullName": "physical:192.168.23.94:test_items.test_smoke_05_mix#test_mix_stress",
+        "testCaseId": "192.168.23.94::physical::test_items.test_smoke_05_mix::test_mix_stress",
+        "labels": [
+            {"name": "package", "value": "test_items.test_smoke_05_mix"},
+            {"name": "framework", "value": "pytest"},
+        ],
+        "attachments": [{"name": "终端输出", "source": source, "type": "text/plain"}],
+    }
+    (allure_dir / "pytest-mix-result.json").write_text(json.dumps(result), encoding="utf-8")
+    (tmp_path / "report_192.168.23.94.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="test_items.test_smoke_05_mix" name="test_mix_stress" />
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "jenkins_console.log").write_text(
+        "[ITEM_START] mix\njenkins slice for mix\n[ITEM_END] mix exit_code=0\n",
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+
+    saved = json.loads((allure_dir / "pytest-mix-result.json").read_text(encoding="utf-8"))
+    consoles = [item for item in saved["attachments"] if item["name"] == "终端输出"]
+    assert len(consoles) == 1
+    assert (allure_dir / consoles[0]["source"]).read_text(encoding="utf-8") == "this case stdout only\n"
+
+
+def test_split_item_console_chunks_uses_item_markers():
+    text = (
+        "[Pipeline] stage\n"
+        "[ITEM_START] mix\n"
+        "mix body\n"
+        "[ITEM_END] mix exit_code=0\n"
+        "between cases\n"
+        "[ITEM] lawdisk -> test_items/test_smoke_03_lawdisk.py\n"
+        "lawdisk body\n"
+    )
+    chunks = junit_to_allure.split_item_console_chunks(text)
+    assert "mix body" in chunks["mix"]
+    assert "[Pipeline] stage" not in chunks["mix"]
+    assert "between cases" not in chunks["mix"]
+    assert "lawdisk body" not in chunks["mix"]
+    assert "lawdisk body" in chunks["lawdisk"]
+    assert "mix body" not in chunks["lawdisk"]
 
 
 def test_junit_to_allure_generates_environment_prepare_result(tmp_path, monkeypatch):

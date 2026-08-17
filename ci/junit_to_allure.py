@@ -73,16 +73,21 @@ def existing_history_ids(allure_dir):
 
 
 def result_matches_item(result, item):
-    text = " ".join(
+    parts = [
         str(result.get(key, "")).lower()
         for key in ("name", "fullName", "historyId", "testCaseId")
-    )
+    ]
+    for label in result.get("labels") or []:
+        parts.append(str(label.get("value", "")).lower())
+    text = " ".join(parts)
     aliases = {
         "lawdisk": ("lawdisk", "lawdiskstress"),
         "filesystem": ("filesystem", "filesystemstress"),
         "mix": ("mix", "mix_stress"),
         "reboot": ("reboot", "reboot_powercycle"),
         "dc": ("dc", "dc_powercycle"),
+        "basic_io": ("basic_io",),
+        "basic_rebuild_io": ("basic_rebuild_io",),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))
 
@@ -499,6 +504,10 @@ CONSOLE_ATTACHMENT_ALIASES = {
     "Jenkins Console Output",
 }
 
+_ITEM_BOUNDARY_RE = re.compile(r"\[ITEM_START\]\s+(\S+)|\[ITEM\]\s+(\S+)\s+->")
+_ITEM_END_RE = re.compile(r"\[ITEM_END\]\s+(\S+)")
+_INFRA_SUITES = {"Test_Execution"}
+
 
 def _has_console_attachment(attachments):
     names = {item.get("name") for item in attachments}
@@ -507,36 +516,101 @@ def _has_console_attachment(attachments):
     )
 
 
-def attach_jenkins_console(allure_dir, console_path="jenkins_console.log"):
-    if not os.path.isfile(console_path):
-        return 0
+def _read_text(path):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as handle:
+            return handle.read()
+    except OSError:
+        return ""
 
+
+def split_item_console_chunks(text):
+    """Split nvme_raid_test output into per-item console slices."""
+    chunks = {}
+    current = None
+    buf = []
+    for line in (text or "").splitlines(keepends=True):
+        start = _ITEM_BOUNDARY_RE.search(line)
+        if start:
+            if current is not None:
+                chunks[current] = chunks.get(current, "") + "".join(buf)
+            current = start.group(1) or start.group(2)
+            buf = [line]
+            continue
+        ended = _ITEM_END_RE.search(line)
+        if ended and current is not None:
+            buf.append(line)
+            chunks[current] = chunks.get(current, "") + "".join(buf)
+            current = None
+            buf = []
+            continue
+        if current is not None:
+            buf.append(line)
+    if current is not None:
+        chunks[current] = chunks.get(current, "") + "".join(buf)
+    return chunks
+
+
+def collect_item_console_chunks(console_path="jenkins_console.log"):
+    chunks = {}
+    sources = sorted(glob.glob("test_execution_*.log"))
+    if os.path.isfile(console_path):
+        sources.append(console_path)
+    for path in sources:
+        for item, text in split_item_console_chunks(_read_text(path)).items():
+            if item not in chunks and text.strip():
+                chunks[item] = text
+    return chunks
+
+
+def matching_console_item(result, items):
+    for item in sorted(items, key=len, reverse=True):
+        if result_matches_item(result, item):
+            return item
+    return None
+
+
+def _result_labels(result):
+    return {label.get("name"): label.get("value") for label in result.get("labels") or []}
+
+
+def _is_execution_infra(result):
+    labels = _result_labels(result)
+    return labels.get("suite") in _INFRA_SUITES or labels.get("package") in _INFRA_SUITES
+
+
+def _build_text_attachments(allure_dir, text, constants):
+    name = constants.CONSOLE_ATTACHMENT_NAME
+    encoded = (text or "").encode("utf-8", errors="replace")
+    if len(encoded) > constants.TEXT_PREVIEW_LIMIT:
+        hint_source = f"{uuid.uuid4()}-terminal-hint.txt"
+        with open(os.path.join(allure_dir, hint_source), "w", encoding="utf-8") as handle:
+            handle.write(constants.LARGE_CONTENT_HINT + "\n")
+        full_source = f"{uuid.uuid4()}-terminal.log"
+        with open(os.path.join(allure_dir, full_source), "w", encoding="utf-8") as handle:
+            handle.write(text or "")
+        return [
+            {"name": name, "source": hint_source, "type": "text/plain"},
+            {"name": f"{name}.log", "source": full_source, "type": "text/plain"},
+        ]
+    source = f"{uuid.uuid4()}-terminal.log"
+    with open(os.path.join(allure_dir, source), "w", encoding="utf-8") as handle:
+        handle.write(text or "")
+    return [{"name": name, "source": source, "type": "text/plain"}]
+
+
+def attach_jenkins_console(allure_dir, console_path="jenkins_console.log"):
     result_paths = sorted(glob.glob(os.path.join(allure_dir, "*-result.json")))
     if not result_paths:
         return 0
 
     constants = _fio_allure()
-    name = constants.CONSOLE_ATTACHMENT_NAME
-    size = os.path.getsize(console_path)
-    to_add = []
-    if size > constants.TEXT_PREVIEW_LIMIT:
-        hint_source = f"{uuid.uuid4()}-terminal-hint.txt"
-        with open(os.path.join(allure_dir, hint_source), "w", encoding="utf-8") as handle:
-            handle.write(constants.LARGE_CONTENT_HINT + "\n")
-        full_source = f"{uuid.uuid4()}-terminal.log"
-        with open(console_path, "rb") as src, open(os.path.join(allure_dir, full_source), "wb") as dst:
-            dst.write(src.read())
-        to_add = [
-            {"name": name, "source": hint_source, "type": "text/plain"},
-            {"name": f"{name}.log", "source": full_source, "type": "text/plain"},
-        ]
-    else:
-        source = f"{uuid.uuid4()}-terminal.log"
-        with open(console_path, "rb") as src, open(os.path.join(allure_dir, source), "wb") as dst:
-            dst.write(src.read())
-        to_add = [{"name": name, "source": source, "type": "text/plain"}]
-
+    item_chunks = collect_item_console_chunks(console_path)
+    full_console = _read_text(console_path) if os.path.isfile(console_path) else ""
+    item_attachments = {}
+    infra_attachments = None
     attached = 0
+
     for path in result_paths:
         try:
             with open(path, "r", encoding="utf-8") as handle:
@@ -547,8 +621,22 @@ def attach_jenkins_console(allure_dir, console_path="jenkins_console.log"):
         attachments = result.setdefault("attachments", [])
         if _has_console_attachment(attachments):
             continue
-        attachments.extend(to_add)
 
+        to_add = None
+        item = matching_console_item(result, item_chunks)
+        if item:
+            to_add = item_attachments.get(item)
+            if to_add is None:
+                to_add = _build_text_attachments(allure_dir, item_chunks[item], constants)
+                item_attachments[item] = to_add
+        elif _is_execution_infra(result) and full_console.strip():
+            if infra_attachments is None:
+                infra_attachments = _build_text_attachments(allure_dir, full_console, constants)
+            to_add = infra_attachments
+
+        if not to_add:
+            continue
+        attachments.extend(to_add)
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(result, handle, ensure_ascii=False)
         attached += 1

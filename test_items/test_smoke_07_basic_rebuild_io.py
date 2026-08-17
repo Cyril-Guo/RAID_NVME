@@ -7,14 +7,15 @@ from test_items.basic_io_common import (
     prepare_physical_io_case,
     verify_all_vds_degraded,
 )
-from test_items import test_smoke_03_lawdisk as lawdisk_case
+from test_items.fio_run import build_fio_args, maybe_start_monitor, run_and_check_fio
 
 
 def test_basic_rebuild_io():
     allure.dynamic.title("Test_CI_basic_rebuild_IO")
     allure.dynamic.description(
         "Per-case prep (CSD clear / dpraid update / draid rmmod-insmod / VD-PD clear), "
-        "create eight RAID5 VDs, drop one disk per group to degraded, then run lawdisk FIO."
+        "create eight RAID5 VDs, drop one disk per group to degraded, "
+        "then run Input_Config_basic_rebuild_io.csv."
     )
 
     log = CommandLog()
@@ -27,8 +28,12 @@ def test_basic_rebuild_io():
         power_cycle_one_disk_per_group(groups, log)
         log.write("Test_CI_basic_rebuild_IO phase: verify degraded VDs")
         verify_all_vds_degraded(log, expected=8)
-        log.write("Test_CI_basic_rebuild_IO phase: start lawdisk FIO on degraded VDs")
+        log.write("Test_CI_basic_rebuild_IO phase: start FIO with Input_Config_basic_rebuild_io.csv")
     finally:
-        log.attach("Test_CI_basic_rebuild_IO_terminal_output")
+        prefix = "\n".join(log.lines) + "\n"
 
-    lawdisk_case.test_lawdiskstress()
+    maybe_start_monitor()
+    run_and_check_fio(
+        build_fio_args("lawdiskstress", "basic_rebuild_io"),
+        extra_output=prefix,
+    )

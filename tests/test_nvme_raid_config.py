@@ -17,6 +17,8 @@ def test_item_name_from_filename_supports_smoke_and_plain_patterns():
     assert item_name_from_filename("basic_io_common.py") is None
     assert item_name_from_filename("test_basic_io_common.py") is None
     assert item_name_from_filename("powercycle_launch.py") is None
+    assert item_name_from_filename("fio_run.py") is None
+    assert item_name_from_filename("fio_allure.py") is None
     assert item_name_from_filename("__init__.py") is None
 
 
@@ -55,10 +57,13 @@ def test_repository_test_items_file_is_valid():
     assert [name for name, _order, _enabled in entries]
     assert set(name for name, _order, _enabled in entries) == set(catalog)
     assert all(name in catalog for name in selected)
-    assert selected == ["basic_io", "mix"]
+    assert selected == ["mix"]
     assert "defaults" not in params
     assert "lawdisk" in params
     assert params["lawdisk"]["IGNORE_ERROR"] == "no"
+    assert params["lawdisk"]["FIO_CONFIG"] == "Input_Config_lawdisk.csv"
+    assert params["mix"]["FIO_CONFIG"] == "Input_Config_mix.csv"
+    assert params["basic_io"]["FIO_CONFIG"] == "Input_Config_basic_io.csv"
     assert "FIO_CYCLES" not in params["lawdisk"]
     assert params["dc"]["FIO_CYCLES"] == "5"
     assert params["reboot"]["FIO_CYCLES"] == "100"

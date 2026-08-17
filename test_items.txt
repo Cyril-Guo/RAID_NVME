@@ -37,43 +37,51 @@ mix 8
 
 # ============================================================
 # 各用例参数（只写该用例会用到的键）
+# FIO_CONFIG 指向 IO_Stress/ 下该用例自己的 CSV，互不影响
 # ============================================================
 
 [reboot]
 FIO_CYCLES      = 100
+FIO_CONFIG      = Input_Config_reboot.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 
 [dc]
 FIO_CYCLES      = 5
+FIO_CONFIG      = Input_Config_dc.csv
 IGNORE_ERROR    = no
 FIO_DISKS       =
 
 [lawdisk]
+FIO_CONFIG      = Input_Config_lawdisk.csv
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
 [filesystem]
+FIO_CONFIG      = Input_Config_filesystem.csv
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
 [mix]
+FIO_CONFIG      = Input_Config_mix.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME =
 
 [basic_io]
+FIO_CONFIG      = Input_Config_basic_io.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 1000
 
 [basic_rebuild_io]
+FIO_CONFIG      = Input_Config_basic_rebuild_io.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no

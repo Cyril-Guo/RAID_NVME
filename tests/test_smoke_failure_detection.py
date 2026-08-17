@@ -1,6 +1,6 @@
-from test_items.test_smoke_03_lawdisk import _collect_failure_lines as lawdisk_failures
-from test_items.test_smoke_04_filesystem import _collect_failure_lines as filesystem_failures
-from test_items.test_smoke_05_mix import _collect_failure_lines as mix_failures
+from test_items.fio_run import collect_failure_lines as lawdisk_failures
+from test_items.fio_run import collect_failure_lines as filesystem_failures
+from test_items.fio_run import collect_failure_lines as mix_failures
 
 
 def test_collect_failure_lines_matches_fio_errors():

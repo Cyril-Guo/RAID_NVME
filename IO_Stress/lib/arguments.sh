@@ -94,7 +94,7 @@ function help(){
    echo "   -w <60|...>: S5 delay time, the default value is 120s"
    echo "   -l <500|...>: the LOOPs, and the default value is 1000"
    #echo "   -r <43200|...>: runtime for stress"
-   echo "   -n <Input_Config_Disk_Full_Scan.csv|...>: filename for stress only"
+   echo "   -n <Input_Config_lawdisk.csv|Input_Config_mix.csv|...>: per-case FIO CSV"
    echo "   -t <non-fs|...>: fs_type for stress"
    echo "   -o <all|single|both>: disk_mode for Disk"
    echo "   -u <sda,sdb,...>: specify disk"

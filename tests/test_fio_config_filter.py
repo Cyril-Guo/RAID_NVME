@@ -57,6 +57,14 @@ def test_fio_runs_under_watchdog_timeout():
     assert "io_u error" in source
 
 
+def test_mix_io_generates_random_mixio_jobs():
+    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+
+    assert "python3 $Cur_Dir/random_choice.py" in source
+    assert "mv random_choice.csv MixIO$i.csv" in source
+    assert 'cp "$Cur_Dir/$filename" "MixIO${i}.csv"' not in source
+
+
 def test_io_stress_does_not_clear_system_logs():
     source = Path("IO_Stress/lib/init.sh").read_text(encoding="utf-8")
 

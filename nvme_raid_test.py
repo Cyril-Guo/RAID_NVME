@@ -14,6 +14,7 @@ import pytest
 
 ALLOWED_PARAM_KEYS = (
     "FIO_CYCLES",
+    "FIO_CONFIG",
     "IGNORE_ERROR",
     "FIO_DISKS",
     "STRESS_MONITOR",
@@ -29,7 +30,7 @@ CASES_DIR = "cases"
 
 _SMOKE_NAME_RE = re.compile(r"^test_smoke_\d+_(.+)\.py$", re.IGNORECASE)
 _TEST_NAME_RE = re.compile(r"^test_(.+)\.py$", re.IGNORECASE)
-_SKIP_NAME_RE = re.compile(r"(^__init__\.py$|_common\.py$|^powercycle_launch\.py$)", re.IGNORECASE)
+_SKIP_NAME_RE = re.compile(r"(^__init__\.py$|_common\.py$|^powercycle_launch\.py$|^fio_run\.py$|^fio_allure\.py$)", re.IGNORECASE)
 
 
 def item_name_from_filename(filename):

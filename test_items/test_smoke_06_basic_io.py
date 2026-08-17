@@ -1,14 +1,14 @@
 import allure
 
 from test_items.basic_io_common import CommandLog, prepare_basic_raid5_vds, prepare_physical_io_case
-from test_items import test_smoke_03_lawdisk as lawdisk_case
+from test_items.fio_run import build_fio_args, maybe_start_monitor, run_and_check_fio
 
 
 def test_basic_io():
     allure.dynamic.title("Test_CI_basic_IO")
     allure.dynamic.description(
         "Per-case prep (CSD clear / dpraid update / draid rmmod-insmod / VD-PD clear), "
-        "then create eight RAID5 VDs and run lawdisk FIO on healthy VDs."
+        "then create eight RAID5 VDs and run Input_Config_basic_io.csv on healthy VDs."
     )
 
     log = CommandLog()
@@ -17,8 +17,9 @@ def test_basic_io():
         prepare_physical_io_case(log)
         log.write("Test_CI_basic_IO phase: prepare RAID5 VDs")
         prepare_basic_raid5_vds(log)
-        log.write("Test_CI_basic_IO phase: start lawdisk FIO")
+        log.write("Test_CI_basic_IO phase: start FIO with Input_Config_basic_io.csv")
     finally:
-        log.attach("Test_CI_basic_IO_terminal_output")
+        prefix = "\n".join(log.lines) + "\n"
 
-    lawdisk_case.test_lawdiskstress()
+    maybe_start_monitor()
+    run_and_check_fio(build_fio_args("lawdiskstress", "basic_io"), extra_output=prefix)

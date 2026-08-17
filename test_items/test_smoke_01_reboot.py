@@ -13,6 +13,7 @@ from datetime import datetime
 import allure
 
 from test_items.case_paths import io_stress_dir
+from test_items.fio_run import build_fio_args
 from test_items.powercycle_launch import trigger_background_fio
 
 
@@ -29,13 +30,9 @@ def test_reboot_powercycle():
         loops = 10
     # IGNORE_ERROR=yes 表示忽略 MachineCheck 错误继续 -> 不停止
     ignore_error = os.environ.get("IGNORE_ERROR", "").strip().lower() == "yes"
-    flag_val = "NON-STOP" if ignore_error else "STOP"
 
-    # ---------- 2. 组装 Fio_All.sh 参数 ----------
-    fio_args = ["-i", "reboot", "-l", str(loops), "-f", flag_val]
-    fio_disks = os.environ.get("FIO_DISKS", "").strip()
-    if fio_disks:
-        fio_args.extend(["-u", fio_disks])
+    # ---------- 2. 组装 powercycle 参数（本用例独立 CSV）----------
+    fio_args = build_fio_args("reboot", "reboot", extra=["-l", str(loops)])
 
     # ---------- 3. Allure 报告标题与描述 ----------
     allure.dynamic.title(f"FIO 测试: reboot (循环 {loops} 次)")

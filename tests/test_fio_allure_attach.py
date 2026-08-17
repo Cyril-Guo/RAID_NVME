@@ -78,6 +78,29 @@ def test_attach_case_fio_summary_uses_this_case_output_only(monkeypatch):
     assert attach_case_fio_summary("no jobs here") is False
 
 
+def test_attach_case_terminal_output_uses_console_attachment_name(monkeypatch):
+    attached = []
+
+    class FakeAllure:
+        class attachment_type:
+            TEXT = "text/plain"
+
+        @staticmethod
+        def attach(body, name=None, attachment_type=None, extension=None):
+            attached.append({"name": name, "body": body})
+
+    monkeypatch.setattr(allure, "attach", FakeAllure.attach)
+    monkeypatch.setattr(allure, "attachment_type", FakeAllure.attachment_type)
+
+    from test_items.fio_allure import CONSOLE_ATTACHMENT_NAME, attach_case_terminal_output
+
+    assert attach_case_terminal_output("  \n") is False
+    assert attached == []
+    assert attach_case_terminal_output("[12:00:00] Job 1/4 is Running..\n") is True
+    assert attached[0]["name"] == CONSOLE_ATTACHMENT_NAME
+    assert attached[0]["body"] == "[12:00:00] Job 1/4 is Running..\n"
+
+
 def test_attach_machinecheck_records_always_attaches_detail_log(tmp_path, monkeypatch, capsys):
     attached = []
 
