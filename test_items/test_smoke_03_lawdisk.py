@@ -16,6 +16,7 @@ import pytest
 import allure
 
 from test_items.case_paths import io_stress_dir, stress_monitor_dir
+from test_items.fio_allure import attach_terminal_output
 
 
 def _ts():
@@ -188,10 +189,7 @@ def test_lawdiskstress():
         )
         _record_machinecheck_only(output_text, ignore_error)
 
-        allure.attach(
-            output_text, name="终端完整输出",
-            attachment_type=allure.attachment_type.TEXT,
-        )
+        attach_terminal_output(output_text)
         if exit_code != 0:
             print(f"{_ts()} [ERROR] 脚本执行失败，退出码: {exit_code}")
             detail = ""

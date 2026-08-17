@@ -71,6 +71,41 @@ def test_junit_to_allure_attaches_console_snapshot(tmp_path, monkeypatch):
     assert "links" not in result
 
 
+def test_junit_to_allure_attaches_fio_job_summary(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "report_192.168.23.94.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="test_items.test_smoke_05_mix" name="test_mix_stress" />
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "test_execution_192.168.23.94.log").write_text(
+        "\n".join(
+            [
+                "Job 1/2800 is Running..",
+                "Job 61/2800 is Running..",
+                "Job 2800/2800 is Running..",
+                "[FIO] finish model=randrw (#2800) rc=0 elapsed=31s",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+
+    result = json.loads(next(allure_dir.glob("*-result.json")).read_text(encoding="utf-8"))
+    summary_attachment = next(
+        item for item in result["attachments"] if item["name"] == "FIO 任务摘要"
+    )
+    summary = (allure_dir / summary_attachment["source"]).read_text(encoding="utf-8")
+    assert "job_running_lines=3" in summary
+    assert "Job 2800/2800 is Running.." in summary
+
+
 def test_junit_to_allure_generates_environment_prepare_result(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"

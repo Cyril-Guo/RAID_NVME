@@ -2,6 +2,7 @@ import glob
 import json
 import os
 import re
+import sys
 import uuid
 import xml.etree.ElementTree as ET
 
@@ -479,6 +480,70 @@ def write_console_fallback_result(allure_dir, existing_ids, console_path="jenkin
     return 1
 
 
+def _repo_root():
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def extract_fio_job_summary(text):
+    root = _repo_root()
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from test_items.fio_allure import extract_fio_job_summary as extract
+
+    return extract(text)
+
+
+def attach_fio_job_summary(allure_dir, console_path="jenkins_console.log"):
+    chunks = []
+    for path in [console_path] + sorted(glob.glob("test_execution_*.log")):
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                chunks.append(handle.read())
+        except OSError:
+            continue
+    summary = extract_fio_job_summary("\n".join(chunks))
+    job_count = 0
+    for line in summary.splitlines():
+        if line.startswith("job_running_lines="):
+            job_count = int(line.split("=", 1)[1])
+            break
+    if job_count <= 0:
+        return 0
+
+    result_paths = sorted(glob.glob(os.path.join(allure_dir, "*-result.json")))
+    if not result_paths:
+        return 0
+
+    source = f"{uuid.uuid4()}-fio-job-summary.txt"
+    with open(os.path.join(allure_dir, source), "w", encoding="utf-8") as handle:
+        handle.write(summary)
+        if not summary.endswith("\n"):
+            handle.write("\n")
+
+    attached = 0
+    for path in result_paths:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                result = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        attachments = result.setdefault("attachments", [])
+        if not any(item.get("name") == "FIO 任务摘要" for item in attachments):
+            attachments.append({
+                "name": "FIO 任务摘要",
+                "source": source,
+                "type": "text/plain",
+            })
+
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(result, handle, ensure_ascii=False)
+        attached += 1
+    return attached
+
+
 def attach_jenkins_console(allure_dir, console_path="jenkins_console.log"):
     if not os.path.isfile(console_path):
         return 0
@@ -546,6 +611,7 @@ def main():
     execution_generated = write_failed_execution_results(allure_dir, existing_ids)
     console_fallback = write_console_fallback_result(allure_dir, existing_ids)
     attached = attach_pending_monitor_logs(allure_dir)
+    summary_attached = attach_fio_job_summary(allure_dir)
     console_attached = attach_jenkins_console(allure_dir)
     print(
         f"generated allure result files from junit: {generated}, "
@@ -553,6 +619,7 @@ def main():
         f"physical restore results: {restore_generated}, "
         f"failed execution results: {execution_generated}, "
         f"console fallback results: {console_fallback}, attached monitor logs: {attached}, "
+        f"attached FIO job summary to results: {summary_attached}, "
         f"attached Jenkins console to results: {console_attached}"
     )
     return 0
