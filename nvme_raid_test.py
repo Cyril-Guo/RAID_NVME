@@ -19,6 +19,7 @@ ALLOWED_PARAM_KEYS = (
     "FIO_DISKS",
     "STRESS_MONITOR",
     "MONITOR_RUNTIME",
+    "RANDOM_IO_SEED",
 )
 ALL_PARAM_KEYS = sorted(ALLOWED_PARAM_KEYS)
 
@@ -30,7 +31,10 @@ CASES_DIR = "cases"
 
 _SMOKE_NAME_RE = re.compile(r"^test_smoke_\d+_(.+)\.py$", re.IGNORECASE)
 _TEST_NAME_RE = re.compile(r"^test_(.+)\.py$", re.IGNORECASE)
-_SKIP_NAME_RE = re.compile(r"(^__init__\.py$|_common\.py$|^powercycle_launch\.py$|^fio_run\.py$|^fio_allure\.py$)", re.IGNORECASE)
+_SKIP_NAME_RE = re.compile(
+    r"(^__init__\.py$|_common\.py$|^powercycle_launch\.py$|^fio_run\.py$|^fio_allure\.py$|^random_io_plan\.py$)",
+    re.IGNORECASE,
+)
 
 
 def item_name_from_filename(filename):
@@ -527,6 +531,7 @@ def result_matches_item(result, item):
         "dc": ("dc", "dc_powercycle"),
         "basic_io": ("basic_io", "basic_io"),
         "basic_rebuild_io": ("basic_rebuild_io", "basic_rebuild_io"),
+        "random_io": ("random_io", "randomio"),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))
 

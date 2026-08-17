@@ -32,6 +32,7 @@
 mix 8
 # basic_io 6
 # basic_rebuild_io 7
+# random_io 8
 # === END SELECTION ===
 
 
@@ -86,3 +87,11 @@ IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 1000
+
+[random_io]
+FIO_CONFIG      = Input_Config_random_io.csv
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = no
+MONITOR_RUNTIME =
+RANDOM_IO_SEED  =

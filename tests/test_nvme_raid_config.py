@@ -19,6 +19,7 @@ def test_item_name_from_filename_supports_smoke_and_plain_patterns():
     assert item_name_from_filename("powercycle_launch.py") is None
     assert item_name_from_filename("fio_run.py") is None
     assert item_name_from_filename("fio_allure.py") is None
+    assert item_name_from_filename("random_io_plan.py") is None
     assert item_name_from_filename("__init__.py") is None
 
 
@@ -32,6 +33,7 @@ def test_discover_test_items_finds_repository_smoke_cases():
     assert catalog["mix"] == "test_items/test_smoke_05_mix.py"
     assert catalog["basic_io"] == "test_items/test_smoke_06_basic_io.py"
     assert catalog["basic_rebuild_io"] == "test_items/test_smoke_07_basic_rebuild_io.py"
+    assert catalog["random_io"] == "test_items/test_smoke_08_random_io.py"
 
 
 def test_discover_test_items_rejects_duplicate_names(tmp_path):
@@ -64,6 +66,7 @@ def test_repository_test_items_file_is_valid():
     assert params["lawdisk"]["FIO_CONFIG"] == "Input_Config_lawdisk.csv"
     assert params["mix"]["FIO_CONFIG"] == "Input_Config_mix.csv"
     assert params["basic_io"]["FIO_CONFIG"] == "Input_Config_basic_io.csv"
+    assert params["random_io"]["FIO_CONFIG"] == "Input_Config_random_io.csv"
     assert "FIO_CYCLES" not in params["lawdisk"]
     assert params["dc"]["FIO_CYCLES"] == "5"
     assert params["reboot"]["FIO_CYCLES"] == "100"

@@ -572,6 +572,8 @@ function gen_config_file()
             sed -i "s/off_set/${offset}/" $Config_Dir/$config_file
             sed -i "s/config_size/${io_size}/" $Config_Dir/$config_file
             sed -i "s/config_verify_type/${verify_type}/" $Config_Dir/$config_file
+            # Job sections default to size=100%; keep verify slices from overlapping.
+            sed -i "s#^size=100%\$#size=${io_size}#" $Config_Dir/$config_file
         else
             sed -i "s/off_set/${offset}%/" $Config_Dir/$config_file
         fi

@@ -88,6 +88,7 @@ def result_matches_item(result, item):
         "dc": ("dc", "dc_powercycle"),
         "basic_io": ("basic_io",),
         "basic_rebuild_io": ("basic_rebuild_io",),
+        "random_io": ("random_io", "randomio"),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))
 

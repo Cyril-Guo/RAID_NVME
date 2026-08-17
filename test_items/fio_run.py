@@ -43,6 +43,7 @@ _FAILURE_MARKERS = (
     "err=",
     "Invalid argument",
     "direct IO errored",
+    "verify failed",
 )
 
 _FIO_JOB_ERROR_MARKERS = (

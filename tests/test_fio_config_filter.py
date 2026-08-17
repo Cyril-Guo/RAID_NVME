@@ -57,6 +57,12 @@ def test_fio_runs_under_watchdog_timeout():
     assert "io_u error" in source
 
 
+def test_verify_jobs_replace_full_disk_size_with_slice_size():
+    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+
+    assert 'sed -i "s#^size=100%\\$#size=${io_size}#"' in source
+
+
 def test_mix_io_generates_random_mixio_jobs():
     source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
 
