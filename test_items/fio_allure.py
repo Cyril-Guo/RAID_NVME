@@ -1,4 +1,3 @@
-import gzip
 import os
 
 _JOB_RUNNING = " is Running.."
@@ -10,7 +9,11 @@ _ERROR_MARKERS = (
     "all disks failed",
     "at least one disk had IO",
 )
-_TEXT_PREVIEW_LIMIT = 1024 * 1024
+TEXT_PREVIEW_LIMIT = 1024 * 1024
+LARGE_CONTENT_HINT = "Content is too large, please refer to the attachment."
+CONSOLE_ATTACHMENT_NAME = "终端输出"
+RESULT_SUMMARY_NAME = "测试结果汇总"
+MACHINECHECK_ATTACHMENT_NAME = "MachineCheck 差异记录"
 
 
 def extract_fio_job_summary(text):
@@ -48,36 +51,27 @@ def job_running_count(text):
     return sum(1 for line in text.splitlines() if _JOB_RUNNING in line)
 
 
-def attach_terminal_output(output_text, name="终端完整输出"):
+def attach_named_text(content, name):
     import allure
 
-    summary = extract_fio_job_summary(output_text)
-    if summary:
-        allure.attach(
-            summary,
-            name="FIO 任务摘要",
-            attachment_type=allure.attachment_type.TEXT,
-        )
-    encoded = output_text.encode("utf-8", errors="replace")
-    if len(encoded) <= _TEXT_PREVIEW_LIMIT:
-        allure.attach(
-            output_text,
-            name=name,
-            attachment_type=allure.attachment_type.TEXT,
-        )
+    text = content or ""
+    encoded = text.encode("utf-8", errors="replace")
+    if len(encoded) <= TEXT_PREVIEW_LIMIT:
+        allure.attach(text, name=name, attachment_type=allure.attachment_type.TEXT)
         return
     allure.attach(
-        gzip.compress(encoded),
-        name=f"{name}.log.gz",
-        attachment_type="application/gzip",
-        extension="gz",
+        LARGE_CONTENT_HINT,
+        name=name,
+        attachment_type=allure.attachment_type.TEXT,
+    )
+    allure.attach(
+        text,
+        name=f"{name}.log",
+        attachment_type=allure.attachment_type.TEXT,
     )
 
 
-_MACHINECHECK_DETAIL_FILES = (
-    ("MachineCheck 差异记录", os.path.join("log", "TestErrorLog", "machine_diff_error.log")),
-    ("MachineCheck diff_all", os.path.join("log", "RawLog", "MachineCheckLog", "MessagesRecord", "diff_all.log")),
-)
+_MACHINECHECK_DETAIL = os.path.join("log", "TestErrorLog", "machine_diff_error.log")
 
 
 def _read_text_file(path):
@@ -89,21 +83,10 @@ def _read_text_file(path):
 
 
 def attach_machinecheck_records(stress_dir, text="", ignore_error=False):
-    import allure
     from datetime import datetime
 
-    parts = []
-    attached_files = []
-    for name, relpath in _MACHINECHECK_DETAIL_FILES:
-        content = _read_text_file(os.path.join(stress_dir, relpath))
-        if not content:
-            continue
-        allure.attach(content, name=name, attachment_type=allure.attachment_type.TEXT)
-        attached_files.append(name)
-        if name == "MachineCheck 差异记录":
-            parts.append(content)
-
-    if not parts and text:
+    detail = _read_text_file(os.path.join(stress_dir, _MACHINECHECK_DETAIL))
+    if not detail and text:
         markers = (
             "MachineCheck inconsistencies found",
             "ERROR: MachineCheck",
@@ -115,19 +98,14 @@ def attach_machinecheck_records(stress_dir, text="", ignore_error=False):
             for line in text.splitlines()
             if line.strip() and any(marker in line for marker in markers)
         ]
-        if marker_lines:
-            parts.append("\n".join(marker_lines))
-            allure.attach(
-                "\n".join(marker_lines),
-                name="MachineCheck 差异记录",
-                attachment_type=allure.attachment_type.TEXT,
-            )
+        detail = "\n".join(marker_lines)
 
-    if not parts:
+    if not detail:
         return False
 
+    attach_named_text(detail, MACHINECHECK_ATTACHMENT_NAME)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"{ts} [INFO] MachineCheck differences recorded ({', '.join(attached_files) or 'stdout markers'})")
+    print(f"{ts} [INFO] MachineCheck differences recorded")
     if ignore_error:
         print(f"{ts} [WARN] IGNORE_ERROR=yes, record MachineCheck without failing")
     else:

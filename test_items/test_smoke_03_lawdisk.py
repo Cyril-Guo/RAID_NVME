@@ -16,7 +16,11 @@ import pytest
 import allure
 
 from test_items.case_paths import io_stress_dir, stress_monitor_dir
-from test_items.fio_allure import attach_machinecheck_records, attach_terminal_output
+from test_items.fio_allure import (
+    RESULT_SUMMARY_NAME,
+    attach_machinecheck_records,
+    attach_named_text,
+)
 
 
 def _ts():
@@ -155,56 +159,54 @@ def test_lawdiskstress():
     # ---------- 5. 同步执行并实时透传输出 ----------
     stress_dir = io_stress_dir()
     cmd_str = f"bash ./Fio_All.sh {' '.join(fio_args)}"
-    with allure.step(f"执行 FIO 指令: {cmd_str}"):
-        print(f"{_ts()} [START] cwd={stress_dir} {cmd_str}")
-        process = subprocess.Popen(
-            ["bash", "./Fio_All.sh"] + fio_args,
-            cwd=stress_dir,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, bufsize=1, universal_newlines=True,
-        )
-        full_output = []
-        for line in process.stdout:
-            timed_line = f"[{_ts()}] {line}"
-            print(timed_line, end="")
-            full_output.append(timed_line)
-        process.wait()
-        exit_code = process.returncode
-        output_text = "".join(full_output)
-        output_failures = _collect_failure_lines(
-            output_text,
-            ignore_machinecheck=ignore_error,
-            ignore_fio_job_errors=(exit_code == 0),
-        )
-        attach_terminal_output(output_text)
+    print(f"{_ts()} [START] cwd={stress_dir} {cmd_str}")
+    process = subprocess.Popen(
+        ["bash", "./Fio_All.sh"] + fio_args,
+        cwd=stress_dir,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, bufsize=1, universal_newlines=True,
+    )
+    full_output = []
+    for line in process.stdout:
+        timed_line = f"[{_ts()}] {line}"
+        print(timed_line, end="")
+        full_output.append(timed_line)
+    process.wait()
+    exit_code = process.returncode
+    output_text = "".join(full_output)
+    output_failures = _collect_failure_lines(
+        output_text,
+        ignore_machinecheck=ignore_error,
+        ignore_fio_job_errors=(exit_code == 0),
+    )
 
-        res_content = ""
-        result_log = os.path.join(stress_dir, "log", "ResultLog", "fio_result", "result.log")
-        if os.path.exists(result_log):
-            with open(result_log, "r") as f:
-                res_content = f.read()
-            allure.attach(res_content, name="测试结果汇总", attachment_type=allure.attachment_type.TEXT)
-        attach_machinecheck_records(
-            stress_dir,
-            text=output_text + "\n" + res_content,
-            ignore_error=ignore_error,
-        )
+    res_content = ""
+    result_log = os.path.join(stress_dir, "log", "ResultLog", "fio_result", "result.log")
+    if os.path.exists(result_log):
+        with open(result_log, "r") as f:
+            res_content = f.read()
+        attach_named_text(res_content, RESULT_SUMMARY_NAME)
+    attach_machinecheck_records(
+        stress_dir,
+        text=output_text + "\n" + res_content,
+        ignore_error=ignore_error,
+    )
 
-        if exit_code != 0:
-            print(f"{_ts()} [ERROR] 脚本执行失败，退出码: {exit_code}")
-            detail = ""
-            if output_failures:
-                detail = "\n" + "\n".join(output_failures[:50])
-            pytest.fail(f"FIO 脚本执行失败，返回码: {exit_code}{detail}")
+    if exit_code != 0:
+        print(f"{_ts()} [ERROR] 脚本执行失败，退出码: {exit_code}")
+        detail = ""
         if output_failures:
-            pytest.fail("FIO 输出中检测到失败关键字:\n" + "\n".join(output_failures[:50]))
-        result_failures = _collect_failure_lines(
-            res_content,
-            ignore_machinecheck=ignore_error,
-            ignore_fio_job_errors=(exit_code == 0),
-        )
-        if result_failures:
-            pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50]))
-        if res_content and (not ignore_error) and "Fail" in res_content:
-            pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50] or ["Fail"]))
-        print(f"{_ts()} [SUCCESS] 脚本执行完成")
+            detail = "\n" + "\n".join(output_failures[:50])
+        pytest.fail(f"FIO 脚本执行失败，返回码: {exit_code}{detail}")
+    if output_failures:
+        pytest.fail("FIO 输出中检测到失败关键字:\n" + "\n".join(output_failures[:50]))
+    result_failures = _collect_failure_lines(
+        res_content,
+        ignore_machinecheck=ignore_error,
+        ignore_fio_job_errors=(exit_code == 0),
+    )
+    if result_failures:
+        pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50]))
+    if res_content and (not ignore_error) and "Fail" in res_content:
+        pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50] or ["Fail"]))
+    print(f"{_ts()} [SUCCESS] 脚本执行完成")

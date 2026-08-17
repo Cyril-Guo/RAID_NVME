@@ -65,10 +65,35 @@ def test_junit_to_allure_attaches_console_snapshot(tmp_path, monkeypatch):
     result_path = next(allure_dir.glob("*-result.json"))
     result = json.loads(result_path.read_text(encoding="utf-8"))
     console_attachment = next(
-        item for item in result["attachments"] if item["name"] == "Jenkins Console Output"
+        item for item in result["attachments"] if item["name"] == "终端输出"
     )
     assert "all console output" in (allure_dir / console_attachment["source"]).read_text(encoding="utf-8")
     assert "links" not in result
+
+
+def test_junit_to_allure_large_console_uses_english_hint(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="test_items.test_smoke" name="test_basic_io" />
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "jenkins_console.log").write_text("x" * (1024 * 1024 + 8), encoding="utf-8")
+
+    assert junit_to_allure.main() == 0
+
+    result = json.loads(next(allure_dir.glob("*-result.json")).read_text(encoding="utf-8"))
+    hint = next(item for item in result["attachments"] if item["name"] == "终端输出")
+    full = next(item for item in result["attachments"] if item["name"] == "终端输出.log")
+    assert "Content is too large, please refer to the attachment." in (
+        allure_dir / hint["source"]
+    ).read_text(encoding="utf-8")
+    assert (allure_dir / full["source"]).stat().st_size > 1024 * 1024
+
 
 
 def test_junit_to_allure_attaches_fio_job_summary(tmp_path, monkeypatch):
@@ -263,7 +288,7 @@ def test_junit_to_allure_generates_result_for_aborted_empty_execution_log(tmp_pa
     assert result["name"] == "Test_Execution_Physical_192.168.22.134"
     assert result["status"] == "broken"
     assert "aborted or incomplete" in result["statusDetails"]["message"]
-    assert any(item["name"] == "Jenkins Console Output" for item in result["attachments"])
+    assert any(item["name"] == "终端输出" for item in result["attachments"])
 
 
 def test_junit_to_allure_console_fallback_when_no_execution_log(tmp_path, monkeypatch):

@@ -64,7 +64,7 @@ def test_failure_logs_are_added_to_allure_and_feishu_report():
     assert "TEST_EXECUTION_EXIT_CODE=${test_rc}" in source
     assert "python3 ci/collect_console_output.py" in source
     assert "jenkins_console.log" in source
-    assert "Jenkins Console Output" in source
+    assert "终端输出" in Path("ci/junit_to_allure.py").read_text(encoding="utf-8")
     assert "write_failed_execution_results" in source
     assert "python3 ci/extract_failure_summary.py --output failure_summary.txt" in jenkinsfile
     assert "failure_summary.txt" in jenkinsfile

@@ -437,7 +437,7 @@ def write_console_fallback_result(allure_dir, existing_ids, console_path="jenkin
     except OSError:
         return 0
 
-    source = f"{uuid.uuid4()}-jenkins-console.log"
+    source = f"{uuid.uuid4()}-terminal.log"
     with open(console_path, "rb") as src, open(os.path.join(allure_dir, source), "wb") as dst:
         dst.write(src.read())
 
@@ -464,7 +464,7 @@ def write_console_fallback_result(allure_dir, existing_ids, console_path="jenkin
         ],
         "attachments": [
             {
-                "name": "Jenkins Console Output",
+                "name": "终端输出",
                 "source": source,
                 "type": "text/plain",
             }
@@ -484,13 +484,31 @@ def _repo_root():
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def extract_fio_job_summary(text):
+def _fio_allure():
     root = _repo_root()
     if root not in sys.path:
         sys.path.insert(0, root)
-    from test_items.fio_allure import extract_fio_job_summary as extract
+    from test_items import fio_allure
 
-    return extract(text)
+    return fio_allure
+
+
+CONSOLE_ATTACHMENT_ALIASES = {
+    "终端输出",
+    "终端完整输出",
+    "Jenkins Console Output",
+}
+
+
+def _has_console_attachment(attachments):
+    names = {item.get("name") for item in attachments}
+    return bool(names & CONSOLE_ATTACHMENT_ALIASES) or any(
+        name and str(name).startswith("终端输出") for name in names
+    )
+
+
+def extract_fio_job_summary(text):
+    return _fio_allure().extract_fio_job_summary(text)
 
 
 def attach_fio_job_summary(allure_dir, console_path="jenkins_console.log"):
@@ -552,9 +570,26 @@ def attach_jenkins_console(allure_dir, console_path="jenkins_console.log"):
     if not result_paths:
         return 0
 
-    source = f"{uuid.uuid4()}-jenkins-console.log"
-    with open(console_path, "rb") as src, open(os.path.join(allure_dir, source), "wb") as dst:
-        dst.write(src.read())
+    constants = _fio_allure()
+    name = constants.CONSOLE_ATTACHMENT_NAME
+    size = os.path.getsize(console_path)
+    to_add = []
+    if size > constants.TEXT_PREVIEW_LIMIT:
+        hint_source = f"{uuid.uuid4()}-terminal-hint.txt"
+        with open(os.path.join(allure_dir, hint_source), "w", encoding="utf-8") as handle:
+            handle.write(constants.LARGE_CONTENT_HINT + "\n")
+        full_source = f"{uuid.uuid4()}-terminal.log"
+        with open(console_path, "rb") as src, open(os.path.join(allure_dir, full_source), "wb") as dst:
+            dst.write(src.read())
+        to_add = [
+            {"name": name, "source": hint_source, "type": "text/plain"},
+            {"name": f"{name}.log", "source": full_source, "type": "text/plain"},
+        ]
+    else:
+        source = f"{uuid.uuid4()}-terminal.log"
+        with open(console_path, "rb") as src, open(os.path.join(allure_dir, source), "wb") as dst:
+            dst.write(src.read())
+        to_add = [{"name": name, "source": source, "type": "text/plain"}]
 
     attached = 0
     for path in result_paths:
@@ -565,12 +600,9 @@ def attach_jenkins_console(allure_dir, console_path="jenkins_console.log"):
             continue
 
         attachments = result.setdefault("attachments", [])
-        if not any(item.get("name") == "Jenkins Console Output" for item in attachments):
-            attachments.append({
-                "name": "Jenkins Console Output",
-                "source": source,
-                "type": "text/plain",
-            })
+        if _has_console_attachment(attachments):
+            continue
+        attachments.extend(to_add)
 
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(result, handle, ensure_ascii=False)

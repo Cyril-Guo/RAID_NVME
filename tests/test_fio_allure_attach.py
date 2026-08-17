@@ -1,7 +1,11 @@
-import gzip
 import allure
 
-from test_items.fio_allure import attach_terminal_output, extract_fio_job_summary
+from test_items.fio_allure import (
+    LARGE_CONTENT_HINT,
+    attach_machinecheck_records,
+    attach_named_text,
+    extract_fio_job_summary,
+)
 
 
 def test_extract_fio_job_summary_lists_all_running_jobs_first():
@@ -28,7 +32,7 @@ def test_extract_fio_job_summary_lists_all_running_jobs_first():
     assert jobs_section.find("Job 1/2800") < jobs_section.find("Job 2800/2800")
 
 
-def test_attach_terminal_output_gzips_large_logs(monkeypatch):
+def test_attach_named_text_uses_english_hint_for_large_content(monkeypatch):
     attached = []
 
     class FakeAllure:
@@ -37,26 +41,18 @@ def test_attach_terminal_output_gzips_large_logs(monkeypatch):
 
         @staticmethod
         def attach(body, name=None, attachment_type=None, extension=None):
-            attached.append(
-                {
-                    "name": name,
-                    "attachment_type": attachment_type,
-                    "extension": extension,
-                    "body": body,
-                }
-            )
+            attached.append({"name": name, "body": body})
 
     monkeypatch.setattr(allure, "attach", FakeAllure.attach)
     monkeypatch.setattr(allure, "attachment_type", FakeAllure.attachment_type)
 
-    huge = ("Job 1/2800 is Running..\n" + ("x" * 2000 + "\n") * 600)
-    attach_terminal_output(huge)
+    huge = "x" * (1024 * 1024 + 10)
+    attach_named_text(huge, "测试结果汇总")
 
     names = [item["name"] for item in attached]
-    assert "FIO 任务摘要" in names
-    assert "终端完整输出.log.gz" in names
-    gz_item = next(item for item in attached if item["name"] == "终端完整输出.log.gz")
-    assert gzip.decompress(gz_item["body"]).decode("utf-8").startswith("Job 1/2800")
+    assert names == ["测试结果汇总", "测试结果汇总.log"]
+    assert attached[0]["body"] == LARGE_CONTENT_HINT
+    assert attached[1]["body"] == huge
 
 
 def test_attach_machinecheck_records_always_attaches_detail_log(tmp_path, monkeypatch, capsys):
@@ -72,8 +68,6 @@ def test_attach_machinecheck_records_always_attaches_detail_log(tmp_path, monkey
 
     monkeypatch.setattr(allure, "attach", FakeAllure.attach)
     monkeypatch.setattr(allure, "attachment_type", FakeAllure.attachment_type)
-
-    from test_items.fio_allure import attach_machinecheck_records
 
     detail_dir = tmp_path / "log" / "TestErrorLog"
     detail_dir.mkdir(parents=True)
@@ -93,6 +87,6 @@ def test_attach_machinecheck_records_always_attaches_detail_log(tmp_path, monkey
 
     attached.clear()
     assert attach_machinecheck_records(str(tmp_path), ignore_error=False) is True
-    assert any(item["name"] == "MachineCheck 差异记录" for item in attached)
+    assert [item["name"] for item in attached] == ["MachineCheck 差异记录"]
     logged = capsys.readouterr().out
     assert "IGNORE_ERROR=no, MachineCheck differences will fail the case" in logged
