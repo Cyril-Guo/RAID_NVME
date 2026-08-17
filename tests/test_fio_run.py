@@ -54,7 +54,7 @@ def test_smoke_cases_use_own_csv_and_do_not_import_siblings():
         "test_smoke_05_mix.py": 'build_fio_args("lawdiskstress", "mix", extra=["--mix_io", "yes"]',
         "test_smoke_06_basic_io.py": 'build_fio_args("lawdiskstress", "basic_io"',
         "test_smoke_07_basic_rebuild_io.py": 'build_fio_args("lawdiskstress", "basic_rebuild_io"',
-        "test_smoke_08_random_io.py": 'build_fio_args("lawdiskstress", "random_io"',
+        "test_smoke_08_random_io.py": 'write_fio_job(plan, disks, write_job, "WRITE")',
     }
     for name, needle in sources.items():
         source = Path("test_items", name).read_text(encoding="utf-8")

@@ -150,13 +150,22 @@ def maybe_start_monitor():
 
 
 def run_and_check_fio(fio_args, extra_output=""):
-    ignore_error = ignore_error_enabled()
     stress_dir = io_stress_dir()
-    cmd_str = f"bash ./Fio_All.sh {' '.join(fio_args)}"
-    print(f"{_ts()} [START] cwd={stress_dir} {cmd_str}")
-    process = subprocess.Popen(
+    return run_and_check_argv(
         ["bash", "./Fio_All.sh"] + fio_args,
         cwd=stress_dir,
+        extra_output=extra_output,
+        use_result_log=True,
+    )
+
+
+def run_and_check_argv(argv, cwd, extra_output="", use_result_log=False, attach=True):
+    ignore_error = ignore_error_enabled()
+    cmd_str = " ".join(argv)
+    print(f"{_ts()} [START] cwd={cwd} {cmd_str}")
+    process = subprocess.Popen(
+        argv,
+        cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -176,17 +185,19 @@ def run_and_check_fio(fio_args, extra_output=""):
         ignore_machinecheck=ignore_error,
         ignore_fio_job_errors=(exit_code == 0),
     )
-    attach_case_terminal_output(output_text)
-    attach_case_fio_summary(output_text)
+    if attach or exit_code != 0 or output_failures:
+        attach_case_terminal_output(output_text)
+        attach_case_fio_summary(output_text)
 
     res_content = ""
-    result_log = os.path.join(stress_dir, "log", "ResultLog", "fio_result", "result.log")
-    if os.path.exists(result_log):
-        with open(result_log, "r") as handle:
-            res_content = handle.read()
-        attach_named_text(res_content, RESULT_SUMMARY_NAME)
+    if use_result_log:
+        result_log = os.path.join(cwd, "log", "ResultLog", "fio_result", "result.log")
+        if os.path.exists(result_log):
+            with open(result_log, "r") as handle:
+                res_content = handle.read()
+            attach_named_text(res_content, RESULT_SUMMARY_NAME)
     attach_machinecheck_records(
-        stress_dir,
+        cwd if use_result_log else io_stress_dir(),
         text=output_text + "\n" + res_content,
         ignore_error=ignore_error,
     )
@@ -199,13 +210,15 @@ def run_and_check_fio(fio_args, extra_output=""):
         pytest.fail(f"FIO 脚本执行失败，返回码: {exit_code}{detail}")
     if output_failures:
         pytest.fail("FIO 输出中检测到失败关键字:\n" + "\n".join(output_failures[:50]))
-    result_failures = collect_failure_lines(
-        res_content,
-        ignore_machinecheck=ignore_error,
-        ignore_fio_job_errors=(exit_code == 0),
-    )
-    if result_failures:
-        pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50]))
-    if res_content and (not ignore_error) and "Fail" in res_content:
-        pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50] or ["Fail"]))
-    print(f"{_ts()} [SUCCESS] 脚本执行完成")
+    if use_result_log:
+        result_failures = collect_failure_lines(
+            res_content,
+            ignore_machinecheck=ignore_error,
+            ignore_fio_job_errors=(exit_code == 0),
+        )
+        if result_failures:
+            pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50]))
+        if res_content and (not ignore_error) and "Fail" in res_content:
+            pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50] or ["Fail"]))
+    print(f"{_ts()} [SUCCESS] {cmd_str}")
+    return output_text

@@ -3,11 +3,14 @@ from __future__ import annotations
 
 import os
 import random
+import re
+import subprocess
 
 LBA_SIZE = 4096
 MODEL_COUNT = 16
 SLICE_PERCENT = 6
 VERIFY_TYPE = "crc32c"
+_DRAID_VD = re.compile(r"^dp[0-9]+-vd[0-9]+$")
 CSV_HEADER = (
     "Block_Size,Random_Percentage,Read_Percentage,Queue_Depth,"
     "Run_Time(ss:mm:hh:dd),Number_of_Jobs,Offset,IO_Size,Verify_Mode,Verify_Type"
@@ -100,17 +103,25 @@ def format_plan(plan):
             f" {model['id']:>3}  {model['name']:<10} {model['bs']:<6} {model['iodepth']:>4} "
             f"{model['numjobs']:>4} {str(model['offset_pct']) + '%':>7} "
             f"{str(model['size_pct']) + '%':>5} {model['random_pct']:>5} {model['read_pct']:>4}  "
-            "WRITE then VERIFY"
+            "PARALLEL WRITE, then PARALLEL VERIFY"
         )
+    peak = peak_qd(plan)
     lines.extend(
         [
             "-" * 96,
-            " Regions do not overlap. Jobs=1 keeps verify consistent; QD is the concurrency.",
-            " Block sizes are 4k multiples. After all WRITE slices finish, VERIFY reads them back.",
+            (
+                f" 16 models run together. Per-disk peak QD = {peak} "
+                "(sum of model QDs); regions do not overlap."
+            ),
+            " Block sizes are 4k multiples. WRITE all slices first, then VERIFY all slices.",
             "=" * 96,
         ]
     )
     return "\n".join(lines)
+
+
+def peak_qd(plan):
+    return sum(int(model["iodepth"]) for model in plan["models"])
 
 
 def _csv_row(model, verify_mode):
@@ -143,6 +154,85 @@ def plan_to_csv(plan):
 def write_plan_csv(plan, path):
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write(plan_to_csv(plan))
+    return path
+
+
+def list_test_disks():
+    raw = os.environ.get("FIO_DISKS", "").strip()
+    if raw:
+        return [
+            part.strip().removeprefix("/dev/")
+            for part in raw.replace(",", " ").split()
+            if part.strip()
+        ]
+    try:
+        result = subprocess.run(
+            ["lsblk", "-dn", "-o", "NAME,TYPE"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return []
+    disks = []
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "disk" and _DRAID_VD.match(parts[0]):
+            disks.append(parts[0])
+    return sorted(disks)
+
+
+def _job_rw(model):
+    lines = [f"rw={model['name']}"]
+    if model["name"] in ("randrw", "rw"):
+        lines.append(f"rwmixread={model['read_pct']}")
+    return lines
+
+
+def plan_to_fio_job(plan, disks, phase):
+    if phase not in ("WRITE", "VERIFY"):
+        raise ValueError(phase)
+    lines = [
+        "# random_io parallel FIO job",
+        f"# seed={plan['seed']} phase={phase} models={len(plan['models'])} disks={','.join(disks)}",
+        "[global]",
+        "ioengine=libaio",
+        "direct=1",
+        "refill_buffers",
+        "norandommap",
+        "randrepeat=0",
+        f"verify={VERIFY_TYPE}",
+        "verify_fatal=1",
+        "verify_dump=1",
+        "group_reporting",
+    ]
+    if phase == "WRITE":
+        lines.append("do_verify=0")
+    else:
+        lines.append("verify_only=1")
+    lines.append("")
+    for disk in disks:
+        for model in plan["models"]:
+            name = f"m{model['id']:02d}_{model['name']}_{model['bs']}_qd{model['iodepth']}_{disk}"
+            lines.extend(
+                [
+                    f"[{name}]",
+                    f"filename=/dev/{disk}",
+                    *_job_rw(model),
+                    f"bs={model['bs']}",
+                    f"iodepth={model['iodepth']}",
+                    f"numjobs={model['numjobs']}",
+                    f"offset={model['offset_pct']}%",
+                    f"size={model['size_pct']}%",
+                    "",
+                ]
+            )
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def write_fio_job(plan, disks, path, phase):
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(plan_to_fio_job(plan, disks, phase))
     return path
 
 
