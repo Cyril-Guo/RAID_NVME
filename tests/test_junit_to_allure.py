@@ -96,39 +96,41 @@ def test_junit_to_allure_large_console_uses_english_hint(tmp_path, monkeypatch):
 
 
 
-def test_junit_to_allure_attaches_fio_job_summary(tmp_path, monkeypatch):
+def test_junit_to_allure_does_not_copy_global_fio_summary_onto_every_case(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
     (tmp_path / "report_192.168.23.94.xml").write_text(
-        """<testsuite name="pytest">
-  <testcase classname="test_items.test_smoke_05_mix" name="test_mix_stress" />
-</testsuite>
+        """<testsuites>
+  <testsuite name="pytest">
+    <testcase classname="test_items.test_smoke_05_mix" name="test_mix_stress" />
+    <testcase classname="test_items.test_smoke_06_basic_io" name="test_basic_io" />
+  </testsuite>
+</testsuites>
 """,
         encoding="utf-8",
     )
     (tmp_path / "test_execution_192.168.23.94.log").write_text(
-        "\n".join(
-            [
-                "Job 1/2800 is Running..",
-                "Job 61/2800 is Running..",
-                "Job 2800/2800 is Running..",
-                "[FIO] finish model=randrw (#2800) rc=0 elapsed=31s",
-                "",
-            ]
-        ),
+        "Job 1/2800 is Running..\nJob 2800/2800 is Running..\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "jenkins_console.log").write_text(
+        "all cases share this console\nJob 2800/2800 is Running..\n",
         encoding="utf-8",
     )
 
     assert junit_to_allure.main() == 0
 
-    result = json.loads(next(allure_dir.glob("*-result.json")).read_text(encoding="utf-8"))
-    summary_attachment = next(
-        item for item in result["attachments"] if item["name"] == "FIO 任务摘要"
-    )
-    summary = (allure_dir / summary_attachment["source"]).read_text(encoding="utf-8")
-    assert "job_running_lines=3" in summary
-    assert "Job 2800/2800 is Running.." in summary
+    results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    assert len(results) == 2
+    for result in results:
+        names = [item["name"] for item in result.get("attachments") or []]
+        assert "FIO 任务摘要" not in names
+        assert "测试结果汇总" not in names
+        assert "MachineCheck 差异记录" not in names
+        assert "终端输出" in names
+        console = next(item for item in result["attachments"] if item["name"] == "终端输出")
+        assert "all cases share this console" in (allure_dir / console["source"]).read_text(encoding="utf-8")
 
 
 def test_junit_to_allure_generates_environment_prepare_result(tmp_path, monkeypatch):

@@ -18,6 +18,7 @@ import allure
 from test_items.case_paths import io_stress_dir, stress_monitor_dir
 from test_items.fio_allure import (
     RESULT_SUMMARY_NAME,
+    attach_case_fio_summary,
     attach_machinecheck_records,
     attach_named_text,
 )
@@ -179,6 +180,7 @@ def test_filesystemstress():
         ignore_machinecheck=ignore_error,
         ignore_fio_job_errors=(exit_code == 0),
     )
+    attach_case_fio_summary(output_text)
 
     res_content = ""
     result_log = os.path.join(stress_dir, "log", "ResultLog", "fio_result", "result.log")

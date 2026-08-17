@@ -55,6 +55,29 @@ def test_attach_named_text_uses_english_hint_for_large_content(monkeypatch):
     assert attached[1]["body"] == huge
 
 
+def test_attach_case_fio_summary_uses_this_case_output_only(monkeypatch):
+    attached = []
+
+    class FakeAllure:
+        class attachment_type:
+            TEXT = "text/plain"
+
+        @staticmethod
+        def attach(body, name=None, attachment_type=None, extension=None):
+            attached.append({"name": name, "body": body})
+
+    monkeypatch.setattr(allure, "attach", FakeAllure.attach)
+    monkeypatch.setattr(allure, "attachment_type", FakeAllure.attachment_type)
+
+    from test_items.fio_allure import attach_case_fio_summary
+
+    assert attach_case_fio_summary("Job 1/4 is Running..\nJob 2/4 is Running..\n") is True
+    assert attached[0]["name"] == "FIO 任务摘要"
+    assert "Job 1/4 is Running.." in attached[0]["body"]
+    assert "Job 2800/2800" not in attached[0]["body"]
+    assert attach_case_fio_summary("no jobs here") is False
+
+
 def test_attach_machinecheck_records_always_attaches_detail_log(tmp_path, monkeypatch, capsys):
     attached = []
 

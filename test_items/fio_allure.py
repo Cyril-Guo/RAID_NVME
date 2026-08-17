@@ -71,6 +71,19 @@ def attach_named_text(content, name):
     )
 
 
+def attach_case_fio_summary(output_text):
+    summary = extract_fio_job_summary(output_text)
+    job_count = 0
+    for line in summary.splitlines():
+        if line.startswith("job_running_lines="):
+            job_count = int(line.split("=", 1)[1])
+            break
+    if job_count <= 0:
+        return False
+    attach_named_text(summary, "FIO 任务摘要")
+    return True
+
+
 _MACHINECHECK_DETAIL = os.path.join("log", "TestErrorLog", "machine_diff_error.log")
 
 

@@ -74,7 +74,7 @@ def test_failure_logs_are_added_to_allure_and_feishu_report():
     assert "失败摘要" not in feishu
     assert "报告类型" not in feishu
     assert "FIO Failure Detail" in Path("ci/junit_to_allure.py").read_text(encoding="utf-8")
-    assert "FIO 任务摘要" in Path("ci/junit_to_allure.py").read_text(encoding="utf-8")
+    assert "FIO 任务摘要" in Path("test_items/fio_allure.py").read_text(encoding="utf-8")
     assert "complete local execution logs" in Path("ci/collect_console_output.py").read_text(encoding="utf-8")
 
 
