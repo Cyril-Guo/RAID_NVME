@@ -1,4 +1,4 @@
-"""Build 16 non-overlapping random FIO models with 4k-aligned blocks and crc verify."""
+"""Build 16 non-overlapping FIO models: sequential FILL, mixed STRESS, sequential VERIFY."""
 from __future__ import annotations
 
 import os
@@ -10,6 +10,7 @@ LBA_SIZE = 4096
 MODEL_COUNT = 16
 SLICE_PERCENT = 6
 VERIFY_TYPE = "crc32c"
+PHASES = ("FILL", "STRESS", "VERIFY")
 _DRAID_VD = re.compile(r"^dp[0-9]+-vd[0-9]+$")
 CSV_HEADER = (
     "Block_Size,Random_Percentage,Read_Percentage,Queue_Depth,"
@@ -103,17 +104,18 @@ def format_plan(plan):
             f" {model['id']:>3}  {model['name']:<10} {model['bs']:<6} {model['iodepth']:>4} "
             f"{model['numjobs']:>4} {str(model['offset_pct']) + '%':>7} "
             f"{str(model['size_pct']) + '%':>5} {model['random_pct']:>5} {model['read_pct']:>4}  "
-            "PARALLEL WRITE, then PARALLEL VERIFY"
+            "FILL, then STRESS, then VERIFY"
         )
     peak = peak_qd(plan)
     lines.extend(
         [
             "-" * 96,
             (
-                f" 16 models run together. Per-disk peak QD = {peak} "
-                "(sum of model QDs); regions do not overlap."
+                f" Per-disk peak QD = {peak} (sum of model QDs); regions do not overlap."
             ),
-            " Block sizes are 4k multiples. WRITE all slices first, then VERIFY all slices.",
+            " FILL sequential-writes every LBA in each slice with crc32c headers.",
+            " STRESS then runs the 16 models in parallel (writes keep crc32c headers).",
+            " VERIFY sequential-reads the same slices; failures are disk consistency, not unwritten holes.",
             "=" * 96,
         ]
     )
@@ -143,10 +145,9 @@ def _csv_row(model, verify_mode):
 
 def plan_to_csv(plan):
     rows = [CSV_HEADER]
-    for model in plan["models"]:
-        rows.append(_csv_row(model, "WRITE"))
-    for model in plan["models"]:
-        rows.append(_csv_row(model, "VERIFY"))
+    for phase in PHASES:
+        for model in plan["models"]:
+            rows.append(_csv_row(model, phase))
     rows.append("End,,,,,,,,,")
     return "\n".join(rows) + "\n"
 
@@ -189,8 +190,16 @@ def _job_rw(model):
     return lines
 
 
+def _phase_rw(model, phase):
+    if phase == "FILL":
+        return ["rw=write"]
+    if phase == "VERIFY":
+        return ["rw=read"]
+    return _job_rw(model)
+
+
 def plan_to_fio_job(plan, disks, phase):
-    if phase not in ("WRITE", "VERIFY"):
+    if phase not in PHASES:
         raise ValueError(phase)
     lines = [
         "# random_io parallel FIO job",
@@ -206,10 +215,10 @@ def plan_to_fio_job(plan, disks, phase):
         "verify_dump=1",
         "group_reporting",
     ]
-    if phase == "WRITE":
-        lines.append("do_verify=0")
-    else:
+    if phase == "VERIFY":
         lines.append("verify_only=1")
+    else:
+        lines.append("do_verify=0")
     lines.append("")
     for disk in disks:
         for model in plan["models"]:
@@ -218,7 +227,7 @@ def plan_to_fio_job(plan, disks, phase):
                 [
                     f"[{name}]",
                     f"filename=/dev/{disk}",
-                    *_job_rw(model),
+                    *_phase_rw(model, phase),
                     f"bs={model['bs']}",
                     f"iodepth={model['iodepth']}",
                     f"numjobs={model['numjobs']}",

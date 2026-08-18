@@ -1,7 +1,8 @@
 """
 Smoke 测试 —— 随机 IO 压力。
 
-每次生成 16 个互不重叠的 FIO 模型，16 路并行 WRITE，再 16 路并行 crc32c VERIFY。
+16 个互不重叠切片：先顺序 FILL 打满 crc32c 头，再按模型并行 STRESS，
+最后顺序 VERIFY。校验失败表示盘上数据不一致，而不是未写入空洞。
 """
 import os
 
@@ -12,6 +13,7 @@ from test_items.case_paths import io_stress_dir
 from test_items.fio_allure import attach_named_text
 from test_items.fio_run import maybe_start_monitor, run_and_check_argv
 from test_items.random_io_plan import (
+    PHASES,
     format_plan,
     generate_random_io_plan,
     list_test_disks,
@@ -33,10 +35,14 @@ def test_random_io():
     if not disks:
         pytest.fail("random_io 未找到测试盘。请设置 FIO_DISKS，或确保存在 dp*-vd* 虚拟盘。")
 
-    write_job = os.path.join(stress_dir, "random_io_write.fio")
-    verify_job = os.path.join(stress_dir, "random_io_verify.fio")
-    write_fio_job(plan, disks, write_job, "WRITE")
-    write_fio_job(plan, disks, verify_job, "VERIFY")
+    jobs = {
+        phase: os.path.join(stress_dir, f"random_io_{phase.lower()}.fio")
+        for phase in PHASES
+    }
+    fill_job = jobs["FILL"]
+    write_fio_job(plan, disks, fill_job, "FILL")
+    write_fio_job(plan, disks, jobs["STRESS"], "STRESS")
+    write_fio_job(plan, disks, jobs["VERIFY"], "VERIFY")
 
     header = (
         f"{table}\n"
@@ -46,20 +52,18 @@ def test_random_io():
     print(header)
     allure.dynamic.title("FIO 测试: random_io")
     allure.dynamic.description(
-        f"16 个随机 FIO 模型并行，LBA=4096，slice=6%，verify=crc32c，"
-        f"seed={plan['seed']}，peak_qd_per_disk={peak_qd(plan)}。"
+        f"16 个随机 FIO 模型：FILL → STRESS → VERIFY，LBA=4096，slice=6%，"
+        f"verify=crc32c，seed={plan['seed']}，peak_qd_per_disk={peak_qd(plan)}。"
     )
     attach_named_text(header, "随机 IO 模型表")
 
     maybe_start_monitor()
-    write_out = run_and_check_argv(
-        ["fio", os.path.basename(write_job)],
-        cwd=stress_dir,
-        extra_output=header + "[RANDOM_IO] PHASE=WRITE all 16 models together\n",
-        attach=False,
-    )
-    run_and_check_argv(
-        ["fio", os.path.basename(verify_job)],
-        cwd=stress_dir,
-        extra_output=write_out + "\n[RANDOM_IO] PHASE=VERIFY all 16 models together\n",
-    )
+    output = header
+    for phase in PHASES:
+        attach = phase == "VERIFY"
+        output = run_and_check_argv(
+            ["fio", os.path.basename(jobs[phase])],
+            cwd=stress_dir,
+            extra_output=output + f"[RANDOM_IO] PHASE={phase} all 16 models together\n",
+            attach=attach,
+        )
