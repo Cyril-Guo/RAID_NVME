@@ -39,6 +39,9 @@ basic_io 6
 # ============================================================
 # 各用例参数（只写该用例会用到的键）
 # FIO_CONFIG 指向 IO_Stress/ 下该用例自己的 CSV，互不影响
+# MIX_FAIL_ON_ANY（仅 mix）：IOPS 跌 0 不算失败
+#   no  = FIO/盘错误只记录，测试继续
+#   yes = 任何 FIO 报错或非 0 退出都算测试失败
 # ============================================================
 
 [reboot]
@@ -73,6 +76,7 @@ IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME =
+MIX_FAIL_ON_ANY = no
 
 [basic_io]
 FIO_CONFIG      = Input_Config_basic_io.csv

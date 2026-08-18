@@ -46,6 +46,11 @@ def test_fio_runs_under_watchdog_timeout():
     assert 'timeout --kill-after=60s "${timeout_seconds}s" fio' not in source
     assert "FIO command failed in MIX mode" in source
     assert "fio_output_has_successful_io" in source
+    assert "mix_fail_on_any_enabled" in source
+    assert "fio_error_disks" in source
+    assert "MIX_FAIL_ON_ANY=yes, fail" in source
+    assert "MIX_FAIL_ON_ANY=no, continue" in source
+    assert "IOPS=0 is not a failure" in source
     assert "partial disk failure recorded" in source
     assert "at least one disk had IO, continue" in source
     assert "all disks failed for config" in source
@@ -363,3 +368,52 @@ def test_fio_output_has_successful_io_detects_any_positive_iops(tmp_path):
     assert "ok_has_io=yes" in result.stdout
     assert "fail_has_io=no" in result.stdout
     assert "missing_has_io=no" in result.stdout
+
+
+def test_mix_fail_on_any_enabled_reads_env():
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            "source IO_Stress/lib/fio.sh; "
+            "unset MIX_FAIL_ON_ANY; mix_fail_on_any_enabled || echo default=no; "
+            "MIX_FAIL_ON_ANY=no mix_fail_on_any_enabled || echo no=no; "
+            "MIX_FAIL_ON_ANY=yes mix_fail_on_any_enabled && echo yes=yes; "
+            "MIX_FAIL_ON_ANY=YES mix_fail_on_any_enabled && echo YES=yes",
+        ],
+        cwd=Path.cwd(),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert "default=no" in result.stdout
+    assert "no=no" in result.stdout
+    assert "yes=yes" in result.stdout
+    assert "YES=yes" in result.stdout
+
+
+def test_fio_error_disks_parses_io_u_and_job_err(tmp_path):
+    log = tmp_path / "mix.txt"
+    log.write_text(
+        "fio: io_u error on file /dev/dp8-vd2: Input/output error\n"
+        "dp8-vd3: (g=0): err= 5:\n"
+        "write: IOPS=0, BW=0KiB/s\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            "source IO_Stress/lib/fio.sh; "
+            f"fio_error_disks '{log.as_posix()}' | tr '\\n' ' '; echo",
+        ],
+        cwd=Path.cwd(),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert "dp8-vd2" in result.stdout
+    assert "dp8-vd3" in result.stdout

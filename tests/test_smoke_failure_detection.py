@@ -94,7 +94,7 @@ def test_collect_failure_lines_ignores_partial_disk_fio_errors_when_script_ok():
     fio: io_u error on file /dev/dp0-vd2: Input/output error
     err=5/file:io_u.c:1845, func=io_u error, error=Input/output error
     ----- FIO error detail end (lines=2) -----
-    [FIO] MIX job 1 recorded stream failure rc=4/0/0/0; at least one disk had IO, continue
+    [FIO] MIX job 1 recorded FIO/disk errors rc=4/0/0/0 disks=dp8-vd2; MIX_FAIL_ON_ANY=no, continue
     """
 
     ignored = mix_failures(sample, ignore_fio_job_errors=True)

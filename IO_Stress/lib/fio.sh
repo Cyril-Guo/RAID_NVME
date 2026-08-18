@@ -1323,6 +1323,35 @@ fio_output_has_successful_io()
     ' "$output_file"
 }
 
+# MIX_FAIL_ON_ANY=yes: any unexpected FIO error (nonzero rc, io_u/err=) fails the job.
+# MIX_FAIL_ON_ANY=no (default): record those errors and keep running. IOPS=0 is not a failure.
+mix_fail_on_any_enabled()
+{
+    local raw
+    raw=$(echo "${MIX_FAIL_ON_ANY:-no}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+    [[ "$raw" == "yes" || "$raw" == "true" || "$raw" == "1" ]]
+}
+
+# Disk names mentioned in FIO error lines (io_u error on /dev/X, or job err= nonzero).
+fio_error_disks()
+{
+    local output_file="$1"
+    [[ -f "$output_file" ]] || return 0
+    awk '
+        {
+            if (match($0, /\/dev\/[A-Za-z0-9._-]+/) && $0 ~ /io_u error|error on file/) {
+                name=substr($0, RSTART+5, RLENGTH-5)
+                print name
+                next
+            }
+            if ($0 ~ /^[A-Za-z0-9._-]+:/ && $0 ~ /err= *[1-9]/) {
+                split($1, parts, ":")
+                if (parts[1] != "" && parts[1] != "fio") print parts[1]
+            }
+        }
+    ' "$output_file" | sort -u
+}
+
 # Config name: N-mode-bs-qd-runtime.log -> human model label + planned runtime seconds.
 fio_model_label()
 {
@@ -1463,7 +1492,7 @@ run_fio_with_watchdog()
         return "$fio_rc"
     fi
     if [[ $fio_rc -ne 0 ]]; then
-        if fio_output_has_successful_io "$output_file"; then
+        if [[ "$mix_io" != "YES" ]] && fio_output_has_successful_io "$output_file"; then
             echo "$(date '+%F %T') [FIO] partial disk failure recorded, model=${model_label} config=${config_name} rc=${fio_rc} elapsed=${elapsed}s(${elapsed_hms}); at least one disk had IO, continue" | tee -a "$output_file" "$Result_Dir/result.log"
             append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
             FIO_LAST_RC=0
@@ -1619,6 +1648,11 @@ function run_all()
         cd $Job_Dir
     elif [[ $mix_io == YES ]];then
         echo "*********" `date +%m-%d" "%H:%M:%S` "Running MIX IO on All Mode, Reports For All Disk *********"
+        if mix_fail_on_any_enabled; then
+            echo "$(date '+%F %T') [FIO] MIX_FAIL_ON_ANY=yes: any FIO error or nonzero rc fails the job (IOPS=0 is not a failure)"
+        else
+            echo "$(date '+%F %T') [FIO] MIX_FAIL_ON_ANY=no: record FIO errors and continue (IOPS=0 is not a failure)"
+        fi
         num=`sed -n '2,$p' $File_Dir/MixIO1.csv | grep -v -i 'End' | wc -l`
         totalnum=$num
         for((jobnum=1;jobnum<=num;jobnum++));do
@@ -1640,20 +1674,25 @@ function run_all()
             wait $fio_pid1; local fio_rc1=$?
             wait $fio_pid2; local fio_rc2=$?
             wait $fio_pid3; local fio_rc3=$?
-            local mix_has_io=0
             local mix_i
+            local mix_error_disks=""
             for mix_i in 1 2 3 4; do
-                if fio_output_has_successful_io "$Result_Dir/detresult/MIX${mix_i}/${jobnum}.txt"; then
-                    mix_has_io=1
-                    break
-                fi
+                mix_error_disks=$(printf '%s\n%s' "$mix_error_disks" "$(fio_error_disks "$Result_Dir/detresult/MIX${mix_i}/${jobnum}.txt")" | sed '/^$/d' | sort -u)
             done
-            if [[ $mix_has_io -eq 0 ]]; then
-                echo "FIO command failed in MIX mode job ${jobnum}, model=${FIO_LAST_MODEL:-mix-job-${jobnum}}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, rc=${fio_rc1}/${fio_rc2}/${fio_rc3}/${fio_rc4}" | tee -a $Result_Dir/result.log
-                return 1
-            fi
+            local mix_any_rc=0
             if [[ $fio_rc1 -ne 0 || $fio_rc2 -ne 0 || $fio_rc3 -ne 0 || $fio_rc4 -ne 0 ]]; then
-                echo "$(date '+%F %T') [FIO] MIX job ${jobnum} recorded stream failure rc=${fio_rc1}/${fio_rc2}/${fio_rc3}/${fio_rc4}; at least one disk had IO, continue" | tee -a $Result_Dir/result.log
+                mix_any_rc=1
+            fi
+            local mix_error_count=0
+            if [[ -n "$mix_error_disks" ]]; then
+                mix_error_count=$(printf '%s\n' "$mix_error_disks" | grep -c .)
+            fi
+            if [[ $mix_any_rc -ne 0 || $mix_error_count -gt 0 ]]; then
+                if mix_fail_on_any_enabled; then
+                    echo "FIO command failed in MIX mode job ${jobnum}, model=${FIO_LAST_MODEL:-mix-job-${jobnum}}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, rc=${fio_rc1}/${fio_rc2}/${fio_rc3}/${fio_rc4}, error_disks=${mix_error_count}; MIX_FAIL_ON_ANY=yes, fail" | tee -a $Result_Dir/result.log
+                    return 1
+                fi
+                echo "$(date '+%F %T') [FIO] MIX job ${jobnum} recorded FIO/disk errors rc=${fio_rc1}/${fio_rc2}/${fio_rc3}/${fio_rc4} disks=${mix_error_disks//$'\n'/,}; MIX_FAIL_ON_ANY=no, continue" | tee -a $Result_Dir/result.log
             fi
        
             result_handle_for_mix_io 
