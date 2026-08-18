@@ -2,12 +2,12 @@ import random
 import copy
 
 temp_dict = {
-    "128k": 4, "256k": 1, "512k": 1, "20k": 1, "12k": 1, "36k": 1,
-    "160k": 1, "4k": 63, "8k": 6, "16k": 5, "32k": 3, "64k": 3,
+    "512b": 4, "1k": 1, "1536b": 1, "2k": 1, "2560b": 1, "3k": 1,
+    "3584b": 1, "4k": 63, "8k": 6, "16k": 5, "32k": 3, "64k": 3,
     "1m": 2, "2m": 2, "4m": 2, "8m": 2, "16m": 2
 }
 
-proportion_dict = {k: int(v * 0.01 * 2800) for k, v in temp_dict.items()}
+proportion_dict = {k: int(v * 0.01 * 1400) for k, v in temp_dict.items()}
 
 random_p = {}
 for k, v in proportion_dict.items():
@@ -34,7 +34,7 @@ def parse_dict(d):
     return new_d
 
 bs = []
-total = 2800
+total = 1400
 
 for i in range(total):
     proportion_dict = parse_dict(proportion_dict)
@@ -49,5 +49,5 @@ with open("random_choice.csv", "w") as fp:
     for b in bs:
         random_p_v = random_p[b].pop()
         read_p_v = read_p[b].pop()
-        fp.write(f"{b},{random_p_v},{read_p_v},32,30,4,0\n")
+        fp.write(f"{b},{random_p_v},{read_p_v},32,30,1,0\n")
     fp.write("End\n")
