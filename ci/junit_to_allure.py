@@ -345,14 +345,24 @@ def report_has_testcases(target_node, target_kind):
     return root.find(".//testcase") is not None or root.tag == "testcase"
 
 
+def report_has_failures_or_errors(target_node, target_kind):
+    path = f"report_{target_node}.xml"
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError):
+        return False
+    return root.find(".//failure") is not None or root.find(".//error") is not None
+
+
 def execution_log_needs_result(text):
     """Treat explicit failures and abort/incomplete logs (no passed marker) as reportable."""
     if "TEST_EXECUTION_STATUS=passed" in text:
         return False
     if "TEST_EXECUTION_STATUS=failed" in text:
         return True
+    lowered = (text or "").lower()
     # Empty or truncated logs from ABORTED builds never write a terminal status.
-    return True
+    return (not (text or "").strip()) or ("aborted" in lowered) or ("idle watchdog fired" in lowered)
 
 
 def write_failed_execution_results(allure_dir, existing_ids):
@@ -368,7 +378,9 @@ def write_failed_execution_results(allure_dir, existing_ids):
             continue
 
         target_node, target_kind = execution_log_context(path)
-        if report_has_testcases(target_node, target_kind):
+        if report_has_testcases(target_node, target_kind) and report_has_failures_or_errors(
+            target_node, target_kind
+        ):
             continue
 
         key = f"Test_Execution::{target_node}::{target_kind}"

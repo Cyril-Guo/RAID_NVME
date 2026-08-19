@@ -380,6 +380,33 @@ def test_junit_to_allure_generates_broken_result_for_hung_test_without_junit(tmp
     assert len(list(allure_dir.glob("*-result.json"))) == 1
 
 
+def test_junit_to_allure_generates_execution_result_when_junit_only_passed(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="test_items.test_smoke_05_mix" name="test_mix_stress" />
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    execution_log = tmp_path / "test_execution_192.168.22.134.log"
+    execution_log.write_text(
+        "FIO command failed in MIX mode job 10, model=rw bs=4k qd=32 runtime=30s (#10), elapsed=1s, rc=96/96/96/96\n"
+        "TEST_EXECUTION_STATUS=failed\n"
+        "TEST_EXECUTION_EXIT_CODE=1\n",
+        encoding="utf-8",
+    )
+
+    assert junit_to_allure.main() == 0
+
+    results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    names = {result["name"] for result in results}
+    assert "[Physical 192.168.22.134] test_mix_stress" in names
+    assert "Test_Execution_Physical_192.168.22.134" in names
+
+
 def test_junit_to_allure_generates_result_for_aborted_empty_execution_log(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"

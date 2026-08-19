@@ -124,6 +124,15 @@ def _read_text(path):
         return ""
 
 
+def execution_log_needs_result(text):
+    if "TEST_EXECUTION_STATUS=passed" in text:
+        return False
+    if "TEST_EXECUTION_STATUS=failed" in text:
+        return True
+    lowered = (text or "").lower()
+    return (not (text or "").strip()) or ("aborted" in lowered) or ("idle watchdog fired" in lowered)
+
+
 def report_has_testcases(target_node):
     path = f"report_{target_node}.xml"
     try:
@@ -131,6 +140,15 @@ def report_has_testcases(target_node):
     except (OSError, ET.ParseError):
         return False
     return root.find(".//testcase") is not None or root.tag == "testcase"
+
+
+def report_has_failures_or_errors(target_node):
+    path = f"report_{target_node}.xml"
+    try:
+        root = ET.parse(path).getroot()
+    except (OSError, ET.ParseError):
+        return False
+    return root.find(".//failure") is not None or root.find(".//error") is not None
 
 
 def status_log_infra_metrics():
@@ -148,13 +166,14 @@ def status_log_infra_metrics():
 
     for path in sorted(glob.glob("test_execution_*.log")):
         text = _read_text(path)
-        # Match junit_to_allure: failed or aborted/incomplete (no passed marker).
-        if "TEST_EXECUTION_STATUS=passed" in text:
+        if not execution_log_needs_result(text):
             continue
         stem = os.path.basename(path).removeprefix("test_execution_").removesuffix(".log")
         target_node = stem.removesuffix("_physical")
-        # When junit already has cases, that node is counted via tests, not as infra.
-        if report_has_testcases(target_node):
+        # If JUnit already captured a testcase failure/error, do not double-count the node-level
+        # execution failure. But if JUnit only shows passed cases while execution log failed,
+        # surface one infra error so Feishu/Allure cannot misreport the build as green.
+        if report_has_testcases(target_node) and report_has_failures_or_errors(target_node):
             continue
         stats["tests"] += 1
         stats["errors"] += 1
