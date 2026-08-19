@@ -4,7 +4,14 @@ from pathlib import Path
 def test_prepare_physical_io_case_script_covers_required_steps():
     source = Path("ci/prepare_physical_io_case.sh").read_text(encoding="utf-8")
 
-    assert "clear_8p_csd_flash.sh" in source
+    flash_clear_lines = [
+        line.strip()
+        for line in source.splitlines()
+        if "clear_8p_csd_flash.sh" in line or "flash-clear.sh" in line
+    ]
+    assert flash_clear_lines
+    assert all(line.startswith("#") for line in flash_clear_lines)
+    assert "skip dirty CSD flash clear" in source
     assert "artifacts/dpraid" in source
     assert "rmmod" in source
     assert "insmod" in source

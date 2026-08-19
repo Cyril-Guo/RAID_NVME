@@ -13,7 +13,7 @@ from test_items.fio_run import build_fio_args, maybe_start_monitor, run_and_chec
 def test_basic_rebuild_io():
     allure.dynamic.title("Test_CI_basic_rebuild_IO")
     allure.dynamic.description(
-        "Per-case prep (CSD clear / dpraid update / draid rmmod-insmod / VD-PD clear), "
+        "Per-case prep (dpraid update / draid rmmod-insmod / VD-PD clear), "
         "create eight RAID5 VDs, drop one disk per group to degraded, "
         "then run Input_Config_basic_rebuild_io.csv."
     )

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run on the DUT before each physical VD IO case (basic_io / basic_rebuild_io).
-# Sequence: clear dirty CSD -> refresh dpraid -> rebuild+reload draid -> clear VD/PD.
+# Sequence: refresh dpraid -> rebuild+reload draid -> clear VD/PD.
+# CSD flash clear is temporarily disabled.
 set -euo pipefail
 
 NODE_IP=${NODE_IP:-unknown}
@@ -13,9 +14,10 @@ DRAID_DIR=${DRAID_DIR:-"${REMOTE_DIR}/kernel_driver/drivers/draid"}
 echo "[${NODE_IP}] ===== prepare_physical_io_case start ====="
 echo "[${NODE_IP}] REMOTE_DIR=${REMOTE_DIR}"
 
-echo "[${NODE_IP}] (1/4) clear dirty CSD flash"
-chmod +x "${SCRIPT_DIR}/clear_8p_csd_flash.sh" "${SCRIPT_DIR}/flash-clear.sh" 2>/dev/null || true
-NODE_IP="${NODE_IP}" "${SCRIPT_DIR}/clear_8p_csd_flash.sh"
+# echo "[${NODE_IP}] (1/4) clear dirty CSD flash"
+# chmod +x "${SCRIPT_DIR}/clear_8p_csd_flash.sh" "${SCRIPT_DIR}/flash-clear.sh" 2>/dev/null || true
+# NODE_IP="${NODE_IP}" "${SCRIPT_DIR}/clear_8p_csd_flash.sh"
+echo "[${NODE_IP}] skip dirty CSD flash clear"
 
 echo "[${NODE_IP}] (2/4) update dpraid"
 if [ -x "${DPRAID_STAGED}" ]; then

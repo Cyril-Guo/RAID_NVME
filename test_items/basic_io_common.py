@@ -129,8 +129,9 @@ def run_cmd(cmd, log, check=True, shell=False, env=None):
 def prepare_physical_io_case(log):
     """Per-case DUT refresh before normal/degraded VD IO.
 
-    Clears dirty CSD flash, reinstalls staged dpraid, rebuilds and reloads
+    Reinstalls staged dpraid, rebuilds and reloads
     draid (rmmod/insmod), then deletes leftover VD/PD.
+    CSD flash clear is currently skipped.
     """
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "ci" / "prepare_physical_io_case.sh"
@@ -140,7 +141,7 @@ def prepare_physical_io_case(log):
     env = os.environ.copy()
     env.setdefault("REMOTE_DIR", str(repo_root))
     env.setdefault("NODE_IP", env.get("NODE_IP", "local"))
-    log.write("phase: prepare_physical_io_case (CSD clear / dpraid / draid reload / VD-PD clear)")
+    log.write("phase: prepare_physical_io_case (dpraid / draid reload / VD-PD clear)")
     run_cmd(["bash", str(script)], log, check=True, shell=False, env=env)
 
 
