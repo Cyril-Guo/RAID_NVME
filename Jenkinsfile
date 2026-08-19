@@ -211,6 +211,7 @@ ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
         error "[${ip}] QEMU pre-test cleanup failed with exit code ${qemuPreCleanStatus}"
     }
 
+    /* CSD flash clear is temporarily disabled.
     // Dirty CSD flash (8P/9P) is visible on the physical host after reclaim,
     // before devices are passed through to QEMU.
     // Use hostSshCmd/hostScpCmd directly (do not store sshpass -p '...' in a
@@ -229,6 +230,8 @@ ${flashClearScp} ci/clear_8p_csd_flash.sh ci/flash-clear.sh ${env.TARGET_USER}@$
 ${flashClearSsh} "cd \${remote_clear_dir} && chmod +x clear_8p_csd_flash.sh flash-clear.sh && NODE_IP=${ip} ./clear_8p_csd_flash.sh"
 } 2>&1 | tee -a ${envPrepareLog}
 """)
+    */
+    echo "[${ip}] skip dirty CSD flash clear on physical host before QEMU start"
 
     echo "[${ip}] start QEMU VM for automatic MR test"
     def qemuStatus = 0
@@ -320,6 +323,8 @@ ci/deploy_workspace.sh
 """)
 
     if (!qemuVmForNode) {
+        echo "[${ip}] skip dirty CSD flash clear before loading draid"
+        /* CSD flash clear is temporarily disabled.
         echo "[${ip}] clear dirty CSD flash before loading draid"
         runTimedEnvironmentStep(ip, 'clear dirty CSD flash before loading draid', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail
@@ -328,6 +333,7 @@ echo "[${ip}] clear dirty CSD flash before loading draid"
 ${targetSsh} 'cd ${remoteDir} && chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh && NODE_IP=${ip} ci/clear_8p_csd_flash.sh'
 } 2>&1 | tee -a ${envPrepareLog}
 """)
+        */
     }
 
     echo "[${ip}] install latest dpraid"
