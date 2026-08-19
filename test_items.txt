@@ -101,3 +101,5 @@ MONITOR_RUNTIME           =
 RANDOM_IO_SEED            =
 # STRESS 阶段固定运行时长（秒）。FILL/VERIFY 不受此影响（按 size= 跑完）。
 RANDOM_IO_STRESS_RUNTIME  = 60
+# random_io 外层重复轮数（每轮：FILL -> STRESS -> VERIFY）。
+RANDOM_IO_LOOPS            = 1
