@@ -93,9 +93,11 @@ STRESS_MONITOR  = no
 MONITOR_RUNTIME = 1000
 
 [random_io]
-FIO_CONFIG      = Input_Config_random_io.csv
-IGNORE_ERROR    = no
-FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME =
-RANDOM_IO_SEED  =
+FIO_CONFIG                = Input_Config_random_io.csv
+IGNORE_ERROR              = no
+FIO_DISKS                 =
+STRESS_MONITOR            = no
+MONITOR_RUNTIME           =
+RANDOM_IO_SEED            =
+# STRESS 阶段固定运行时长（秒）。FILL/VERIFY 不受此影响（按 size= 跑完）。
+RANDOM_IO_STRESS_RUNTIME  = 60

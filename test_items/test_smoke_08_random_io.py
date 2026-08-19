@@ -13,6 +13,7 @@ from test_items.case_paths import io_stress_dir
 from test_items.fio_allure import attach_named_text
 from test_items.fio_run import maybe_start_monitor, run_and_check_argv
 from test_items.random_io_plan import (
+    DEFAULT_STRESS_RUNTIME,
     PHASES,
     format_plan,
     generate_random_io_plan,
@@ -36,13 +37,16 @@ def test_random_io():
         pytest.fail("random_io 未找到测试盘。请设置 FIO_DISKS，或确保存在 dp*-vd* 虚拟盘。")
     disks = list(disk_sizes.keys())
 
+    _raw_rt = os.environ.get("RANDOM_IO_STRESS_RUNTIME", "").strip()
+    stress_runtime = int(_raw_rt) if _raw_rt else DEFAULT_STRESS_RUNTIME
+
     jobs = {
         phase: os.path.join(stress_dir, f"random_io_{phase.lower()}.fio")
         for phase in PHASES
     }
     fill_job = jobs["FILL"]
     write_fio_job(plan, disk_sizes, fill_job, "FILL")
-    write_fio_job(plan, disk_sizes, jobs["STRESS"], "STRESS")
+    write_fio_job(plan, disk_sizes, jobs["STRESS"], "STRESS", stress_runtime=stress_runtime)
     write_fio_job(plan, disk_sizes, jobs["VERIFY"], "VERIFY")
 
     header = (
@@ -53,8 +57,8 @@ def test_random_io():
     print(header)
     allure.dynamic.title("FIO 测试: random_io")
     allure.dynamic.description(
-        f"16 个随机 FIO 模型：FILL → STRESS → VERIFY，LBA={plan['lba_size']}，slice=6%，"
-        f"verify=crc32c，seed={plan['seed']}，peak_qd_per_disk={peak_qd(plan)}。"
+        f"16 个随机 FIO 模型：FILL → STRESS({stress_runtime}s) → VERIFY，LBA={plan['lba_size']}，"
+        f"slice=6%，verify=crc32c，seed={plan['seed']}，peak_qd_per_disk={peak_qd(plan)}。"
     )
     attach_named_text(header, "随机 IO 模型表")
 

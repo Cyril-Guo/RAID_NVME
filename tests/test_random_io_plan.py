@@ -1,6 +1,8 @@
 from test_items.random_io_plan import (
+    DEFAULT_STRESS_RUNTIME,
     LBA_SIZE,
     MODEL_COUNT,
+    VERIFY_BLOCK_SIZE_LABEL,
     block_size_bytes,
     format_plan,
     generate_random_io_plan,
@@ -60,9 +62,17 @@ def test_random_io_fio_job_fill_stress_verify_cover_whole_slices():
     assert "verify_only=1" not in stress_job
     assert any(model["name"] != "write" for model in plan["models"])
     assert _rw_lines(stress_job) != ["rw=write"] * job_count
+    assert f"runtime={DEFAULT_STRESS_RUNTIME}" in stress_job
+    assert "time_based=1" in stress_job
+    # custom runtime
+    custom_stress = plan_to_fio_job(plan, disk_sizes, "STRESS", stress_runtime=30)
+    assert "runtime=30" in custom_stress
+    assert "time_based=1" in custom_stress
 
     assert _rw_lines(verify_job) == ["rw=read"] * job_count
     assert "verify_only=1" in verify_job
+    assert verify_job.count(f"bs={VERIFY_BLOCK_SIZE_LABEL}") == job_count
+    assert "time_based" not in verify_job
     # First slice_id is 0 => offset bytes are 0.
     assert "offset=0B" in fill_job
     # size in bytes equals slice_lba * LBA_SIZE.

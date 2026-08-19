@@ -8,6 +8,8 @@ import subprocess
 
 LBA_SIZE = 512
 FILL_BLOCK_SIZE_LABEL = "256k"
+VERIFY_BLOCK_SIZE_LABEL = "256k"
+DEFAULT_STRESS_RUNTIME = 60
 MODEL_COUNT = 16
 SLICE_PERCENT = 6
 VERIFY_TYPE = "crc32c"
@@ -260,9 +262,11 @@ def _slice_lba_for_disk(disk_size_bytes: int):
     return total_lba, slice_lba
 
 
-def plan_to_fio_job(plan, disk_sizes, phase):
+def plan_to_fio_job(plan, disk_sizes, phase, stress_runtime=None):
     if phase not in PHASES:
         raise ValueError(phase)
+    if stress_runtime is None:
+        stress_runtime = DEFAULT_STRESS_RUNTIME
     lines = [
         "# random_io parallel FIO job",
         f"# seed={plan['seed']} phase={phase} models={len(plan['models'])} disks={','.join(sorted(disk_sizes.keys()))}",
@@ -281,6 +285,9 @@ def plan_to_fio_job(plan, disk_sizes, phase):
         lines.append("verify_only=1")
     else:
         lines.append("do_verify=0")
+    # STRESS runs for a fixed wall-clock duration so total test time stays predictable.
+    if phase == "STRESS":
+        lines += [f"runtime={stress_runtime}", "time_based=1"]
     lines.append("")
     for disk, disk_size_bytes in disk_sizes.items():
         _total_lba, slice_lba = _slice_lba_for_disk(disk_size_bytes)
@@ -293,9 +300,13 @@ def plan_to_fio_job(plan, disk_sizes, phase):
             size_lba = slice_lba
             offset_bytes = offset_lba * LBA_SIZE
             size_bytes = size_lba * LBA_SIZE
-            # FILL is only an initialization pass; using a larger sequential write block improves speed
-            # without changing the slice coverage (offset/size are still identical per phase).
-            fio_bs = FILL_BLOCK_SIZE_LABEL if phase == "FILL" else model["bs"]
+            # FILL/VERIFY use large sequential block size for speed; STRESS keeps model bs.
+            if phase == "FILL":
+                fio_bs = FILL_BLOCK_SIZE_LABEL
+            elif phase == "VERIFY":
+                fio_bs = VERIFY_BLOCK_SIZE_LABEL
+            else:
+                fio_bs = model["bs"]
             lines.extend(
                 [
                     f"[{name}]",
@@ -312,9 +323,9 @@ def plan_to_fio_job(plan, disk_sizes, phase):
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_fio_job(plan, disk_sizes, path, phase):
+def write_fio_job(plan, disk_sizes, path, phase, stress_runtime=None):
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(plan_to_fio_job(plan, disk_sizes, phase))
+        handle.write(plan_to_fio_job(plan, disk_sizes, phase, stress_runtime=stress_runtime))
     return path
 
 
