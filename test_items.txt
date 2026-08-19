@@ -103,3 +103,5 @@ RANDOM_IO_SEED            =
 RANDOM_IO_STRESS_RUNTIME  = 60
 # random_io 外层重复轮数（每轮：FILL -> STRESS -> VERIFY）。
 RANDOM_IO_LOOPS            = 60
+# 每个 model 的 slice 大小（GiB）。当设置了该值，slice_lba 不再用 6% 百分比计算，而是固定为该大小。
+RANDOM_IO_SLICE_SIZE_GB    = 10

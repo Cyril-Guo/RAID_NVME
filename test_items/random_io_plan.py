@@ -12,6 +12,7 @@ VERIFY_BLOCK_SIZE_LABEL = "16m"
 DEFAULT_STRESS_RUNTIME = 60
 MODEL_COUNT = 16
 SLICE_PERCENT = 6
+SLICE_SIZE_GB_ENV = "RANDOM_IO_SLICE_SIZE_GB"
 VERIFY_TYPE = "crc32c"
 PHASES = ("FILL", "STRESS", "VERIFY")
 _DRAID_VD = re.compile(r"^dp[0-9]+-vd[0-9]+$")
@@ -256,7 +257,30 @@ def _slice_lba_for_disk(disk_size_bytes: int):
     total_lba = disk_size_bytes // LBA_SIZE
     if total_lba <= 0:
         raise ValueError(f"Invalid disk size for slice computation: {disk_size_bytes} bytes")
-    slice_lba = int(total_lba * SLICE_PERCENT / 100)
+    fixed_slice_gb_raw = os.environ.get(SLICE_SIZE_GB_ENV, "").strip()
+    if fixed_slice_gb_raw:
+        try:
+            fixed_slice_gb = int(fixed_slice_gb_raw)
+        except ValueError as e:
+            raise ValueError(f"{SLICE_SIZE_GB_ENV} must be an int GiB, got: {fixed_slice_gb_raw}") from e
+        if fixed_slice_gb <= 0:
+            raise ValueError(f"{SLICE_SIZE_GB_ENV} must be > 0, got: {fixed_slice_gb}")
+
+        # Use GiB (1024^3) for deterministic alignment.
+        fixed_slice_bytes = fixed_slice_gb * 1024**3
+        slice_lba = fixed_slice_bytes // LBA_SIZE
+        if slice_lba <= 0:
+            raise ValueError(f"{SLICE_SIZE_GB_ENV} too small to form a slice: {fixed_slice_gb_raw}GiB")
+
+        # We generate non-overlapping slices with slice_id in [0..MODEL_COUNT-1],
+        # so the last slice ends at (MODEL_COUNT * slice_lba) in LBA space.
+        if total_lba < MODEL_COUNT * slice_lba:
+            raise ValueError(
+                f"Disk too small for fixed slice size: disk_total_lba={total_lba}, "
+                f"needed={MODEL_COUNT * slice_lba} (MODEL_COUNT={MODEL_COUNT}, slice_lba={slice_lba})"
+            )
+    else:
+        slice_lba = int(total_lba * SLICE_PERCENT / 100)
     if slice_lba <= 0:
         raise ValueError(f"Slice too small: total_lba={total_lba}, slice_lba={slice_lba}")
     return total_lba, slice_lba

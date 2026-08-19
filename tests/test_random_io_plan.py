@@ -43,7 +43,9 @@ def _rw_lines(job_text):
     return [line for line in job_text.splitlines() if line.startswith("rw=")]
 
 
-def test_random_io_fio_job_fill_stress_verify_cover_whole_slices():
+def test_random_io_fio_job_fill_stress_verify_cover_whole_slices(monkeypatch):
+    # This test assumes the default 6% slice-per-disk logic; guard against env overrides.
+    monkeypatch.delenv("RANDOM_IO_SLICE_SIZE_GB", raising=False)
     plan = generate_random_io_plan(seed=42)
     disk_sizes = {"dp0-vd1": 512 * 1_000_000, "dp0-vd2": 512 * 1_000_000}
     fill_job = plan_to_fio_job(plan, disk_sizes, "FILL")
@@ -85,6 +87,22 @@ def test_random_io_fio_job_fill_stress_verify_cover_whole_slices():
     assert fill_job.count("iodepth=") >= MODEL_COUNT
     assert "verify=crc32c" in fill_job
     assert "verify=crc32c" in verify_job
+
+
+def test_random_io_fio_job_supports_fixed_slice_size_env(monkeypatch):
+    monkeypatch.setenv("RANDOM_IO_SLICE_SIZE_GB", "10")
+    plan = generate_random_io_plan(seed=42)
+
+    slice_bytes = (10 * 1024**3 // LBA_SIZE) * LBA_SIZE
+    slice_lba = slice_bytes // LBA_SIZE
+    disk_size_bytes = (MODEL_COUNT * slice_lba + 1234) * LBA_SIZE
+    disk_sizes = {"dp0-vd1": disk_size_bytes}
+
+    fill_job = plan_to_fio_job(plan, disk_sizes, "FILL")
+    job_count = MODEL_COUNT * len(disk_sizes)
+
+    assert fill_job.count(f"size={slice_bytes}B") == job_count
+    assert "offset=0B" in fill_job
 
 
 def test_random_io_plan_table_and_csv_are_readable():
