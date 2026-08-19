@@ -31,18 +31,19 @@ def test_random_io():
     csv_path = os.path.join(stress_dir, os.path.basename(csv_name.replace("\\", "/")))
     write_plan_csv(plan, csv_path)
 
-    disks = list_test_disks()
-    if not disks:
+    disk_sizes = list_test_disks()
+    if not disk_sizes:
         pytest.fail("random_io 未找到测试盘。请设置 FIO_DISKS，或确保存在 dp*-vd* 虚拟盘。")
+    disks = list(disk_sizes.keys())
 
     jobs = {
         phase: os.path.join(stress_dir, f"random_io_{phase.lower()}.fio")
         for phase in PHASES
     }
     fill_job = jobs["FILL"]
-    write_fio_job(plan, disks, fill_job, "FILL")
-    write_fio_job(plan, disks, jobs["STRESS"], "STRESS")
-    write_fio_job(plan, disks, jobs["VERIFY"], "VERIFY")
+    write_fio_job(plan, disk_sizes, fill_job, "FILL")
+    write_fio_job(plan, disk_sizes, jobs["STRESS"], "STRESS")
+    write_fio_job(plan, disk_sizes, jobs["VERIFY"], "VERIFY")
 
     header = (
         f"{table}\n"
@@ -52,7 +53,7 @@ def test_random_io():
     print(header)
     allure.dynamic.title("FIO 测试: random_io")
     allure.dynamic.description(
-        f"16 个随机 FIO 模型：FILL → STRESS → VERIFY，LBA=4096，slice=6%，"
+        f"16 个随机 FIO 模型：FILL → STRESS → VERIFY，LBA={plan['lba_size']}，slice=6%，"
         f"verify=crc32c，seed={plan['seed']}，peak_qd_per_disk={peak_qd(plan)}。"
     )
     attach_named_text(header, "随机 IO 模型表")

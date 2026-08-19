@@ -6,7 +6,7 @@ import random
 import re
 import subprocess
 
-LBA_SIZE = 4096
+LBA_SIZE = 512
 MODEL_COUNT = 16
 SLICE_PERCENT = 6
 VERIFY_TYPE = "crc32c"
@@ -17,7 +17,35 @@ CSV_HEADER = (
     "Run_Time(ss:mm:hh:dd),Number_of_Jobs,Offset,IO_Size,Verify_Mode,Verify_Type"
 )
 
-BLOCK_SIZES = ("4k", "8k", "16k", "32k", "64k", "128k", "256k", "512k", "1m")
+BLOCK_SIZES = (
+    "512",
+    "1k",
+    "2k",
+    "3k",
+    "4k",
+    "5k",
+    "6k",
+    "8k",
+    "12k",
+    "16k",
+    "20k",
+    "24k",
+    "32k",
+    "48k",
+    "64k",
+    "96k",
+    "128k",
+    "192k",
+    "256k",
+    "384k",
+    "512k",
+    "768k",
+    "1m",
+    "2m",
+    "4m",
+    "8m",
+    "16m",
+)
 RW_CHOICES = (
     {"random_pct": 100, "read_pct": 0, "name": "randwrite"},
     {"random_pct": 0, "read_pct": 0, "name": "write"},
@@ -159,28 +187,52 @@ def write_plan_csv(plan, path):
 
 
 def list_test_disks():
-    raw = os.environ.get("FIO_DISKS", "").strip()
-    if raw:
-        return [
+    """
+    Return {disk_name: size_bytes} for dp*-vd* devices.
+
+    When FIO_DISKS is set, only those disks are included (still tries to detect SIZE).
+    """
+    desired_raw = os.environ.get("FIO_DISKS", "").strip()
+    desired = None
+    if desired_raw:
+        desired = {
             part.strip().removeprefix("/dev/")
-            for part in raw.replace(",", " ").split()
+            for part in desired_raw.replace(",", " ").split()
             if part.strip()
-        ]
+        }
+
     try:
+        # -b makes SIZE in bytes.
         result = subprocess.run(
-            ["lsblk", "-dn", "-o", "NAME,TYPE"],
+            ["lsblk", "-dn", "-b", "-o", "NAME,TYPE,SIZE"],
             check=False,
             capture_output=True,
             text=True,
         )
     except OSError:
-        return []
-    disks = []
-    for line in result.stdout.splitlines():
+        return {}
+
+    disk_sizes: dict[str, int] = {}
+    for line in (result.stdout or "").splitlines():
         parts = line.split()
-        if len(parts) >= 2 and parts[1] == "disk" and _DRAID_VD.match(parts[0]):
-            disks.append(parts[0])
-    return sorted(disks)
+        if len(parts) < 3:
+            continue
+        name, typ, size_str = parts[0], parts[1], parts[2]
+        # Safety: random_io should target only dp*-vd* VD devices.
+        if not _DRAID_VD.match(name):
+            continue
+        if desired is not None and name not in desired:
+            continue
+        if desired is None and (typ != "disk" or not _DRAID_VD.match(name)):
+            continue
+        try:
+            size_bytes = int(size_str)
+        except ValueError:
+            continue
+        if size_bytes > 0:
+            disk_sizes[name] = size_bytes
+
+    return {k: disk_sizes[k] for k in sorted(disk_sizes.keys())}
 
 
 def _job_rw(model):
@@ -197,13 +249,22 @@ def _phase_rw(model, phase):
         return ["rw=read"]
     return _job_rw(model)
 
+def _slice_lba_for_disk(disk_size_bytes: int):
+    total_lba = disk_size_bytes // LBA_SIZE
+    if total_lba <= 0:
+        raise ValueError(f"Invalid disk size for slice computation: {disk_size_bytes} bytes")
+    slice_lba = int(total_lba * SLICE_PERCENT / 100)
+    if slice_lba <= 0:
+        raise ValueError(f"Slice too small: total_lba={total_lba}, slice_lba={slice_lba}")
+    return total_lba, slice_lba
 
-def plan_to_fio_job(plan, disks, phase):
+
+def plan_to_fio_job(plan, disk_sizes, phase):
     if phase not in PHASES:
         raise ValueError(phase)
     lines = [
         "# random_io parallel FIO job",
-        f"# seed={plan['seed']} phase={phase} models={len(plan['models'])} disks={','.join(disks)}",
+        f"# seed={plan['seed']} phase={phase} models={len(plan['models'])} disks={','.join(sorted(disk_sizes.keys()))}",
         "[global]",
         "ioengine=libaio",
         "direct=1",
@@ -220,9 +281,17 @@ def plan_to_fio_job(plan, disks, phase):
     else:
         lines.append("do_verify=0")
     lines.append("")
-    for disk in disks:
+    for disk, disk_size_bytes in disk_sizes.items():
+        _total_lba, slice_lba = _slice_lba_for_disk(disk_size_bytes)
         for model in plan["models"]:
             name = f"m{model['id']:02d}_{model['name']}_{model['bs']}_qd{model['iodepth']}_{disk}"
+            # offset_pct/size_pct are kept for reporting, but we generate concrete offsets
+            # in bytes to avoid percentage rounding issues across different bs.
+            slice_id = int(model["offset_pct"] // SLICE_PERCENT)
+            offset_lba = slice_id * slice_lba
+            size_lba = slice_lba
+            offset_bytes = offset_lba * LBA_SIZE
+            size_bytes = size_lba * LBA_SIZE
             lines.extend(
                 [
                     f"[{name}]",
@@ -231,17 +300,17 @@ def plan_to_fio_job(plan, disks, phase):
                     f"bs={model['bs']}",
                     f"iodepth={model['iodepth']}",
                     f"numjobs={model['numjobs']}",
-                    f"offset={model['offset_pct']}%",
-                    f"size={model['size_pct']}%",
+                    f"offset={offset_bytes}B",
+                    f"size={size_bytes}B",
                     "",
                 ]
             )
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_fio_job(plan, disks, path, phase):
+def write_fio_job(plan, disk_sizes, path, phase):
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
-        handle.write(plan_to_fio_job(plan, disks, phase))
+        handle.write(plan_to_fio_job(plan, disk_sizes, phase))
     return path
 
 
