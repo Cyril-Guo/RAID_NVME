@@ -7,6 +7,7 @@ import re
 import subprocess
 
 LBA_SIZE = 512
+FILL_BLOCK_SIZE_LABEL = "256k"
 MODEL_COUNT = 16
 SLICE_PERCENT = 6
 VERIFY_TYPE = "crc32c"
@@ -292,12 +293,15 @@ def plan_to_fio_job(plan, disk_sizes, phase):
             size_lba = slice_lba
             offset_bytes = offset_lba * LBA_SIZE
             size_bytes = size_lba * LBA_SIZE
+            # FILL is only an initialization pass; using a larger sequential write block improves speed
+            # without changing the slice coverage (offset/size are still identical per phase).
+            fio_bs = FILL_BLOCK_SIZE_LABEL if phase == "FILL" else model["bs"]
             lines.extend(
                 [
                     f"[{name}]",
                     f"filename=/dev/{disk}",
                     *_phase_rw(model, phase),
-                    f"bs={model['bs']}",
+                    f"bs={fio_bs}",
                     f"iodepth={model['iodepth']}",
                     f"numjobs={model['numjobs']}",
                     f"offset={offset_bytes}B",

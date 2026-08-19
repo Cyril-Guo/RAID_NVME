@@ -50,6 +50,7 @@ def test_random_io_fio_job_fill_stress_verify_cover_whole_slices():
 
     assert fill_job.count("[m") == job_count
     assert _rw_lines(fill_job) == ["rw=write"] * job_count
+    assert fill_job.count("bs=256k") == job_count
     assert "do_verify=0" in fill_job
     assert "verify_only=1" not in fill_job
 
