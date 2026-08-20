@@ -1,3 +1,4 @@
+import os
 import random
 import re
 import subprocess
@@ -28,6 +29,33 @@ VDS_PER_GROUP = 4
 VD_SIZE_RESERVE_PERCENT = Decimal("8")
 VD_SIZE_RETRY_STEP_PERCENT = Decimal("5")
 VD_SIZE_RETRY_LIMIT = 6
+ALLOWED_LOGICAL_BLOCK_SIZES = {512, 4096}
+DEFAULT_LOGICAL_BLOCK_SIZE = 512
+
+
+def resolve_logical_block_size(value=None):
+    if value is None:
+        value = os.environ.get("LOGICAL_BLOCK_SIZE", str(DEFAULT_LOGICAL_BLOCK_SIZE))
+    normalized = str(value).strip()
+    if normalized not in {str(size) for size in ALLOWED_LOGICAL_BLOCK_SIZES}:
+        raise AssertionError(
+            f"LOGICAL_BLOCK_SIZE must be one of {sorted(ALLOWED_LOGICAL_BLOCK_SIZES)}, got: {value}"
+        )
+    return int(normalized)
+
+
+def vd_create_cmd(expr, size_gb, logical_block_size):
+    return [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=5",
+        f"Size={size_gb}GB",
+        "Strip=4",
+        f"LogicalBlockSize={logical_block_size}",
+        f"drives={expr}",
+    ]
 
 
 def is_excluded_nvme_model(model):
@@ -415,7 +443,8 @@ def cleanup_created_vds(before_ids, log):
         run_cmd(["dpraid", f"/c0/v{index}", "delete"], log, check=False)
 
 
-def create_raid5_vds(groups, log):
+def create_raid5_vds(groups, log, logical_block_size=DEFAULT_LOGICAL_BLOCK_SIZE):
+    logical_block_size = resolve_logical_block_size(logical_block_size)
     for group in groups:
         expr = drives_expr(group)
         size_gb = vd_size_gb(group, VD_SIZE_RESERVE_PERCENT)
@@ -424,7 +453,7 @@ def create_raid5_vds(groups, log):
             failed_result = None
             for _ in range(VDS_PER_GROUP):
                 result = run_cmd(
-                    ["dpraid", "/c0", "add", "vd", "r=5", f"Size={size_gb}GB", "Strip=4", f"drives={expr}"],
+                    vd_create_cmd(expr, size_gb, logical_block_size),
                     log,
                     check=False,
                 )
@@ -437,7 +466,8 @@ def create_raid5_vds(groups, log):
             output = failed_result.stdout or ""
             if "Cannot allocate memory" not in output:
                 raise AssertionError(
-                    f"Command failed rc={failed_result.returncode}: dpraid /c0 add vd r=5 Size={size_gb}GB Strip=4 drives={expr}"
+                    f"Command failed rc={failed_result.returncode}: "
+                    f"{' '.join(vd_create_cmd(expr, size_gb, logical_block_size))}"
                 )
             if attempt == VD_SIZE_RETRY_LIMIT:
                 raise AssertionError(
@@ -475,7 +505,8 @@ def verify_vd_count(log, expected=8):
     return devices
 
 
-def prepare_basic_raid5_vds(log):
+def prepare_basic_raid5_vds(log, logical_block_size=None):
+    logical_block_size = resolve_logical_block_size(logical_block_size)
     delete_existing_vds(log)
     delete_existing_pds(log)
     nvme_inventory_disks = nvme_inventory(log)
@@ -497,7 +528,8 @@ def prepare_basic_raid5_vds(log):
     log.write("Assigned DID by dpraid show: " + ", ".join(f"{d.namespace}->DID{d.did}" for d in disks))
     groups = split_groups(disks)
     log.write("Disk groups: " + " | ".join(",".join(f"DID{d.did}" for d in group) for group in groups))
-    create_raid5_vds(groups, log)
+    log.write(f"Create RAID5 VDs with LogicalBlockSize={logical_block_size}")
+    create_raid5_vds(groups, log, logical_block_size=logical_block_size)
     verify_vd_count(log, expected=8)
     vd_output = show_virtual_devices(log)
     return disks, groups, vd_output

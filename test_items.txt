@@ -32,6 +32,7 @@ basic_rebuild_io = yes
 # STRESS_MONITOR  Start background stress monitor: yes/no
 # MONITOR_RUNTIME Monitor runtime in seconds. Empty = monitor default.
 # FIO_CYCLES      Power-cycle count. Only used by reboot/dc.
+# LOGICAL_BLOCK_SIZE  VD logical block size for basic_io/basic_rebuild_io: 512 or 4096.
 # ============================================================
 
 
@@ -77,6 +78,7 @@ IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = yes
 MONITOR_RUNTIME = 1000
+LOGICAL_BLOCK_SIZE = 512
 
 
 [basic_rebuild_io]
@@ -84,3 +86,4 @@ IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = yes
 MONITOR_RUNTIME = 1000
+LOGICAL_BLOCK_SIZE = 512
