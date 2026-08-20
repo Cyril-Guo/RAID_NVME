@@ -30,7 +30,7 @@
 # lawdisk 3
 # filesystem 4
 mix 8
-# basic_io 6
+basic_io 6
 # basic_rebuild_io 7
 #  random_io 5
 # === END SELECTION ===
