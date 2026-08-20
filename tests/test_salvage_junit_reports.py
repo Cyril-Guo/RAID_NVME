@@ -28,3 +28,4 @@ def test_monitor_pkill_pattern_does_not_embed_plain_path():
     source = Path("ci/salvage_junit_reports.py").read_text(encoding="utf-8")
     assert "pkill -TERM -f Stress_Monitor/main.py" not in source
     assert "pkill -KILL -f Stress_Monitor/main.py" not in source
+    assert "sys.path.insert" in source

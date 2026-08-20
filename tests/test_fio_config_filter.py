@@ -76,6 +76,14 @@ def test_mix_io_generates_random_mixio_jobs():
     assert 'cp "$Cur_Dir/$filename" "MixIO${i}.csv"' not in source
 
 
+def test_fio_cycle_propagates_run_fio_exit_code():
+    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+    cycle = source.split("function fio_cycle()", 1)[1]
+
+    assert "sh run_fio.sh" in cycle
+    assert "exit $?" in cycle
+
+
 def test_io_stress_does_not_clear_system_logs():
     source = Path("IO_Stress/lib/init.sh").read_text(encoding="utf-8")
 

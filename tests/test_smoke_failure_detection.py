@@ -107,6 +107,21 @@ def test_collect_failure_lines_ignores_partial_disk_fio_errors_when_script_ok():
     assert any("FIO error detail begin" in line for line in kept)
 
 
+def test_collect_failure_lines_keeps_hard_stops_even_when_ignoring_fio_job_errors():
+    sample = """
+    FIO command failed in MIX mode job 22, model=randread bs=4m qd=32 runtime=30s (#22), elapsed=46s, rc=96/96/96/96, error_disks=8; MIX_FAIL_ON_ANY=yes, fail
+    FIO stage failed in LAWDISKSTRESS mode, model=randread bs=4m qd=32 runtime=30s (#22), config=22-randread-4m-32-30.log, elapsed=46s, planned_runtime=30s, rc=1
+    fio: io_u error on file /dev/dp0-vd5: Input/output error
+    """
+
+    lines = mix_failures(sample, ignore_fio_job_errors=True)
+    assert any("MIX_FAIL_ON_ANY=yes, fail" in line for line in lines)
+    assert any("FIO stage failed" in line for line in lines)
+    assert not any("io_u error" in line for line in lines)
+    assert lawdisk_failures(sample, ignore_fio_job_errors=True) == lines
+    assert filesystem_failures(sample, ignore_fio_job_errors=True) == lines
+
+
 def test_collect_failure_lines_still_keeps_guard_failures_when_ignoring_fio_job_errors():
     sample = """
     Fail to detect system disk. Refuse to run to avoid any IO on OS disk. Exit.

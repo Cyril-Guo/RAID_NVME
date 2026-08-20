@@ -2260,4 +2260,6 @@ function fio_cycle()
 {
     cd ${Cur_Dir}
     sh run_fio.sh "$item" "$check" "$bmc_reset" "$flag" "$delay" "$mode" "$wait" "$port" "$server_ip" "$LOOP" "$acserverport" "$safe" "$sysStaticIP" "$blackBoxStaticIP" "$runtime" "$filename" "$fs_type" "$disk_mode" "$specified_disk" "$remote" "$mix_io" "$log_interval"
+    # Propagate FIO/run_fio failure so Fio_All.sh / pytest cannot stay green.
+    exit $?
 }

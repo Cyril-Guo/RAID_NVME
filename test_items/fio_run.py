@@ -59,9 +59,28 @@ _FIO_JOB_ERROR_MARKERS = (
     "direct IO errored",
 )
 
+# Hard stops must fail the case even when the shell wrongly returns 0
+# (e.g. fio_cycle historically swallowed run_fio.sh rc). Soft/partial IO
+# noise may still be ignored when ignore_fio_job_errors=True.
+_HARD_FIO_FAILURE_MARKERS = (
+    "FIO stage failed",
+    "FIO stage abort",
+    "MIX_FAIL_ON_ANY=yes, fail",
+    "FIO failed:",
+    "idle watchdog timeout",
+    "test fail occur",
+    "Refuse to run",
+    "No non-system test disk found",
+    "Fail to detect system disk",
+)
+
 
 def _is_machinecheck_line(line):
     return any(marker in line for marker in _MACHINECHECK_MARKERS)
+
+
+def _is_hard_fio_failure_line(line):
+    return any(marker in line for marker in _HARD_FIO_FAILURE_MARKERS)
 
 
 def _is_fio_job_error_line(line):
@@ -93,6 +112,9 @@ def collect_failure_lines(text, ignore_machinecheck=False, ignore_fio_job_errors
                 lines.append(line)
             continue
         if ignore_machinecheck and _is_machinecheck_line(line):
+            continue
+        if _is_hard_fio_failure_line(line):
+            lines.append(line)
             continue
         if ignore_fio_job_errors and _is_fio_job_error_line(line):
             continue

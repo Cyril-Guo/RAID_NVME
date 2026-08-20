@@ -9,8 +9,13 @@ from __future__ import annotations
 import argparse
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
 import nvme_raid_test
 

@@ -355,7 +355,20 @@ def report_has_failures_or_errors(target_node, target_kind):
 
 
 def execution_log_needs_result(text):
-    """Treat explicit failures and abort/incomplete logs (no passed marker) as reportable."""
+    """Treat explicit failures and abort/incomplete logs (no passed marker) as reportable.
+
+    Also surface hard FIO stops even when the remote wrapper wrongly wrote
+    TEST_EXECUTION_STATUS=passed (pytest stayed green after Fio_All swallowed rc).
+    """
+    hard_markers = (
+        "FIO stage failed",
+        "FIO stage abort",
+        "MIX_FAIL_ON_ANY=yes, fail",
+        "idle watchdog timeout",
+        "idle watchdog fired",
+    )
+    if any(marker in (text or "") for marker in hard_markers):
+        return True
     if "TEST_EXECUTION_STATUS=passed" in text:
         return False
     if "TEST_EXECUTION_STATUS=failed" in text:

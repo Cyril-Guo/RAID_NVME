@@ -26,6 +26,28 @@ def load_failure_summary(path="failure_summary.txt", max_length=2200):
     return summary
 
 
+# Match structured hard stops; ignore noisy MachineCheck AER lines that only
+# contain words like "Timeout" and still land in failure_summary.txt.
+_HARD_SUMMARY_MARKERS = (
+    "fio command failed",
+    "fio stage failed",
+    "fio stage abort",
+    "mix_fail_on_any=yes, fail",
+    "idle watchdog",
+    "test_execution_status=failed",
+    "environment_prepare_status=failed",
+    "physical_restore_status=failed",
+    "insmod",
+    "traceback",
+    "assertionerror",
+)
+
+
+def summary_indicates_hard_failure(summary):
+    lowered = (summary or "").lower()
+    return any(marker in lowered for marker in _HARD_SUMMARY_MARKERS)
+
+
 def kernel_driver_web_base():
     configured = env("KERNEL_DRIVER_WEB_URL").rstrip("/")
     if configured:
@@ -75,10 +97,20 @@ def main():
     skipped = int(env("SKIPPED", "0"))
     if total == 1 and failed == 0 and errors == 0 and report_kind == "infra":
         errors = 1
+    # JUnit may stay green when Fio_All historically swallowed run_fio rc; if a
+    # hard failure summary exists with zero fail counters, treat as one error.
+    hard_summary = summary_indicates_hard_failure(failure_summary)
+    if hard_summary and failed == 0 and errors == 0:
+        errors = 1
+        if report_kind == "empty":
+            report_kind = "infra"
+            total = max(total, 1)
     passed = max(0, total - failed - errors - skipped)
     exec_rate = f"{((total - skipped) / total * 100):.2f}%" if total > 0 else "0%"
     pass_rate = f"{(passed / total * 100):.1f}%" if total > 0 else "0%"
     build_result = env("BUILD_RESULT", "SUCCESS").upper()
+    if hard_summary and build_result in ("", "SUCCESS"):
+        build_result = "FAILURE"
     build_failed = build_result not in ("", "SUCCESS")
     infra_report = report_kind == "infra"
     status_color = "blue" if not build_failed and failed + errors == 0 and total > 0 and not infra_report else "red"

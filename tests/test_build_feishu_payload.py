@@ -107,3 +107,72 @@ def test_infra_failure_card_shows_stats_without_detail_log(tmp_path, monkeypatch
     actions = payload["card"]["elements"][-1]["actions"]
     assert [action["text"]["content"] for action in actions] == ["查看报告", "查看MR"]
     assert actions[1]["url"] == "http://192.168.21.185:8081/raid_max/kernel_driver/-/merge_requests/141"
+
+
+def test_hard_fio_summary_overrides_green_junit_to_failure(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "failure_summary.txt").write_text(
+        "- test_execution_192.168.22.134.log: FIO stage failed in LAWDISKSTRESS mode, "
+        "model=randread bs=4m qd=32 runtime=30s (#22), elapsed=46s, planned_runtime=30s, rc=1\n",
+        encoding="utf-8",
+    )
+    for key, value in {
+        "TOTAL": "1",
+        "FAILED": "0",
+        "ERRORS": "0",
+        "SKIPPED": "0",
+        "REPORT_KIND": "tests",
+        "BUILD_RESULT": "SUCCESS",
+        "START_STR": "2026-08-20 20:40:11",
+        "END_STR": "2026-08-20 21:03:50",
+        "IP_LIST": "192.168.22.134",
+        "TRIGGER_SOURCE": "Manual Build",
+        "KERNEL_DRIVER_COMMIT": "skipped",
+        "JOB_NAME": "CI",
+        "BUILD_NUMBER": "35",
+        "BUILD_URL": "http://192.168.23.124:8080/job/CI/35/",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    build_feishu_payload.main()
+
+    payload = json.loads((tmp_path / "feishu_payload.json").read_text(encoding="utf-8"))
+    assert payload["card"]["header"]["template"] == "red"
+    fields = payload["card"]["elements"][0]["fields"]
+    assert any("FAILURE" in field["text"]["content"] for field in fields)
+    stats = payload["card"]["elements"][1]["text"]["content"]
+    assert "通过 **0**  失败 **0**  错误 **1**  Total: **1**" in stats
+    assert "0.0%" in stats
+
+
+def test_aer_only_summary_does_not_force_failure(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "failure_summary.txt").write_text(
+        "- test_execution_192.168.22.134.log: aer: 0000:18:00.0 UESta=DLP- Timeout- AdvNonFatalErr-\n",
+        encoding="utf-8",
+    )
+    for key, value in {
+        "TOTAL": "1",
+        "FAILED": "0",
+        "ERRORS": "0",
+        "SKIPPED": "0",
+        "REPORT_KIND": "tests",
+        "BUILD_RESULT": "SUCCESS",
+        "START_STR": "2026-08-20 20:40:11",
+        "END_STR": "2026-08-20 21:03:50",
+        "IP_LIST": "192.168.22.134",
+        "TRIGGER_SOURCE": "Manual Build",
+        "JOB_NAME": "CI",
+        "BUILD_NUMBER": "35",
+        "BUILD_URL": "http://192.168.23.124:8080/job/CI/35/",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    build_feishu_payload.main()
+
+    payload = json.loads((tmp_path / "feishu_payload.json").read_text(encoding="utf-8"))
+    assert payload["card"]["header"]["template"] == "blue"
+    fields = payload["card"]["elements"][0]["fields"]
+    assert any("SUCCESS" in field["text"]["content"] for field in fields)
+    stats = payload["card"]["elements"][1]["text"]["content"]
+    assert "通过 **1**  失败 **0**  错误 **0**  Total: **1**" in stats

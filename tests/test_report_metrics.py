@@ -217,6 +217,33 @@ def test_report_metrics_counts_execution_failure_when_junit_only_passed(tmp_path
     }
 
 
+def test_report_metrics_surfaces_hard_fio_fail_even_when_status_passed(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="x" name="a" />
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "test_execution_192.168.22.134.log").write_text(
+        "FIO command failed in MIX mode job 22, model=randread bs=4m qd=32 runtime=30s (#22), "
+        "elapsed=46s, rc=96/96/96/96, error_disks=8; MIX_FAIL_ON_ANY=yes, fail\n"
+        "FIO stage failed in LAWDISKSTRESS mode, model=randread bs=4m qd=32 runtime=30s (#22), "
+        "config=22-randread-4m-32-30.log, elapsed=46s, planned_runtime=30s, rc=1\n"
+        "TEST_EXECUTION_STATUS=passed\n",
+        encoding="utf-8",
+    )
+
+    assert report_metrics.report_metrics() == {
+        "tests": 2,
+        "failures": 0,
+        "errors": 1,
+        "skipped": 0,
+        "kind": "tests",
+    }
+
+
 def test_report_metrics_counts_aborted_empty_execution_log(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "test_execution_192.168.22.134.log").write_text("", encoding="utf-8")
