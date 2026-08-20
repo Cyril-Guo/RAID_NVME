@@ -165,6 +165,15 @@ def test_test_idle_watchdog_tracks_non_system_disk_io_progress():
     assert 'awk -v dev="${dev}"' in source
 
 
+def test_automatic_mr_trigger_is_temporarily_disabled():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "} else if (false) { // Automatic MR polling temporarily disabled; manual build only." in source
+    assert "Automatic MR trigger is disabled. Use manual build with MANUAL_MR_IID or MANUAL_KERNEL_DRIVER_REF." in source
+    assert "// triggers {" in source
+    assert "//     cron('* * * * *')" in source
+
+
 def test_automatic_mr_uses_qemu_vm_without_changing_manual_mr():
     source = pipeline_sources()
 

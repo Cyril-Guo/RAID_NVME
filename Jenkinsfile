@@ -500,9 +500,10 @@ pipeline {
         skipDefaultCheckout()
     }
 
-    triggers {
-        cron('* * * * *')
-    }
+    // Automatic polling is temporarily disabled; manual build only.
+    // triggers {
+    //     cron('* * * * *')
+    // }
 
     parameters {
         booleanParam(
@@ -718,7 +719,7 @@ pipeline {
                             if (params.SIMULATE_AUTO_MR_TRIGGER) {
                                 echo 'SIMULATE_AUTO_MR_TRIGGER=true, use QEMU VM target path for this manual build.'
                             }
-                        } else {
+                        } else if (false) { // Automatic MR polling temporarily disabled; manual build only.
                             def nowEpoch = sh(script: 'date +%s', returnStdout: true).trim().toLong()
                             def lastRaidCliCheck = sh(
                                 script: "cat '${raidCliCheckPath}' 2>/dev/null || echo 0",
@@ -891,6 +892,10 @@ PY
                             } else {
                                 echo "GitLab MR polling has no MR IID. Fall back to ${kernelDriverRef}."
                             }
+                        } else {
+                            currentBuild.result = 'NOT_BUILT'
+                            echo 'Automatic MR trigger is disabled. Use manual build with MANUAL_MR_IID or MANUAL_KERNEL_DRIVER_REF.'
+                            return
                         }
 
                         def mrSha = mrProps.MR_SHA ?: ''
