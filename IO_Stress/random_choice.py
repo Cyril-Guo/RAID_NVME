@@ -11,7 +11,7 @@ import copy
 # New mix model: reduce 4k from 63 -> 23, redistribute 40 to more block sizes
 # for broader coverage (non-power-of-2 / mid-range sizes).
 temp_dict = {
-    "512b": 4, "1k": 1, "1536b": 1, "2k": 1, "2560b": 1, "3k": 1,
+    "512b": 4, "1k": 1, "1536b": 0, "2k": 1, "2560b": 1, "3k": 2,
     "3584b": 1, "4k": 23, "8k": 6, "16k": 5, "32k": 3, "64k": 3,
     "1m": 2, "2m": 2, "4m": 2, "8m": 2, "16m": 2,
     # +40 weight across 40 extra block sizes (1 each)
