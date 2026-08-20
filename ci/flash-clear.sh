@@ -5,6 +5,8 @@ set -uo pipefail
 DEFAULT_DEVICES="${DEFAULT_DEVICES:-/dev/nvme1}"
 # CSD Flash 写命令 opcode，对应驱动中的 UPDATE_CSD_NOR_OP。
 FLASH_WRITE_OPCODE="${FLASH_WRITE_OPCODE:-0xD1}"
+# CSD Cache clear 命令 opcode。
+CACHE_CLEAR_OPCODE="${CACHE_CLEAR_OPCODE:-0xD8}"
 # CSD Flash 读命令 opcode，对应驱动中的 LOAD_CSD_NOR_OP。
 FLASH_READ_OPCODE="${FLASH_READ_OPCODE:-0xDE}"
 # CSD Flash 硬件传输长度。新固件默认使用完整 8 KiB；旧固件可显式设为 4096。
@@ -149,7 +151,16 @@ for dev in "${DEVICES[@]}"; do
         continue
     fi
 
-    echo "成功：$dev Flash 已清零并通过回读校验。"
+    echo "===== Cache clear $dev ====="
+    if ! run_cmd nvme admin-passthru "$dev" \
+        --opcode="$CACHE_CLEAR_OPCODE" \
+        --namespace-id="$NAMESPACE_ID"; then
+        echo "失败：$dev Cache clear 命令失败。" >&2
+        FAILED_DEVICES+=("$dev")
+        continue
+    fi
+
+    echo "成功：$dev Flash 已清零并通过回读校验，Cache 已清空。"
 done
 
 if [ "${#FAILED_DEVICES[@]}" -gt 0 ]; then

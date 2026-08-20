@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Find disks whose lsblk SIZE looks like dirty CSD flash (PB-scale, typically
-# shown as 8P/9P), map namespaces to NVMe controllers, and non-interactively
-# clear CSD flash via flash-clear.sh.
+# shown as 8P/9P), map namespaces to NVMe controllers, non-interactively clear
+# CSD flash via flash-clear.sh, then run Cache clear (admin-passthru opcode 0xD8).
 
 NODE_IP=${NODE_IP:-unknown}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
