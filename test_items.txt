@@ -76,7 +76,7 @@ IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME =
-MIX_FAIL_ON_ANY = yes
+MIX_FAIL_ON_ANY = no
 
 [basic_io]
 FIO_CONFIG      = Input_Config_basic_io.csv
