@@ -309,7 +309,12 @@ def prepareSmokeNodeEnvironment(ip, remoteDir, envPrepareLog, targetSsh, targetS
 set -o pipefail
 {
 echo "[${ip}] deploy workspace -> ${remoteDir}"
-${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
+if [ '${qemuEnv}' = '1' ]; then
+  echo "[${ip}] clear /root/Cyril/Jenkins inside QEMU VM before deploy"
+  ${targetSsh} 'rm -rf /root/Cyril/Jenkins && mkdir -p ${remoteDir}'
+else
+  ${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
+fi
 chmod +x ci/deploy_workspace.sh
 NODE_IP='${ip}' \
 TARGET_USER='${env.TARGET_USER}' \

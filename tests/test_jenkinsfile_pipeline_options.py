@@ -310,15 +310,22 @@ def test_qemu_vm_start_forces_clean_environment_before_start():
     assert "restore physical host RAID state before QEMU handoff" in source
     assert "\"${QEMU_VM_START_SCRIPT}\"" in source
     assert "QEMU VM SSH is ready" in source
+    assert "clear /root/Cyril/Jenkins inside QEMU VM before continue" in source
 
 
 def test_qemu_vm_deploy_cleans_previous_remote_workspaces():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
+    prepare = Path("ci/qemu_vm_prepare.sh").read_text(encoding="utf-8")
 
-    # Job/branch/build layout: only wipe this build's remoteDir (no flat jenkins_nvme_* sweep).
+    # QEMU guest: wipe all prior /root/Cyril/Jenkins content after SSH is ready
+    # and again before deploy. Physical hosts still wipe only this build's remoteDir.
     assert "def remoteWorkspaceRoot(" in source
+    assert "clear /root/Cyril/Jenkins inside QEMU VM before deploy" in source
+    assert "rm -rf /root/Cyril/Jenkins && mkdir -p ${remoteDir}" in source
     assert "${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'" in source
     assert "find /root/Cyril/Jenkins -maxdepth 1 -type d -name" not in source
+    assert "clear /root/Cyril/Jenkins inside QEMU VM before continue" in prepare
+    assert "rm -rf /root/Cyril/Jenkins && mkdir -p /root/Cyril/Jenkins" in prepare
     assert "def prepareSmokeQemuScene(" in source
     assert "def prepareSmokeNodeEnvironment(" in source
     assert "def runSmokeNodeWorkloads(" in source

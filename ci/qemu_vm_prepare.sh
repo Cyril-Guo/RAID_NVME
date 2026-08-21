@@ -409,6 +409,8 @@ HOST_START
 for attempt in $(seq 1 24); do
     if qemu_ssh 'echo qemu vm ssh ready' >/dev/null 2>&1; then
         echo "[${NODE_IP}] QEMU VM SSH is ready"
+        echo "[${NODE_IP}] clear /root/Cyril/Jenkins inside QEMU VM before continue"
+        qemu_ssh 'rm -rf /root/Cyril/Jenkins && mkdir -p /root/Cyril/Jenkins'
         exit 0
     fi
     if ! host_ssh 'pgrep -f "qemu-system-x86_64.*vm-serial.log" >/dev/null 2>&1'; then
