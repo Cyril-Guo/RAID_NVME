@@ -105,9 +105,10 @@ FIO_DISKS                 =
 STRESS_MONITOR            = no
 MONITOR_RUNTIME           =
 RANDOM_IO_SEED            =
-# STRESS 阶段固定运行时长（秒）。FILL/VERIFY 不受此影响（按 size= 跑完）。
-RANDOM_IO_STRESS_RUNTIME  = 60
-# random_io 外层重复轮数（每轮：FILL -> STRESS -> VERIFY）。
-RANDOM_IO_LOOPS            = 60
-# 每个 model 的 slice 大小（GiB）。当设置了该值，slice_lba 不再用 6% 百分比计算，而是固定为该大小。
-RANDOM_IO_SLICE_SIZE_GB    = 10
+# STRESS 阶段固定运行时长（秒）。FILL/VERIFY 按 size= 跑完；同 bs+crc32c 验一致性。
+RANDOM_IO_STRESS_RUNTIME  = 45
+# 外层轮数（每轮 FILL -> STRESS -> VERIFY）。自适应小 slice 下约可撑满 ~12h。
+RANDOM_IO_LOOPS           = 200
+# 切片大小：GB 优先于 MB；都留空则按 bs 自适应（约 16–256MiB），便于 12h 多轮。
+RANDOM_IO_SLICE_SIZE_GB   =
+RANDOM_IO_SLICE_SIZE_MB   =

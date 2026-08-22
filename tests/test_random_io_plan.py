@@ -1,16 +1,20 @@
 from test_items.random_io_plan import (
     DEFAULT_STRESS_RUNTIME,
-    FILL_BLOCK_SIZE_LABEL,
     LBA_SIZE,
+    MAX_SLICE_BYTES,
+    MIN_SLICE_BYTES,
     MODEL_COUNT,
-    VERIFY_BLOCK_SIZE_LABEL,
+    PREP_IODEPTH,
+    adaptive_slice_bytes,
     block_size_bytes,
     format_plan,
     generate_random_io_plan,
+    layout_models_on_disk,
     peak_qd,
     plan_to_csv,
     plan_to_fio_job,
     regions_overlap,
+    regions_overlap_bytes,
 )
 
 
@@ -23,19 +27,20 @@ def test_random_io_plan_has_sixteen_non_overlapping_512_aligned_models():
     assert regions_overlap(plan["models"]) is False
 
     signatures = []
-    offsets = []
+    region_indexes = []
     for model in plan["models"]:
         assert block_size_bytes(model["bs"]) % 512 == 0
         assert model["numjobs"] == 1
         assert model["verify"] == "crc32c"
-        assert model["size_pct"] == 6
+        assert MIN_SLICE_BYTES <= model["slice_bytes"] <= MAX_SLICE_BYTES or model[
+            "slice_bytes"
+        ] == block_size_bytes(model["bs"])
         signatures.append(
             (model["name"], model["bs"], model["iodepth"], model["random_pct"], model["read_pct"])
         )
-        offsets.append(model["offset_pct"])
+        region_indexes.append(model["region_index"])
     assert len(set(signatures)) == MODEL_COUNT
-    assert len(set(offsets)) == MODEL_COUNT
-    assert max(offset + 6 for offset in offsets) <= 96
+    assert len(set(region_indexes)) == MODEL_COUNT
     assert peak_qd(plan) == sum(model["iodepth"] for model in plan["models"])
 
 
@@ -43,11 +48,11 @@ def _rw_lines(job_text):
     return [line for line in job_text.splitlines() if line.startswith("rw=")]
 
 
-def test_random_io_fio_job_fill_stress_verify_cover_whole_slices(monkeypatch):
-    # This test assumes the default 6% slice-per-disk logic; guard against env overrides.
+def test_random_io_fio_job_fill_stress_verify_use_same_model_bs(monkeypatch):
     monkeypatch.delenv("RANDOM_IO_SLICE_SIZE_GB", raising=False)
+    monkeypatch.delenv("RANDOM_IO_SLICE_SIZE_MB", raising=False)
     plan = generate_random_io_plan(seed=42)
-    disk_sizes = {"dp0-vd1": 512 * 1_000_000, "dp0-vd2": 512 * 1_000_000}
+    disk_sizes = {"dp0-vd1": 64 * 1024**3, "dp0-vd2": 64 * 1024**3}
     fill_job = plan_to_fio_job(plan, disk_sizes, "FILL")
     stress_job = plan_to_fio_job(plan, disk_sizes, "STRESS")
     verify_job = plan_to_fio_job(plan, disk_sizes, "VERIFY")
@@ -55,9 +60,10 @@ def test_random_io_fio_job_fill_stress_verify_cover_whole_slices(monkeypatch):
 
     assert fill_job.count("[m") == job_count
     assert _rw_lines(fill_job) == ["rw=write"] * job_count
-    assert fill_job.count(f"bs={FILL_BLOCK_SIZE_LABEL}") == job_count
     assert "do_verify=0" in fill_job
     assert "verify_only=1" not in fill_job
+    assert "serialize_overlap=1" in fill_job
+    assert f"iodepth={PREP_IODEPTH}" in fill_job
 
     assert stress_job.count("[m") == job_count
     assert "rw=write" in stress_job or "rw=randwrite" in stress_job or "rw=randrw" in stress_job or "rw=rw" in stress_job
@@ -67,42 +73,84 @@ def test_random_io_fio_job_fill_stress_verify_cover_whole_slices(monkeypatch):
     assert _rw_lines(stress_job) != ["rw=write"] * job_count
     assert f"runtime={DEFAULT_STRESS_RUNTIME}" in stress_job
     assert "time_based=1" in stress_job
-    # custom runtime
     custom_stress = plan_to_fio_job(plan, disk_sizes, "STRESS", stress_runtime=30)
     assert "runtime=30" in custom_stress
     assert "time_based=1" in custom_stress
 
     assert _rw_lines(verify_job) == ["rw=read"] * job_count
     assert "verify_only=1" in verify_job
-    assert verify_job.count(f"bs={VERIFY_BLOCK_SIZE_LABEL}") == job_count
     assert "time_based" not in verify_job
-    # First slice_id is 0 => offset bytes are 0.
-    assert "offset=0B" in fill_job
-    # size in bytes equals slice_lba * LBA_SIZE.
-    total_lba = disk_sizes["dp0-vd1"] // LBA_SIZE
-    slice_lba = int(total_lba * 6 / 100)
-    expected_size_bytes = slice_lba * LBA_SIZE
-    assert f"size={expected_size_bytes}B" in fill_job
+    assert f"iodepth={PREP_IODEPTH}" in verify_job
+
+    for model in plan["models"]:
+        assert fill_job.count(f"bs={model['bs']}") >= len(disk_sizes)
+        assert stress_job.count(f"bs={model['bs']}") >= len(disk_sizes)
+        assert verify_job.count(f"bs={model['bs']}") >= len(disk_sizes)
+
     assert "filename=/dev/dp0-vd1" in fill_job
-    assert fill_job.count("iodepth=") >= MODEL_COUNT
     assert "verify=crc32c" in fill_job
     assert "verify=crc32c" in verify_job
 
+    # FILL/STRESS/VERIFY must share identical offsets for the same plan/disk.
+    fill_offsets = [line for line in fill_job.splitlines() if line.startswith("offset=")]
+    verify_offsets = [line for line in verify_job.splitlines() if line.startswith("offset=")]
+    stress_offsets = [line for line in stress_job.splitlines() if line.startswith("offset=")]
+    assert fill_offsets == verify_offsets == stress_offsets
+
+    placements = layout_models_on_disk(plan, disk_sizes["dp0-vd1"], disk_key="dp0-vd1")
+    assert len(placements) == MODEL_COUNT
+    assert regions_overlap_bytes(placements) is False
+
+
+def test_random_io_windows_scatter_across_whole_disk(monkeypatch):
+    monkeypatch.delenv("RANDOM_IO_SLICE_SIZE_GB", raising=False)
+    monkeypatch.delenv("RANDOM_IO_SLICE_SIZE_MB", raising=False)
+    plan = generate_random_io_plan(seed=42)
+    disk_size = 64 * 1024**3
+    placements = layout_models_on_disk(plan, disk_size, disk_key="dp0-vd1")
+    assert regions_overlap_bytes(placements) is False
+
+    payload = sum(item["size_bytes"] for item in placements)
+    span = max(item["offset_bytes"] + item["size_bytes"] for item in placements) - min(
+        item["offset_bytes"] for item in placements
+    )
+    # Scattered layout should spread far beyond a packed-from-zero span.
+    assert span > payload * 2
+    assert max(item["offset_bytes"] for item in placements) > disk_size // 4
+
+    # Same seed+disk is deterministic; different seed moves windows.
+    again = layout_models_on_disk(plan, disk_size, disk_key="dp0-vd1")
+    assert [(p["offset_bytes"], p["size_bytes"], p["model"]["id"]) for p in again] == [
+        (p["offset_bytes"], p["size_bytes"], p["model"]["id"]) for p in placements
+    ]
+    other = layout_models_on_disk(generate_random_io_plan(seed=99), disk_size, disk_key="dp0-vd1")
+    assert [p["offset_bytes"] for p in other] != [p["offset_bytes"] for p in placements]
+
 
 def test_random_io_fio_job_supports_fixed_slice_size_env(monkeypatch):
-    monkeypatch.setenv("RANDOM_IO_SLICE_SIZE_GB", "10")
+    monkeypatch.delenv("RANDOM_IO_SLICE_SIZE_GB", raising=False)
+    monkeypatch.setenv("RANDOM_IO_SLICE_SIZE_MB", "64")
     plan = generate_random_io_plan(seed=42)
 
-    slice_bytes = (10 * 1024**3 // LBA_SIZE) * LBA_SIZE
-    slice_lba = slice_bytes // LBA_SIZE
-    disk_size_bytes = (MODEL_COUNT * slice_lba + 1234) * LBA_SIZE
+    disk_size_bytes = 32 * 1024**3
     disk_sizes = {"dp0-vd1": disk_size_bytes}
 
     fill_job = plan_to_fio_job(plan, disk_sizes, "FILL")
-    job_count = MODEL_COUNT * len(disk_sizes)
+    placements = layout_models_on_disk(plan, disk_size_bytes, disk_key="dp0-vd1")
+    assert len(placements) == MODEL_COUNT
+    assert regions_overlap_bytes(placements) is False
+    for place in placements:
+        bs = block_size_bytes(place["model"]["bs"])
+        assert place["size_bytes"] % bs == 0
+        assert place["size_bytes"] <= 64 * 1024**2
+        assert f"size={place['size_bytes']}B" in fill_job
+        assert f"offset={place['offset_bytes']}B" in fill_job
 
-    assert fill_job.count(f"size={slice_bytes}B") == job_count
-    assert "offset=0B" in fill_job
+
+def test_adaptive_slice_bytes_clamps_small_and_large_bs():
+    assert adaptive_slice_bytes("512") >= MIN_SLICE_BYTES
+    assert adaptive_slice_bytes("16m") <= MAX_SLICE_BYTES
+    assert adaptive_slice_bytes("4k") % block_size_bytes("4k") == 0
 
 
 def test_random_io_plan_table_and_csv_are_readable():
@@ -111,9 +159,9 @@ def test_random_io_plan_table_and_csv_are_readable():
     csv_text = plan_to_csv(plan)
 
     assert "Random IO FIO Plan" in table
-    assert "FILL, then STRESS, then VERIFY" in table
-    assert "Per-disk peak QD" in table
-    assert "unwritten holes" in table
+    assert "FILL, then STRESS, then VERIFY (same bs)" in table
+    assert "randomly scattered across the whole disk" in table
+    assert "consistency bugs" in table
     assert table.count("\n") >= MODEL_COUNT
     assert csv_text.startswith("Block_Size,")
     assert csv_text.count("FILL") == MODEL_COUNT

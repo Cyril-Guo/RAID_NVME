@@ -1,20 +1,33 @@
-"""Build 16 non-overlapping FIO models: sequential FILL, mixed STRESS, sequential VERIFY."""
+"""Build 16 non-overlapping FIO models: sequential FILL, mixed STRESS, sequential VERIFY.
+
+Design goals:
+- Stress coverage (many bs / rw / QD) AND data consistency (crc32c) every round.
+- FILL / STRESS / VERIFY all use the *same model bs* so verify headers match.
+- Each round scatters 16 small windows across the whole disk (not packed at LBA 0).
+- Slice sizes stay modest (adaptive or fixed MB/GB) so many rounds fit in ~12h.
+"""
 from __future__ import annotations
 
+import hashlib
 import os
 import random
 import re
 import subprocess
 
 LBA_SIZE = 512
-FILL_BLOCK_SIZE_LABEL = "16m"
-VERIFY_BLOCK_SIZE_LABEL = "16m"
-DEFAULT_STRESS_RUNTIME = 60
+DEFAULT_STRESS_RUNTIME = 45
 MODEL_COUNT = 16
-SLICE_PERCENT = 6
+SLICE_PERCENT = 6  # only used when no fixed/adaptive sizing applies
 SLICE_SIZE_GB_ENV = "RANDOM_IO_SLICE_SIZE_GB"
+SLICE_SIZE_MB_ENV = "RANDOM_IO_SLICE_SIZE_MB"
 VERIFY_TYPE = "crc32c"
 PHASES = ("FILL", "STRESS", "VERIFY")
+# FILL/VERIFY: high QD sequential for wall-clock; STRESS keeps per-model QD.
+PREP_IODEPTH = 64
+# Adaptive slice: target similar FILL IO count across tiny and large bs.
+TARGET_FILL_IOS = 32768
+MIN_SLICE_BYTES = 16 * 1024**2
+MAX_SLICE_BYTES = 256 * 1024**2
 _DRAID_VD = re.compile(r"^dp[0-9]+-vd[0-9]+$")
 CSV_HEADER = (
     "Block_Size,Random_Percentage,Read_Percentage,Queue_Depth,"
@@ -70,6 +83,29 @@ def block_size_bytes(label):
     return int(text)
 
 
+def _align_down(value: int, align: int) -> int:
+    if align <= 0:
+        return value
+    return (value // align) * align
+
+
+def _align_up(value: int, align: int) -> int:
+    if align <= 0:
+        return value
+    return ((value + align - 1) // align) * align
+
+
+def adaptive_slice_bytes(bs_label: str) -> int:
+    """Pick a per-model slice so tiny-bs FILL stays bounded for many 12h rounds."""
+    bs = block_size_bytes(bs_label)
+    raw = TARGET_FILL_IOS * bs
+    size = max(MIN_SLICE_BYTES, min(MAX_SLICE_BYTES, raw))
+    size = _align_down(size, bs)
+    if size < bs:
+        size = bs
+    return size
+
+
 def _candidates():
     items = []
     for block_size in BLOCK_SIZES:
@@ -94,10 +130,10 @@ def generate_random_io_plan(seed=None):
     rng = random.Random(seed)
     pool = _candidates()
     rng.shuffle(pool)
-    slices = list(range(MODEL_COUNT))
-    rng.shuffle(slices)
+    region_order = list(range(MODEL_COUNT))
+    rng.shuffle(region_order)
     models = []
-    for index, (spec, slice_id) in enumerate(zip(pool[:MODEL_COUNT], slices), start=1):
+    for index, (spec, region_index) in enumerate(zip(pool[:MODEL_COUNT], region_order), start=1):
         models.append(
             {
                 "id": index,
@@ -107,51 +143,71 @@ def generate_random_io_plan(seed=None):
                 "numjobs": 1,
                 "random_pct": spec["random_pct"],
                 "read_pct": spec["read_pct"],
-                "offset_pct": slice_id * SLICE_PERCENT,
+                # Reporting helpers (percent layout / legacy CSV). Real bytes come from layout().
+                "offset_pct": region_index * SLICE_PERCENT,
                 "size_pct": SLICE_PERCENT,
+                "region_index": region_index,
+                "slice_bytes": adaptive_slice_bytes(spec["bs"]),
                 "verify": VERIFY_TYPE,
             }
         )
-    models.sort(key=lambda item: (item["offset_pct"], item["id"]))
+    models.sort(key=lambda item: (item["region_index"], item["id"]))
     for index, model in enumerate(models, start=1):
         model["id"] = index
     return {"seed": seed, "lba_size": LBA_SIZE, "models": models}
 
 
 def format_plan(plan):
+    sizing = _sizing_mode_label()
     lines = [
         "=" * 96,
         " Random IO FIO Plan",
         (
             f" seed={plan['seed']}   models={len(plan['models'])}   "
-            f"LBA={plan['lba_size']}   slice={SLICE_PERCENT}%   verify={VERIFY_TYPE}"
+            f"LBA={plan['lba_size']}   sizing={sizing}   verify={VERIFY_TYPE}"
         ),
         "-" * 96,
         f" {'ID':>3}  {'Model':<10} {'BS':<6} {'QD':>4} {'Jobs':>4} "
-        f"{'Offset':>7} {'Size':>5} {'Rnd%':>5} {'Rd%':>4}  Phases",
+        f"{'Region':>6} {'Slice':>10} {'Rnd%':>5} {'Rd%':>4}  Phases",
         "-" * 96,
     ]
     for model in plan["models"]:
         lines.append(
             f" {model['id']:>3}  {model['name']:<10} {model['bs']:<6} {model['iodepth']:>4} "
-            f"{model['numjobs']:>4} {str(model['offset_pct']) + '%':>7} "
-            f"{str(model['size_pct']) + '%':>5} {model['random_pct']:>5} {model['read_pct']:>4}  "
-            "FILL, then STRESS, then VERIFY"
+            f"{model['numjobs']:>4} {model['region_index']:>6} "
+            f"{_human_bytes(model['slice_bytes']):>10} {model['random_pct']:>5} {model['read_pct']:>4}  "
+            "FILL, then STRESS, then VERIFY (same bs)"
         )
     peak = peak_qd(plan)
     lines.extend(
         [
             "-" * 96,
             (
-                f" Per-disk peak QD = {peak} (sum of model QDs); regions do not overlap."
+                f" Per-disk peak STRESS QD = {peak} (sum of model QDs); "
+                "16 windows are randomly scattered across the whole disk (non-overlapping)."
             ),
-            " FILL sequential-writes every LBA in each slice with crc32c headers.",
-            " STRESS then runs the 16 models in parallel (writes keep crc32c headers).",
-            " VERIFY sequential-reads the same slices; failures are disk consistency, not unwritten holes.",
+            " FILL sequential-writes every LBA in each window with crc32c headers (model bs).",
+            " STRESS runs the 16 models in parallel (writes keep crc32c headers at model bs).",
+            " VERIFY sequential-reads the same windows at the same bs; failures are consistency bugs.",
             "=" * 96,
         ]
     )
     return "\n".join(lines)
+
+
+def _human_bytes(num: int) -> str:
+    for unit, scale in (("GiB", 1024**3), ("MiB", 1024**2), ("KiB", 1024)):
+        if num >= scale and num % scale == 0:
+            return f"{num // scale}{unit}"
+    return f"{num}B"
+
+
+def _sizing_mode_label() -> str:
+    if os.environ.get(SLICE_SIZE_GB_ENV, "").strip():
+        return f"fixed {os.environ.get(SLICE_SIZE_GB_ENV).strip()}GiB"
+    if os.environ.get(SLICE_SIZE_MB_ENV, "").strip():
+        return f"fixed {os.environ.get(SLICE_SIZE_MB_ENV).strip()}MiB"
+    return f"adaptive {MIN_SLICE_BYTES // 1024**2}-{MAX_SLICE_BYTES // 1024**2}MiB"
 
 
 def peak_qd(plan):
@@ -253,37 +309,125 @@ def _phase_rw(model, phase):
         return ["rw=read"]
     return _job_rw(model)
 
-def _slice_lba_for_disk(disk_size_bytes: int):
-    total_lba = disk_size_bytes // LBA_SIZE
-    if total_lba <= 0:
-        raise ValueError(f"Invalid disk size for slice computation: {disk_size_bytes} bytes")
-    fixed_slice_gb_raw = os.environ.get(SLICE_SIZE_GB_ENV, "").strip()
-    if fixed_slice_gb_raw:
+
+def _fixed_slice_bytes_from_env():
+    fixed_gb_raw = os.environ.get(SLICE_SIZE_GB_ENV, "").strip()
+    if fixed_gb_raw:
         try:
-            fixed_slice_gb = int(fixed_slice_gb_raw)
+            fixed_gb = int(fixed_gb_raw)
         except ValueError as e:
-            raise ValueError(f"{SLICE_SIZE_GB_ENV} must be an int GiB, got: {fixed_slice_gb_raw}") from e
-        if fixed_slice_gb <= 0:
-            raise ValueError(f"{SLICE_SIZE_GB_ENV} must be > 0, got: {fixed_slice_gb}")
+            raise ValueError(f"{SLICE_SIZE_GB_ENV} must be an int GiB, got: {fixed_gb_raw}") from e
+        if fixed_gb <= 0:
+            raise ValueError(f"{SLICE_SIZE_GB_ENV} must be > 0, got: {fixed_gb}")
+        return fixed_gb * 1024**3
 
-        # Use GiB (1024^3) for deterministic alignment.
-        fixed_slice_bytes = fixed_slice_gb * 1024**3
-        slice_lba = fixed_slice_bytes // LBA_SIZE
-        if slice_lba <= 0:
-            raise ValueError(f"{SLICE_SIZE_GB_ENV} too small to form a slice: {fixed_slice_gb_raw}GiB")
+    fixed_mb_raw = os.environ.get(SLICE_SIZE_MB_ENV, "").strip()
+    if fixed_mb_raw:
+        try:
+            fixed_mb = int(fixed_mb_raw)
+        except ValueError as e:
+            raise ValueError(f"{SLICE_SIZE_MB_ENV} must be an int MiB, got: {fixed_mb_raw}") from e
+        if fixed_mb <= 0:
+            raise ValueError(f"{SLICE_SIZE_MB_ENV} must be > 0, got: {fixed_mb}")
+        return fixed_mb * 1024**2
+    return None
 
-        # We generate non-overlapping slices with slice_id in [0..MODEL_COUNT-1],
-        # so the last slice ends at (MODEL_COUNT * slice_lba) in LBA space.
-        if total_lba < MODEL_COUNT * slice_lba:
-            raise ValueError(
-                f"Disk too small for fixed slice size: disk_total_lba={total_lba}, "
-                f"needed={MODEL_COUNT * slice_lba} (MODEL_COUNT={MODEL_COUNT}, slice_lba={slice_lba})"
-            )
+
+def _model_slice_bytes(model) -> tuple[int, int]:
+    """Return (bs_bytes, size_bytes) for a model under current sizing env."""
+    bs = block_size_bytes(model["bs"])
+    fixed_slice = _fixed_slice_bytes_from_env()
+    if fixed_slice is not None:
+        size_bytes = _align_down(fixed_slice, bs)
+        if size_bytes < bs:
+            size_bytes = bs
     else:
-        slice_lba = int(total_lba * SLICE_PERCENT / 100)
-    if slice_lba <= 0:
-        raise ValueError(f"Slice too small: total_lba={total_lba}, slice_lba={slice_lba}")
-    return total_lba, slice_lba
+        size_bytes = _align_down(int(model["slice_bytes"]), bs) or bs
+    return bs, size_bytes
+
+
+def _layout_rng_seed(plan_seed, disk_size_bytes: int, disk_key: str) -> int:
+    raw = f"{plan_seed}:{disk_size_bytes}:{disk_key}".encode()
+    return int(hashlib.sha256(raw).hexdigest()[:16], 16)
+
+
+def layout_models_on_disk(plan, disk_size_bytes: int, disk_key: str = "") -> list[dict]:
+    """
+    Return [{model, offset_bytes, size_bytes}, ...] scattered across the disk.
+
+    Windows are non-overlapping, bs-aligned, and placed randomly over the full
+    capacity (deterministic from plan seed + disk). FILL/STRESS/VERIFY share the
+    same layout for a given plan/disk.
+    """
+    if disk_size_bytes < LBA_SIZE:
+        raise ValueError(f"Invalid disk size for layout: {disk_size_bytes} bytes")
+
+    models = list(plan["models"])
+    sized = []
+    total_payload = 0
+    for model in models:
+        bs, size_bytes = _model_slice_bytes(model)
+        sized.append((model, bs, size_bytes))
+        total_payload += size_bytes
+
+    if total_payload > disk_size_bytes:
+        raise ValueError(
+            f"Disk too small for random_io layout: disk={disk_size_bytes}B, "
+            f"need_payload={total_payload}B for {len(sized)} windows. "
+            "Shrink slices or use fewer models."
+        )
+
+    rng = random.Random(_layout_rng_seed(plan["seed"], disk_size_bytes, disk_key))
+    rng.shuffle(sized)
+
+    # Free intervals as half-open [start, end).
+    free: list[tuple[int, int]] = [(0, disk_size_bytes)]
+    placements = []
+
+    for model, bs, size_bytes in sized:
+        candidates = []
+        for idx, (start, end) in enumerate(free):
+            aligned_start = _align_up(start, bs)
+            if aligned_start + size_bytes > end:
+                continue
+            max_start = _align_down(end - size_bytes, bs)
+            if max_start < aligned_start:
+                continue
+            steps = ((max_start - aligned_start) // bs) + 1
+            candidates.append((idx, aligned_start, steps))
+
+        if not candidates:
+            raise ValueError(
+                f"Disk too fragmented for random_io window: disk={disk_size_bytes}B, "
+                f"model={model['id']} bs={model['bs']} size={size_bytes}B. "
+                "Shrink slices or enlarge the VD."
+            )
+
+        # Prefer larger holes so windows spread across the disk.
+        idx, aligned_start, steps = rng.choices(
+            candidates, weights=[item[2] for item in candidates], k=1
+        )[0]
+        offset_bytes = aligned_start + rng.randrange(steps) * bs
+        end_bytes = offset_bytes + size_bytes
+
+        start, end = free.pop(idx)
+        parts = []
+        if start < offset_bytes:
+            parts.append((start, offset_bytes))
+        if end_bytes < end:
+            parts.append((end_bytes, end))
+        free[idx:idx] = parts
+
+        placements.append(
+            {
+                "model": model,
+                "offset_bytes": offset_bytes,
+                "size_bytes": size_bytes,
+            }
+        )
+
+    placements.sort(key=lambda item: (item["offset_bytes"], item["model"]["id"]))
+    return placements
 
 
 def plan_to_fio_job(plan, disk_sizes, phase, stress_runtime=None):
@@ -300,6 +444,8 @@ def plan_to_fio_job(plan, disk_sizes, phase, stress_runtime=None):
         "refill_buffers",
         "norandommap",
         "randrepeat=0",
+        # Avoid false crc failures when high QD issues overlapping IOs on one job.
+        "serialize_overlap=1",
         f"verify={VERIFY_TYPE}",
         "verify_fatal=1",
         "verify_dump=1",
@@ -314,33 +460,22 @@ def plan_to_fio_job(plan, disk_sizes, phase, stress_runtime=None):
         lines += [f"runtime={stress_runtime}", "time_based=1"]
     lines.append("")
     for disk, disk_size_bytes in disk_sizes.items():
-        _total_lba, slice_lba = _slice_lba_for_disk(disk_size_bytes)
-        for model in plan["models"]:
+        for place in layout_models_on_disk(plan, disk_size_bytes, disk_key=disk):
+            model = place["model"]
             name = f"m{model['id']:02d}_{model['name']}_{model['bs']}_qd{model['iodepth']}_{disk}"
-            # offset_pct/size_pct are kept for reporting, but we generate concrete offsets
-            # in bytes to avoid percentage rounding issues across different bs.
-            slice_id = int(model["offset_pct"] // SLICE_PERCENT)
-            offset_lba = slice_id * slice_lba
-            size_lba = slice_lba
-            offset_bytes = offset_lba * LBA_SIZE
-            size_bytes = size_lba * LBA_SIZE
-            # FILL/VERIFY use large sequential block size for speed; STRESS keeps model bs.
-            if phase == "FILL":
-                fio_bs = FILL_BLOCK_SIZE_LABEL
-            elif phase == "VERIFY":
-                fio_bs = VERIFY_BLOCK_SIZE_LABEL
-            else:
-                fio_bs = model["bs"]
+            # Same bs for FILL/STRESS/VERIFY so crc32c headers stay valid end-to-end.
+            fio_bs = model["bs"]
+            iodepth = model["iodepth"] if phase == "STRESS" else PREP_IODEPTH
             lines.extend(
                 [
                     f"[{name}]",
                     f"filename=/dev/{disk}",
                     *_phase_rw(model, phase),
                     f"bs={fio_bs}",
-                    f"iodepth={model['iodepth']}",
+                    f"iodepth={iodepth}",
                     f"numjobs={model['numjobs']}",
-                    f"offset={offset_bytes}B",
-                    f"size={size_bytes}B",
+                    f"offset={place['offset_bytes']}B",
+                    f"size={place['size_bytes']}B",
                     "",
                 ]
             )
@@ -356,6 +491,16 @@ def write_fio_job(plan, disk_sizes, path, phase, stress_runtime=None):
 def regions_overlap(models):
     spans = sorted(
         (item["offset_pct"], item["offset_pct"] + item["size_pct"]) for item in models
+    )
+    for index in range(1, len(spans)):
+        if spans[index][0] < spans[index - 1][1]:
+            return True
+    return False
+
+
+def regions_overlap_bytes(placements):
+    spans = sorted(
+        (item["offset_bytes"], item["offset_bytes"] + item["size_bytes"]) for item in placements
     )
     for index in range(1, len(spans)):
         if spans[index][0] < spans[index - 1][1]:

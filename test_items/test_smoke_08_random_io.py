@@ -1,8 +1,9 @@
 """
-Smoke 测试 —— 随机 IO 压力。
+Smoke 测试 —— 随机 IO 压力 + 数据一致性。
 
-16 个互不重叠切片：先顺序 FILL 打满 crc32c 头，再按模型并行 STRESS，
-最后顺序 VERIFY。校验失败表示盘上数据不一致，而不是未写入空洞。
+每轮在整盘随机抽取 16 个互不重叠小窗口（自适应大小，便于 12h 多轮）：
+FILL → STRESS → VERIFY，三相使用同一 model bs + crc32c。
+校验失败表示一致性问题；FILL 先打满头，避免未写入空洞误报。
 """
 import os
 
@@ -49,7 +50,6 @@ def test_random_io():
         phase: os.path.join(stress_dir, f"random_io_{phase.lower()}.fio")
         for phase in PHASES
     }
-    fill_job = jobs["FILL"]
 
     maybe_start_monitor()
 
@@ -62,20 +62,20 @@ def test_random_io():
         write_plan_csv(plan, csv_path)
 
         # 每轮覆盖对应 fio job 文件
-        write_fio_job(plan, disk_sizes, fill_job, "FILL")
+        write_fio_job(plan, disk_sizes, jobs["FILL"], "FILL")
         write_fio_job(plan, disk_sizes, jobs["STRESS"], "STRESS", stress_runtime=stress_runtime)
         write_fio_job(plan, disk_sizes, jobs["VERIFY"], "VERIFY")
 
         header = (
             f"{table}\n"
             f"[RANDOM_IO round {round_idx + 1}/{loops}] disks={','.join(disks)} count={len(disks)} "
-            f"parallel_models=16 peak_qd_per_disk={peak_qd(plan)}\n"
+            f"parallel_models=16 peak_stress_qd_per_disk={peak_qd(plan)}\n"
         )
         print(header)
         allure.dynamic.description(
-            f"Round {round_idx + 1}/{loops}: 16 个随机 FIO 模型：FILL → STRESS({stress_runtime}s) → VERIFY，"
-            f"LBA={plan['lba_size']}，slice=6%，verify=crc32c，seed={plan['seed']}，"
-            f"peak_qd_per_disk={peak_qd(plan)}。"
+            f"Round {round_idx + 1}/{loops}: 16 随机模型 FILL→STRESS({stress_runtime}s)→VERIFY，"
+            f"同 bs+crc32c，LBA={plan['lba_size']}，seed={plan['seed']}，"
+            f"peak_stress_qd_per_disk={peak_qd(plan)}。"
         )
         attach_named_text(header, f"随机 IO 模型表 (round {round_idx + 1})")
 
