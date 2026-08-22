@@ -180,6 +180,7 @@ pipeline {
 
                 script {
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
+                    def jenkinsPrepare = load 'ci/jenkins_prepare.groovy'
 
                     if (!params.RESTORE) {
                         shouldRunTests = true
@@ -191,174 +192,25 @@ PY''',
                             returnStdout: true
                         ).trim()
                         selectedTestItems = selectedRaw ? selectedRaw.split(' ') as List : []
-                        needsPhysicalIoDriverPrep = selectedTestItems.contains('env_prepare')
-                        echo "Selected test items: ${selectedTestItems}"
-                        echo "Pull latest raid_cli/kernel_driver for env_prepare: ${needsPhysicalIoDriverPrep}"
-
-                        if (!needsPhysicalIoDriverPrep) {
-                            triggerSource = 'Manual Build'
-                            kernelDriverCommit = 'skipped'
-                            raidCliCommit = 'skipped'
-                            echo 'Skip raid_cli sync and kernel_driver checkout: env_prepare not selected.'
-                            if ((params.MANUAL_MR_IID ?: '').trim() || (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()) {
-                                echo 'MANUAL_MR_IID / MANUAL_KERNEL_DRIVER_REF ignored because env_prepare is not selected.'
-                            }
-                        } else {
-                        // CI is manual-only: default kernel_driver/main; optional MANUAL_MR_IID or MANUAL_KERNEL_DRIVER_REF.
-                        def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
-                        def raidCliMarkerPath = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.commit"
-                        def raidCliWorkDir = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo"
-                        raidCliDpraidPath = "${raidCliWorkDir}/dpraid"
-                        def mrProps = [:]
-                        def syncRaidCli = { String reason ->
-                            echo "Check raid_cli(${env.RAID_CLI_BRANCH}) updates: ${reason}."
-                            checkout scm: [
-                                $class: 'GitSCM',
-                                branches: [[name: "*/${env.RAID_CLI_BRANCH}"]],
-                                userRemoteConfigs: [[
-                                    url: env.RAID_CLI_REPO,
-                                    credentialsId: env.RAID_CLI_CRED
-                                ]],
-                                extensions: [
-                                    [$class: 'RelativeTargetDirectory', relativeTargetDir: 'raid_cli'],
-                                    [$class: 'CloneOption', shallow: true, depth: 50, noTags: true, timeout: 30]
-                                ]
-                            ], poll: false, changelog: false
-
-                            raidCliFullCommit = sh(
-                                script: "git -C raid_cli rev-parse HEAD 2>/dev/null || echo unknown",
-                                returnStdout: true
-                            ).trim()
-                            raidCliCommit = sh(
-                                script: "git -C raid_cli rev-parse --short HEAD 2>/dev/null || echo unknown",
-                                returnStdout: true
-                            ).trim()
-
-                            def previousRaidCliCommit = sh(
-                                script: "cat '${raidCliMarkerPath}' 2>/dev/null || true",
-                                returnStdout: true
-                            ).trim()
-                            def persistentRaidCliMissing = sh(
-                                script: "test -d '${raidCliWorkDir}/.git' && test -x '${raidCliDpraidPath}'; echo \$?",
-                                returnStdout: true
-                            ).trim() != '0'
-                            def needsRaidCliUpdate = raidCliFullCommit != 'unknown' && (previousRaidCliCommit != raidCliFullCommit || persistentRaidCliMissing)
-
-                            if (needsRaidCliUpdate) {
-                                sh """
-                                set -eu
-                                mkdir -p '${jenkinsHome}/.raid_nvme'
-                                rm -rf '${raidCliWorkDir}.next'
-                                cp -a raid_cli '${raidCliWorkDir}.next'
-                                rm -rf '${raidCliWorkDir}'
-                                mv '${raidCliWorkDir}.next' '${raidCliWorkDir}'
-                                cd '${raidCliWorkDir}'
-                                chmod +x ./build.sh
-                                ./build.sh
-                                test -x ./dpraid
-                                printf '%s\\n' '${raidCliFullCommit}' > '${raidCliMarkerPath}'
-                                """
-                                currentBuild.description = "raid_cli ${raidCliCommit}"
-                                echo "raid_cli(${env.RAID_CLI_BRANCH}) updated and built on Jenkins server: ${previousRaidCliCommit ?: 'none'} -> ${raidCliFullCommit}"
-                                echo "raid_cli checkout path: ${raidCliWorkDir}"
-                                echo "dpraid artifact path: ${raidCliDpraidPath}"
-                            } else {
-                                echo "raid_cli(${env.RAID_CLI_BRANCH}) has no new commit: ${raidCliCommit}"
-                            }
-
-                            return needsRaidCliUpdate
-                        }
-
-                        def manualMrIid = (params.MANUAL_MR_IID ?: '').trim()
-                        def manualKernelDriverRef = (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()
-                        syncRaidCli('env_prepare selected')
-
-                        if (manualMrIid) {
-                            if (manualKernelDriverRef) {
-                                echo "MANUAL_MR_IID is set; ignore MANUAL_KERNEL_DRIVER_REF=${manualKernelDriverRef}."
-                            }
-                            if (!(manualMrIid ==~ /^[0-9]+$/)) {
-                                error "MANUAL_MR_IID must be a numeric GitLab merge request IID, got: ${manualMrIid}"
-                            }
-
-                            withCredentials([string(credentialsId: env.KERNEL_DRIVER_GITLAB_TOKEN_CRED, variable: 'GITLAB_TOKEN')]) {
-                                sh """
-                                set -eu
-                                curl -fsS \\
-                                  --header "PRIVATE-TOKEN: \${GITLAB_TOKEN}" \\
-                                  "${KERNEL_DRIVER_GITLAB_API}/projects/${KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests/${manualMrIid}" \\
-                                  -o kernel_driver_manual_mr.json
-
-                                python3 ci/gitlab_mr_to_properties.py kernel_driver_manual_mr.json > kernel_driver_manual_mr.properties
-                                """
-                            }
-
-                            readFile('kernel_driver_manual_mr.properties').split('\\r?\\n').each { line ->
-                                if (line.contains('=')) {
-                                    def parts = line.split('=', 2)
-                                    mrProps[parts[0]] = parts[1]
-                                }
-                            }
-
-                            kernelDriverRef = mrProps.MR_SOURCE_BRANCH ?: env.KERNEL_DRIVER_BRANCH
-                            kernelDriverMrIid = mrProps.MR_IID ?: manualMrIid
-                            kernelDriverMrTitle = mrProps.MR_TITLE ?: ''
-                            kernelDriverMrUpdatedAt = mrProps.MR_UPDATED_AT ?: ''
-                            kernelDriverMrUrl = mrProps.MR_WEB_URL ?: ''
-                            triggerSource = 'Manual MR Build'
-                            echo "Manual MR build requested. Run tests on kernel_driver !${kernelDriverMrIid} ${kernelDriverRef}."
-                        } else {
-                            if (manualKernelDriverRef) {
-                                if (!(manualKernelDriverRef ==~ '[A-Za-z0-9][A-Za-z0-9._/-]*') ||
-                                    manualKernelDriverRef.contains('..') ||
-                                    manualKernelDriverRef.endsWith('/')) {
-                                    error "MANUAL_KERNEL_DRIVER_REF is not a safe branch name: ${manualKernelDriverRef}"
-                                }
-                                kernelDriverRef = manualKernelDriverRef
-                                triggerSource = 'Manual Branch Build'
-                            } else {
-                                kernelDriverRef = env.KERNEL_DRIVER_BRANCH
-                                triggerSource = 'Manual Build'
-                            }
-                            echo "Manual build requested. Run tests on kernel_driver/${kernelDriverRef}."
-                        }
-
-                        checkout scm: [
-                            $class: 'GitSCM',
-                            branches: [[name: "*/${kernelDriverRef}"]],
-                            userRemoteConfigs: [[
-                                url: env.KERNEL_DRIVER_REPO,
-                                credentialsId: env.KERNEL_DRIVER_CRED
-                            ]],
-                            extensions: [
-                                [$class: 'RelativeTargetDirectory', relativeTargetDir: 'kernel_driver'],
-                                [$class: 'CloneOption', shallow: true, depth: 50, noTags: true, timeout: 30]
-                            ]
-                        ], poll: false, changelog: false
-
-                        def mrSha = mrProps.MR_SHA ?: ''
-                        if (mrSha ==~ /^[0-9a-f]{40}$/) {
-                            sh "git -C kernel_driver checkout --detach '${mrSha}'"
-                        }
-
-                        kernelDriverFullCommit = sh(
-                            script: "git -C kernel_driver rev-parse HEAD 2>/dev/null || echo unknown",
-                            returnStdout: true
-                        ).trim()
-                        kernelDriverCommit = sh(
-                            script: "git -C kernel_driver rev-parse --short HEAD 2>/dev/null || echo unknown",
-                            returnStdout: true
-                        ).trim()
-                        echo "kernel_driver(${kernelDriverRef}) commit: ${kernelDriverCommit}"
-
-                        // Stage dpraid into workspace so deploy packs it for per-case refresh only.
-                        sh """
-                        set -eu
-                        test -x '${raidCliDpraidPath}'
-                        mkdir -p artifacts
-                        install -m 0755 '${raidCliDpraidPath}' artifacts/dpraid
-                        """
-                        } // end needsPhysicalIoDriverPrep
+                        def prep = jenkinsPrepare.preparePhysicalIoDriver(
+                            script: this,
+                            env: env,
+                            params: params,
+                            selectedTestItems: selectedTestItems,
+                            jenkinsHome: jenkinsHome,
+                        )
+                        needsPhysicalIoDriverPrep = prep.needsPhysicalIoDriverPrep
+                        triggerSource = prep.triggerSource
+                        kernelDriverCommit = prep.kernelDriverCommit
+                        kernelDriverFullCommit = prep.kernelDriverFullCommit
+                        kernelDriverRef = prep.kernelDriverRef
+                        kernelDriverMrIid = prep.kernelDriverMrIid
+                        kernelDriverMrTitle = prep.kernelDriverMrTitle
+                        kernelDriverMrUpdatedAt = prep.kernelDriverMrUpdatedAt
+                        kernelDriverMrUrl = prep.kernelDriverMrUrl
+                        raidCliCommit = prep.raidCliCommit
+                        raidCliFullCommit = prep.raidCliFullCommit
+                        raidCliDpraidPath = prep.raidCliDpraidPath
                     }
                 }
 

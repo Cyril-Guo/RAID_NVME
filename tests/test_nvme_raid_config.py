@@ -64,7 +64,7 @@ def test_repository_test_items_file_is_valid():
     assert all(name in catalog for name in selected)
     assert "defaults" not in params
     assert "lawdisk" in params
-    assert params["lawdisk"]["IGNORE_ERROR"] == "no"
+    assert params["lawdisk"]["IGNORE_ERROR"] == "yes"
     assert params["lawdisk"]["FIO_CONFIG"] == "Input_Config_lawdisk.csv"
     assert params["mix"]["FIO_CONFIG"] == "Input_Config_mix.csv"
     assert params["mix"]["MIX_FAIL_ON_ANY"].strip().lower() in ("yes", "no")

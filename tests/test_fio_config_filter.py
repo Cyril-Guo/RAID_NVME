@@ -4,15 +4,26 @@ import subprocess
 import textwrap
 
 
+FIO_LIB_FILES = (
+    "IO_Stress/lib/fio.sh",
+    "IO_Stress/lib/fio_powercycle.sh",
+    "IO_Stress/lib/fio_verify.sh",
+)
+
+
+def fio_lib_source():
+    return "\n".join(Path(name).read_text(encoding="utf-8") for name in FIO_LIB_FILES)
+
+
 def test_fio_runner_only_iterates_generated_log_configs():
-    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+    source = fio_lib_source()
 
     assert "grep '\\.log$'" in source
     assert "for configuration in `ls -p $Config_Dir | grep -v / | sort" not in source
 
 
 def test_fio_system_disk_detection_handles_lvm_parent_disk():
-    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+    source = fio_lib_source()
 
     assert "normalize_system_disk" in source
     assert "lsblk -nr -o NAME,PKNAME,MOUNTPOINT" in source
@@ -22,7 +33,7 @@ def test_fio_system_disk_detection_handles_lvm_parent_disk():
 
 
 def test_fio_auto_disk_selection_prefers_draid_virtual_disks():
-    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+    source = fio_lib_source()
 
     assert "select_auto_test_disks" in source
     assert "grep -E '^dp[0-9]+-vd[0-9]+$'" in source
@@ -34,7 +45,7 @@ def test_fio_auto_disk_selection_prefers_draid_virtual_disks():
 
 
 def test_fio_runs_under_watchdog_timeout():
-    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+    source = fio_lib_source()
 
     assert "run_fio_with_watchdog" in source
     assert "fio_idle_timeout_seconds" in source
@@ -63,21 +74,22 @@ def test_fio_runs_under_watchdog_timeout():
 
 
 def test_verify_jobs_replace_full_disk_size_with_slice_size():
-    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+    source = Path("IO_Stress/lib/fio_verify.sh").read_text(encoding="utf-8")
 
     assert 'sed -i "s#^size=100%\\$#size=${io_size}#"' in source
 
 
 def test_powercycle_verify_jobs_enable_serialize_overlap():
-    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
-    verify_block = source.split('if [[ -n "$verify_mode" ]]; then', 1)[1]
+    verify_source = Path("IO_Stress/lib/fio_verify.sh").read_text(encoding="utf-8")
+    fio_source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
 
-    assert "serialize_overlap=1" in verify_block
-    assert '/serialize_overlap/d' in source
+    assert "serialize_overlap=1" in verify_source
+    assert "fio_verify_strip_config_directives" in fio_source
+    assert '/serialize_overlap/d' in verify_source
 
 
 def test_mix_io_generates_random_mixio_jobs():
-    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+    source = fio_lib_source()
 
     assert "python3 $Cur_Dir/random_choice.py" in source
     assert "mv random_choice.csv MixIO$i.csv" in source
@@ -85,7 +97,7 @@ def test_mix_io_generates_random_mixio_jobs():
 
 
 def test_fio_cycle_propagates_run_fio_exit_code():
-    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+    source = fio_lib_source()
     cycle = source.split("function fio_cycle()", 1)[1]
 
     assert "sh run_fio.sh" in cycle

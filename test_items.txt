@@ -55,19 +55,19 @@ FIO_DISKS       =
 [dc]
 FIO_CYCLES      = 5
 FIO_CONFIG      = Input_Config_dc.csv
-IGNORE_ERROR    = no
+IGNORE_ERROR    = yes
 FIO_DISKS       =
 
 [lawdisk]
 FIO_CONFIG      = Input_Config_lawdisk.csv
-IGNORE_ERROR    = no
+IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
 [filesystem]
 FIO_CONFIG      = Input_Config_filesystem.csv
-IGNORE_ERROR    = no
+IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
@@ -101,7 +101,7 @@ MONITOR_RUNTIME = 1000
 
 [random_io]
 FIO_CONFIG                = Input_Config_random_io.csv
-IGNORE_ERROR              = no
+IGNORE_ERROR              = yes
 FIO_DISKS                 =
 STRESS_MONITOR            = no
 MONITOR_RUNTIME           =

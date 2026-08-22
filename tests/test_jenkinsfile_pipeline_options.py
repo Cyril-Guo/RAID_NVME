@@ -6,6 +6,7 @@ def pipeline_sources():
         Path("Jenkinsfile"),
         *sorted(Path("ci").glob("*.sh")),
         *sorted(Path("ci").glob("*.py")),
+        *sorted(Path("ci").glob("*.groovy")),
     ]
     return "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
@@ -83,28 +84,28 @@ def test_failure_logs_are_added_to_allure_and_feishu_report():
 
 
 def test_manual_mr_iid_reruns_merge_request():
-    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+    source = pipeline_sources()
 
     assert "name: 'MANUAL_MR_IID'" in source
     assert "Takes priority over MANUAL_KERNEL_DRIVER_REF" in source
     assert "MANUAL_MR_IID must be a numeric GitLab merge request IID" in source
     assert "merge_requests/${manualMrIid}" in source
     assert "kernel_driver_manual_mr.properties" in source
-    assert "triggerSource = 'Manual MR Build'" in source
+    assert "state.triggerSource = 'Manual MR Build'" in source
     assert "ignore MANUAL_KERNEL_DRIVER_REF=${manualKernelDriverRef}" in source
-    assert "Manual build requested. Run tests on kernel_driver/${kernelDriverRef}." in source
+    assert "Manual build requested. Run tests on kernel_driver/${state.kernelDriverRef}." in source
 
 
 def test_manual_build_can_select_kernel_driver_branch():
-    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+    source = pipeline_sources()
 
     assert "name: 'MANUAL_KERNEL_DRIVER_REF'" in source
     assert "def manualKernelDriverRef = (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()" in source
     assert "MANUAL_KERNEL_DRIVER_REF is not a safe branch name" in source
-    assert "kernelDriverRef = manualKernelDriverRef" in source
-    assert "triggerSource = 'Manual Branch Build'" in source
-    assert "kernelDriverRef = env.KERNEL_DRIVER_BRANCH" in source
-    assert "triggerSource = 'Manual Build'" in source
+    assert "kernelDriverRef = manualKernelDriverRef" in source or "state.kernelDriverRef = manualKernelDriverRef" in source
+    assert "state.triggerSource = 'Manual Branch Build'" in source
+    assert "state.kernelDriverRef = env.KERNEL_DRIVER_BRANCH" in source
+    assert "state.triggerSource = 'Manual Build'" in source
 
 
 def test_target_hang_times_out_and_keeps_pipeline_control():
@@ -127,6 +128,11 @@ def test_target_hang_times_out_and_keeps_pipeline_control():
 def test_environment_prepare_hang_times_out_after_15_minutes():
     source = pipeline_sources()
     jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
+    prepare = Path("ci/jenkins_prepare.groovy").read_text(encoding="utf-8")
+
+    assert "load 'ci/jenkins_prepare.groovy'" in jenkinsfile
+    assert "preparePhysicalIoDriver" in jenkinsfile
+    assert "def preparePhysicalIoDriver" in prepare
 
     assert "def runTimedEnvironmentStep(" in source
     assert "timeout(time: timeoutMinutes.toInteger(), unit: 'MINUTES')" in source
@@ -148,7 +154,7 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
     assert "ci/clear_8p_csd_flash.sh" not in jenkinsfile
     assert "ci/restore_physical_raid_state.sh" not in jenkinsfile
     assert "ci/wait_powercycle_completion.sh" in jenkinsfile
-    assert "RAID_CLI_REPO" in jenkinsfile
+    assert "RAID_CLI_REPO" in source
     assert "RAID_CLI_COMMIT" in jenkinsfile
 
 
@@ -163,11 +169,12 @@ def test_test_idle_watchdog_tracks_non_system_disk_io_progress():
 
 
 def test_ci_is_manual_only_without_cron_or_auto_mr_trigger():
-    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+    jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
+    source = pipeline_sources()
 
-    assert "cron(" not in source
-    assert "triggers {" not in source
-    assert "name: 'SIMULATE_AUTO_MR_TRIGGER'" not in source
+    assert "cron(" not in jenkinsfile
+    assert "triggers {" not in jenkinsfile
+    assert "name: 'SIMULATE_AUTO_MR_TRIGGER'" not in jenkinsfile
     assert "automaticMrTriggered" not in source
     assert "useQemuVmTarget" not in source
     assert "triggerSource = 'kernel_driver Merge Request'" not in source
@@ -281,13 +288,14 @@ def test_draid_driver_and_test_dependency_steps_target_physical_host_only():
 
 
 def test_physical_io_driver_pull_and_prep_only_for_env_prepare():
-    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+    jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
+    source = pipeline_sources()
 
-    assert "read_enabled_selection" in source
+    assert "read_enabled_selection" in jenkinsfile
     assert "Skip raid_cli sync and kernel_driver checkout" in source
-    assert "skip shared install_dpraid/prepare_draid" in source
+    assert "skip shared install_dpraid/prepare_draid" in jenkinsfile
     assert "selectedTestItems.contains('env_prepare')" in source
-    assert "when { expression { return !params.RESTORE && shouldRunTests && needsPhysicalIoDriverPrep } }" in source
+    assert "when { expression { return !params.RESTORE && shouldRunTests && needsPhysicalIoDriverPrep } }" in jenkinsfile
 
 
 def test_run_remote_test_reports_error_without_qemu_scene_keep_message():
