@@ -103,6 +103,7 @@ def test_infra_failure_card_shows_stats_without_detail_log(tmp_path, monkeypatch
     assert "0.0%" in stats
     body = "\n".join(str(element) for element in payload["card"]["elements"])
     assert "详细日志" not in body
+    assert "失败摘要" not in body
     assert "draid kernel module load failed" not in body
     actions = payload["card"]["elements"][-1]["actions"]
     assert [action["text"]["content"] for action in actions] == ["查看报告", "查看MR"]
@@ -143,6 +144,9 @@ def test_hard_fio_summary_overrides_green_junit_to_failure(tmp_path, monkeypatch
     stats = payload["card"]["elements"][1]["text"]["content"]
     assert "通过 **0**  失败 **0**  错误 **1**  Total: **1**" in stats
     assert "0.0%" in stats
+    body = "\n".join(str(element) for element in payload["card"]["elements"])
+    assert "失败摘要" not in body
+    assert "FIO stage failed" not in body
 
 
 def test_aer_only_summary_does_not_force_failure(tmp_path, monkeypatch):
@@ -176,3 +180,5 @@ def test_aer_only_summary_does_not_force_failure(tmp_path, monkeypatch):
     assert any("SUCCESS" in field["text"]["content"] for field in fields)
     stats = payload["card"]["elements"][1]["text"]["content"]
     assert "通过 **1**  失败 **0**  错误 **0**  Total: **1**" in stats
+    body = "\n".join(str(element) for element in payload["card"]["elements"])
+    assert "失败摘要" not in body

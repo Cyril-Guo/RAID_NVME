@@ -644,6 +644,34 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                 def endStr = new Date().format('yyyy-MM-dd HH:mm:ss')
                 def ipListStr = targetIPs.join(', ')
                 def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'
+                // If JUnit stayed green but logs already captured hard FIO/env failures,
+                // force Jenkins + Feishu BUILD_RESULT to FAILURE before payload generation.
+                if (hasFailureSummary && buildResult in ['SUCCESS', 'UNKNOWN', '']) {
+                    def summaryLower = readFile('failure_summary.txt').toLowerCase()
+                    def hardMarkers = [
+                        'fio command failed',
+                        'fio stage failed',
+                        'fio stage abort',
+                        'mix_fail_on_any=yes, fail',
+                        'idle watchdog',
+                        'environment_prepare_status=failed',
+                        'test_execution_status=failed',
+                        'traceback',
+                        'assertionerror',
+                    ]
+                    if (hardMarkers.any { summaryLower.contains(it) }) {
+                        echo "Hard failure summary detected; override BUILD_RESULT ${buildResult} -> FAILURE for Feishu card"
+                        currentBuild.result = 'FAILURE'
+                        buildResult = 'FAILURE'
+                        if (failed + errors == 0) {
+                            errors = Math.max(errors, 1)
+                            if (total <= 0) {
+                                total = 1
+                                reportKind = 'infra'
+                            }
+                        }
+                    }
+                }
                 def testAttempted = (env.TEST_EXECUTION_ATTEMPTED == 'true')
                 if (total == 0 && !hasFailureSummary) {
                     echo "Skip Feishu notification: no reportable test or environment prepare result was generated in this build. testAttempted=${testAttempted}, result=${buildResult}"
