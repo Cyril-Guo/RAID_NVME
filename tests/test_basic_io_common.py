@@ -479,7 +479,7 @@ def test_power_cycle_skips_excluded_nvme_models(monkeypatch):
         raise AssertionError("Expected excluded QEMU NVMe Ctrl disk to be skipped for power-cycle")
 
 
-def test_prepare_physical_io_case_invokes_dut_refresh_script(monkeypatch):
+def test_run_env_prepare_invokes_dut_prepare_script(monkeypatch):
     calls = []
 
     def fake_run_cmd(cmd, log, check=True, shell=False, env=None):
@@ -493,11 +493,11 @@ def test_prepare_physical_io_case_invokes_dut_refresh_script(monkeypatch):
 
     monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
     log = CommandLog()
-    basic_io_common.prepare_physical_io_case(log)
+    basic_io_common.run_env_prepare(log)
 
     assert len(calls) == 1
     cmd, env = calls[0]
     assert cmd[0] == "bash"
-    assert cmd[1].endswith("prepare_physical_io_case.sh")
+    assert cmd[1].endswith("prepare_env.sh")
     assert "REMOTE_DIR" in env
-    assert any("prepare_physical_io_case" in line for line in log.lines)
+    assert any("env_prepare" in line for line in log.lines)

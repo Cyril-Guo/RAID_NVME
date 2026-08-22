@@ -11,7 +11,7 @@ def raidCliFullCommit = ''
 def raidCliDpraidPath = ''
 def triggerSource = ''
 def shouldRunTests = false
-// Only basic_io / basic_rebuild_io pull latest raid_cli+kernel_driver and refresh draid/dpraid.
+// Only env_prepare pulls latest raid_cli+kernel_driver and stages dpraid for DUT refresh.
 def needsPhysicalIoDriverPrep = false
 def selectedTestItems = []
 
@@ -191,18 +191,17 @@ PY''',
                             returnStdout: true
                         ).trim()
                         selectedTestItems = selectedRaw ? selectedRaw.split(' ') as List : []
-                        needsPhysicalIoDriverPrep = selectedTestItems.contains('basic_io') ||
-                            selectedTestItems.contains('basic_rebuild_io')
+                        needsPhysicalIoDriverPrep = selectedTestItems.contains('env_prepare')
                         echo "Selected test items: ${selectedTestItems}"
-                        echo "Pull latest raid_cli/kernel_driver and refresh draid/dpraid only for basic_io/basic_rebuild_io: ${needsPhysicalIoDriverPrep}"
+                        echo "Pull latest raid_cli/kernel_driver for env_prepare: ${needsPhysicalIoDriverPrep}"
 
                         if (!needsPhysicalIoDriverPrep) {
                             triggerSource = 'Manual Build'
                             kernelDriverCommit = 'skipped'
                             raidCliCommit = 'skipped'
-                            echo 'Skip raid_cli sync and kernel_driver checkout: basic_io / basic_rebuild_io not selected.'
+                            echo 'Skip raid_cli sync and kernel_driver checkout: env_prepare not selected.'
                             if ((params.MANUAL_MR_IID ?: '').trim() || (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()) {
-                                echo 'MANUAL_MR_IID / MANUAL_KERNEL_DRIVER_REF ignored because physical IO driver cases are not selected.'
+                                echo 'MANUAL_MR_IID / MANUAL_KERNEL_DRIVER_REF ignored because env_prepare is not selected.'
                             }
                         } else {
                         // CI is manual-only: default kernel_driver/main; optional MANUAL_MR_IID or MANUAL_KERNEL_DRIVER_REF.
@@ -272,7 +271,7 @@ PY''',
 
                         def manualMrIid = (params.MANUAL_MR_IID ?: '').trim()
                         def manualKernelDriverRef = (params.MANUAL_KERNEL_DRIVER_REF ?: '').trim()
-                        syncRaidCli('basic_io / basic_rebuild_io selected')
+                        syncRaidCli('env_prepare selected')
 
                         if (manualMrIid) {
                             if (manualKernelDriverRef) {
@@ -393,7 +392,7 @@ PY''',
                     if (kernelDriverMrIid) {
                         echo "kernel_driver MR for this run: !${kernelDriverMrIid} ${kernelDriverMrUrl}"
                     }
-                    echo 'kernel_driver/raid_cli were pulled because basic_io / basic_rebuild_io is selected.'
+                    echo 'kernel_driver/raid_cli were pulled because env_prepare is selected.'
                 }
             }
         }
@@ -467,11 +466,11 @@ PY''',
                             script: "git -C '${raidCliRepoPathForRun}' rev-parse --short HEAD 2>/dev/null || echo unknown",
                             returnStdout: true
                         ).trim()
-                        echo "Use dpraid artifact: ${raidCliDpraidPathForRun} (staged at artifacts/dpraid for basic_io / basic_rebuild_io)"
+                        echo "Use dpraid artifact: ${raidCliDpraidPathForRun} (staged at artifacts/dpraid for env_prepare)"
                         echo "Use raid_cli(${env.RAID_CLI_BRANCH}) commit: ${raidCliCommit}"
                         sh "test -d kernel_driver/drivers/draid && test -f kernel_driver/drivers/draid/Makefile"
                     } else {
-                        echo 'Skip dpraid/kernel_driver requirements: basic_io / basic_rebuild_io not selected.'
+                        echo 'Skip dpraid/kernel_driver requirements: env_prepare not selected.'
                     }
 
                     def parallelTasks = [:]
@@ -504,13 +503,13 @@ ci/deploy_workspace.sh
 } 2>&1 | tee -a ${envPrepareLog}
 """)
 
-                                // draid/dpraid refresh is intentionally NOT done here for all cases.
-                                // Only basic_io / basic_rebuild_io refresh via ci/prepare_physical_io_case.sh.
+                                // draid/dpraid refresh is intentionally NOT done in Jenkins shared prepare.
+                                // The env_prepare test case runs ci/prepare_env.sh on the DUT.
                                 if (needsPhysicalIoDriverPrep) {
-                                    echo "[${ip}] physical IO cases selected: skip shared dpraid/draid prepare; cases refresh themselves"
-                                    sh "printf '%s\\n' '[${ip}] skip shared install_dpraid/prepare_draid; basic_io/basic_rebuild_io use per-case prepare_physical_io_case.sh' >> ${envPrepareLog}"
+                                    echo "[${ip}] env_prepare selected: skip shared dpraid/draid prepare; case runs prepare_env.sh"
+                                    sh "printf '%s\\n' '[${ip}] skip shared install_dpraid/prepare_draid; env_prepare uses ci/prepare_env.sh' >> ${envPrepareLog}"
                                 } else {
-                                    echo "[${ip}] skip shared dpraid/draid prepare (basic_io / basic_rebuild_io not selected)"
+                                    echo "[${ip}] skip shared dpraid/draid prepare (env_prepare not selected)"
                                     sh "printf '%s\\n' '[${ip}] skip shared install_dpraid/prepare_draid' >> ${envPrepareLog}"
                                 }
 

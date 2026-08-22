@@ -126,22 +126,21 @@ def run_cmd(cmd, log, check=True, shell=False, env=None):
     return result
 
 
-def prepare_physical_io_case(log):
-    """Per-case DUT refresh before normal/degraded VD IO.
+def run_env_prepare(log):
+    """DUT environment prepare used by the env_prepare test case.
 
-    Reinstalls staged dpraid, rebuilds and reloads
-    draid (rmmod/insmod), then deletes leftover VD/PD.
-    CSD flash clear is currently skipped.
+    Mirrors SMOKE physical Environment_Prepare: clear dirty CSD flash,
+    install staged dpraid, rebuild/reload draid, then clear leftover VD/PD.
     """
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "ci" / "prepare_physical_io_case.sh"
+    script = repo_root / "ci" / "prepare_env.sh"
     if not script.is_file():
         raise AssertionError(f"Missing prepare script: {script}")
 
     env = os.environ.copy()
     env.setdefault("REMOTE_DIR", str(repo_root))
     env.setdefault("NODE_IP", env.get("NODE_IP", "local"))
-    log.write("phase: prepare_physical_io_case (dpraid / draid reload / VD-PD clear)")
+    log.write("phase: env_prepare (flash clear / dpraid / draid reload / VD-PD clear)")
     run_cmd(["bash", str(script)], log, check=True, shell=False, env=env)
 
 

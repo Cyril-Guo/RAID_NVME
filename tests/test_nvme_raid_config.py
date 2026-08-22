@@ -34,6 +34,7 @@ def test_discover_test_items_finds_repository_smoke_cases():
     assert catalog["basic_io"] == "test_items/test_smoke_06_basic_io.py"
     assert catalog["basic_rebuild_io"] == "test_items/test_smoke_07_basic_rebuild_io.py"
     assert catalog["random_io"] == "test_items/test_smoke_08_random_io.py"
+    assert catalog["env_prepare"] == "test_items/test_smoke_00_env_prepare.py"
 
 
 def test_discover_test_items_rejects_duplicate_names(tmp_path):
@@ -60,6 +61,7 @@ def test_repository_test_items_file_is_valid():
     assert set(name for name, _order, _enabled in entries) == set(catalog)
     assert selected
     assert all(name in catalog for name in selected)
+    assert "env_prepare" not in selected
     assert "defaults" not in params
     assert "lawdisk" in params
     assert params["lawdisk"]["IGNORE_ERROR"] == "no"
@@ -73,6 +75,7 @@ def test_repository_test_items_file_is_valid():
     assert params["reboot"]["FIO_CYCLES"] == "100"
     assert params["basic_io"]["STRESS_MONITOR"] == "no"
     assert params["basic_rebuild_io"]["STRESS_MONITOR"] == "no"
+    assert "env_prepare" in params
 
 
 def test_main_prints_item_boundaries():

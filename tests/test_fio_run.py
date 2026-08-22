@@ -47,6 +47,7 @@ def test_build_fio_args_passes_case_csv(tmp_path, monkeypatch):
 
 def test_smoke_cases_use_own_csv_and_do_not_import_siblings():
     sources = {
+        "test_smoke_00_env_prepare.py": "run_env_prepare(log)",
         "test_smoke_01_reboot.py": 'build_fio_args("reboot", "reboot"',
         "test_smoke_02_dc.py": 'build_fio_args("dc", "dc"',
         "test_smoke_03_lawdisk.py": 'build_fio_args("lawdiskstress", "lawdisk"',
@@ -61,6 +62,7 @@ def test_smoke_cases_use_own_csv_and_do_not_import_siblings():
         assert needle in source
         assert "test_smoke_03_lawdisk" not in source or name == "test_smoke_03_lawdisk.py"
         assert "as lawdisk_case" not in source
+        assert "prepare_physical_io_case" not in source
     for item in (
         "reboot",
         "dc",
