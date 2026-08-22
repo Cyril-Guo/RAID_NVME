@@ -22,8 +22,10 @@ def test_reclaim_physical_host_stops_qemu_unloads_draid_and_unbinds_vfio():
     source = Path("ci/reclaim_physical_host.sh").read_text(encoding="utf-8")
 
     assert "qemu_guest_reachable" in source
+    assert "list_host_qemu_pids" in source
     assert "poweroff" in source
     assert "qemu-system-x86_64.*vm-serial.log" in source
+    assert 'grep -F "${QEMU_VM_WORKDIR}"' in source
     assert "unload draid" in source or "unload_draid_module" in source
     assert "rmmod" in source
     assert "list_vfio_nvme_devices" in source

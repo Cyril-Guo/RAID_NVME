@@ -73,6 +73,8 @@ def test_failure_logs_are_added_to_allure_and_feishu_report():
     assert "详细日志" not in feishu
     assert "失败摘要" not in feishu
     assert "summary_indicates_hard_failure" in feishu
+    assert "fio command failed" not in Path("ci/build_feishu_payload.py").read_text(encoding="utf-8").split("_HARD_SUMMARY_MARKERS", 1)[1].split(")", 1)[0]
+    assert "MIX_FAIL_ON_ANY=no" in jenkinsfile
     assert "报告类型" not in feishu
     assert "Hard failure summary detected; override BUILD_RESULT" in jenkinsfile
     assert "FIO Failure Detail" in Path("ci/junit_to_allure.py").read_text(encoding="utf-8")

@@ -149,6 +149,43 @@ def test_hard_fio_summary_overrides_green_junit_to_failure(tmp_path, monkeypatch
     assert "FIO stage failed" not in body
 
 
+def test_mix_fail_on_any_no_continue_does_not_force_failure(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "failure_summary.txt").write_text(
+        "- test_execution_192.168.22.134.log: FIO command failed, model=randread bs=4m qd=32 "
+        "runtime=30s (#22), config=22-randread-4m-32-30.log, elapsed=46s(46s), "
+        "planned_runtime=30s, rc=96\n"
+        "- test_execution_192.168.22.134.log: MIX job 22 recorded FIO/disk errors "
+        "rc=96/96/96/96 disks=dp0-vd1; MIX_FAIL_ON_ANY=no, continue\n",
+        encoding="utf-8",
+    )
+    for key, value in {
+        "TOTAL": "1",
+        "FAILED": "0",
+        "ERRORS": "0",
+        "SKIPPED": "0",
+        "REPORT_KIND": "tests",
+        "BUILD_RESULT": "SUCCESS",
+        "START_STR": "2026-08-20 20:40:11",
+        "END_STR": "2026-08-20 21:03:50",
+        "IP_LIST": "192.168.22.134",
+        "TRIGGER_SOURCE": "Manual Build",
+        "JOB_NAME": "CI",
+        "BUILD_NUMBER": "35",
+        "BUILD_URL": "http://192.168.23.124:8080/job/CI/35/",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    build_feishu_payload.main()
+
+    payload = json.loads((tmp_path / "feishu_payload.json").read_text(encoding="utf-8"))
+    assert payload["card"]["header"]["template"] == "blue"
+    fields = payload["card"]["elements"][0]["fields"]
+    assert any("SUCCESS" in field["text"]["content"] for field in fields)
+    stats = payload["card"]["elements"][1]["text"]["content"]
+    assert "通过 **1**  失败 **0**  错误 **0**  Total: **1**" in stats
+
+
 def test_aer_only_summary_does_not_force_failure(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "failure_summary.txt").write_text(

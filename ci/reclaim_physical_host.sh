@@ -39,6 +39,23 @@ qemu_guest_reachable() {
         "${TARGET_USER}@127.0.0.1" 'true' >/dev/null 2>&1
 }
 
+list_host_qemu_pids() {
+    # Prefer the lab serial-log cmdline; fall back to any qemu-system-x86_64 whose
+    # argv references the configured QEMU workdir (covers alternate start scripts).
+    local pids
+    pids=$(pgrep -f "qemu-system-x86_64.*vm-serial.log" || true)
+    if [ -n "$(printf '%s' "${pids}" | tr -d '[:space:]')" ]; then
+        printf '%s\n' ${pids}
+        return 0
+    fi
+    if [ -n "${QEMU_VM_WORKDIR}" ] && [ -d "${QEMU_VM_WORKDIR}" ]; then
+        pgrep -af "qemu-system-x86_64" 2>/dev/null |
+            grep -F "${QEMU_VM_WORKDIR}" |
+            awk '{print $1}' |
+            sort -u || true
+    fi
+}
+
 stop_qemu_vm_if_running() {
     local qemu_pids
     local attempt
@@ -67,13 +84,14 @@ stop_qemu_vm_if_running() {
         echo "[${NODE_IP}] QEMU guest SSH not reachable on port ${QEMU_VM_SSH_PORT}"
     fi
 
-    qemu_pids=$(pgrep -f "qemu-system-x86_64.*vm-serial.log" || true)
-    if [ -z "${qemu_pids}" ]; then
+    qemu_pids=$(list_host_qemu_pids | tr '\n' ' ')
+    if [ -z "$(printf '%s' "${qemu_pids}" | tr -d '[:space:]')" ]; then
         echo "[${NODE_IP}] no QEMU process found on host"
         return 0
     fi
 
     echo "[${NODE_IP}] force stop QEMU processes on host: ${qemu_pids}"
+    # shellcheck disable=SC2086
     kill ${qemu_pids} >/dev/null 2>&1 || true
     for attempt in $(seq 1 15); do
         still_running=""
@@ -88,7 +106,7 @@ stop_qemu_vm_if_running() {
         kill -0 "${qemu_pid}" >/dev/null 2>&1 && kill -9 "${qemu_pid}" >/dev/null 2>&1 || true
     done
 
-    if pgrep -f "qemu-system-x86_64.*vm-serial.log" >/dev/null 2>&1; then
+    if [ -n "$(printf '%s' "$(list_host_qemu_pids)" | tr -d '[:space:]')" ]; then
         echo "[${NODE_IP}] ERROR: QEMU process still running after stop attempts" >&2
         pgrep -af "qemu-system-x86_64" >&2 || true
         exit 1

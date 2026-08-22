@@ -26,18 +26,20 @@ def load_failure_summary(path="failure_summary.txt", max_length=2200):
     return summary
 
 
-# Match structured hard stops; ignore noisy MachineCheck AER lines that only
-# contain words like "Timeout" and still land in failure_summary.txt.
+# Terminal hard stops only. Do NOT treat plain "FIO command failed" as hard:
+# with MIX_FAIL_ON_ANY=no those lines are recorded while the case continues.
 _HARD_SUMMARY_MARKERS = (
-    "fio command failed",
     "fio stage failed",
     "fio stage abort",
     "mix_fail_on_any=yes, fail",
-    "idle watchdog",
+    "idle watchdog timeout",
+    "idle watchdog fired",
     "test_execution_status=failed",
     "environment_prepare_status=failed",
     "physical_restore_status=failed",
-    "insmod",
+    "insmod ./draid.ko failed",
+    "draid kernel module load failed",
+    "draid module load failed",
     "traceback",
     "assertionerror",
 )
@@ -45,6 +47,20 @@ _HARD_SUMMARY_MARKERS = (
 
 def summary_indicates_hard_failure(summary):
     lowered = (summary or "").lower()
+    if "mix_fail_on_any=no, continue" in lowered and "mix_fail_on_any=yes, fail" not in lowered:
+        # Soft MIX path: ignore non-terminal FIO noise unless a real stage stop exists.
+        stage_stops = (
+            "fio stage failed",
+            "fio stage abort",
+            "idle watchdog timeout",
+            "idle watchdog fired",
+            "test_execution_status=failed",
+            "environment_prepare_status=failed",
+            "physical_restore_status=failed",
+            "traceback",
+            "assertionerror",
+        )
+        return any(marker in lowered for marker in stage_stops)
     return any(marker in lowered for marker in _HARD_SUMMARY_MARKERS)
 
 

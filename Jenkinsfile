@@ -646,20 +646,40 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                 def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'
                 // If JUnit stayed green but logs already captured hard FIO/env failures,
                 // force Jenkins + Feishu BUILD_RESULT to FAILURE before payload generation.
+                // Do not treat plain "FIO command failed" as hard: MIX_FAIL_ON_ANY=no records
+                // those lines while intentionally continuing.
                 if (hasFailureSummary && buildResult in ['SUCCESS', 'UNKNOWN', '']) {
                     def summaryLower = readFile('failure_summary.txt').toLowerCase()
                     def hardMarkers = [
-                        'fio command failed',
                         'fio stage failed',
                         'fio stage abort',
                         'mix_fail_on_any=yes, fail',
-                        'idle watchdog',
+                        'idle watchdog timeout',
+                        'idle watchdog fired',
+                        'environment_prepare_status=failed',
+                        'test_execution_status=failed',
+                        'insmod ./draid.ko failed',
+                        'draid kernel module load failed',
+                        'draid module load failed',
+                        'traceback',
+                        'assertionerror',
+                    ]
+                    def softMixContinue = summaryLower.contains('mix_fail_on_any=no, continue') &&
+                        !summaryLower.contains('mix_fail_on_any=yes, fail')
+                    def stageStops = [
+                        'fio stage failed',
+                        'fio stage abort',
+                        'idle watchdog timeout',
+                        'idle watchdog fired',
                         'environment_prepare_status=failed',
                         'test_execution_status=failed',
                         'traceback',
                         'assertionerror',
                     ]
-                    if (hardMarkers.any { summaryLower.contains(it) }) {
+                    def isHard = softMixContinue ?
+                        stageStops.any { summaryLower.contains(it) } :
+                        hardMarkers.any { summaryLower.contains(it) }
+                    if (isHard) {
                         echo "Hard failure summary detected; override BUILD_RESULT ${buildResult} -> FAILURE for Feishu card"
                         currentBuild.result = 'FAILURE'
                         buildResult = 'FAILURE'
