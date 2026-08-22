@@ -8,11 +8,11 @@ Installation: System tools (nvme-cli, sdparm, smartctl, fio, nmon) are now insta
 
 2.Fio DC
     run as: sh Fio_All.sh -i dc -l 10
-    Power-cycle FIO uses a generated random WRITE/VERIFY plan.
+    Power-cycle FIO uses a generated random FILL/STRESS/VERIFY plan (scattered windows).
 
 3.Fio Reboot
     run as: sh Fio_All.sh -i reboot -l 10
-    Power-cycle FIO uses a generated random WRITE/VERIFY plan.
+    Power-cycle FIO uses a generated random FILL/STRESS/VERIFY plan (scattered windows).
 
 4.MachineCheck
     default YES

@@ -1,19 +1,21 @@
 import argparse
 import csv
+import hashlib
 import json
-import math
 import os
 import random
 from dataclasses import asdict, dataclass
-from typing import Optional
+from typing import List, Optional
 
-
+# Scattered windows per loop; FILL/STRESS before reboot, VERIFY after reboot.
+WINDOW_COUNT = 5
+WINDOW_BYTES = 128 * 1024 * 1024
+DEFAULT_STRESS_RUNTIME = 45
+FILL_VERIFY_IODEPTH = 64
 MIN_BLOCK_BYTES = 512
 MAX_BLOCK_BYTES = 16 * 1024 * 1024
 ALIGNMENT_BYTES = 512
-AVOID_ALIGNMENT_BYTES = 4096
-MIN_REGION_BYTES = 64 * 1024 * 1024
-MAX_REGION_BYTES = 1024 * 1024 * 1024
+VERIFY_TYPE = "crc32c"
 HEADER = [
     "Block_Size",
     "Random_Percentage",
@@ -26,6 +28,32 @@ HEADER = [
     "Verify_Mode",
     "Verify_Type",
 ]
+BLOCK_SIZES_BYTES = (
+    512,
+    1024,
+    2048,
+    3072,
+    4096,
+    6144,
+    8192,
+    16384,
+    32768,
+    65536,
+    131072,
+    262144,
+    524288,
+    1048576,
+    2097152,
+    4194304,
+)
+RW_CHOICES = (
+    {"random_pct": 100, "read_pct": 0},
+    {"random_pct": 100, "read_pct": 30},
+    {"random_pct": 100, "read_pct": 50},
+    {"random_pct": 100, "read_pct": 70},
+    {"random_pct": 0, "read_pct": 50},
+)
+IODEPTHS = (1, 2, 4, 8, 16, 32)
 
 
 @dataclass
@@ -34,83 +62,193 @@ class PowercycleModel:
     queue_depth: int
     offset: int
     size: int
-    verify_type: str = "crc32c"
+    verify_type: str = VERIFY_TYPE
     random_percentage: int = 0
     read_percentage: int = 0
     num_jobs: int = 1
 
 
-def _aligned_random(rng: random.Random, minimum: int, maximum: int, *, avoid_alignment: Optional[int] = None) -> int:
-    if maximum < minimum:
-        raise ValueError(f"invalid range: {minimum}..{maximum}")
-    start = math.ceil(minimum / ALIGNMENT_BYTES) * ALIGNMENT_BYTES
-    stop = math.floor(maximum / ALIGNMENT_BYTES) * ALIGNMENT_BYTES
-    if stop < start:
-        raise ValueError(f"empty aligned range: {minimum}..{maximum}")
-
-    attempts = 64
-    for _ in range(attempts):
-        steps = ((stop - start) // ALIGNMENT_BYTES) + 1
-        value = start + rng.randrange(steps) * ALIGNMENT_BYTES
-        if avoid_alignment and value >= avoid_alignment and value % avoid_alignment == 0:
-            continue
+def _align_down(value: int, align: int) -> int:
+    if align <= 0:
         return value
-
-    return start
-
-
-def _bounded_region_limit(disk_size: int) -> int:
-    return min(MAX_REGION_BYTES, max(MIN_REGION_BYTES, disk_size // 8))
+    return (value // align) * align
 
 
-def generate_model(min_disk_size_bytes: int, rng: Optional[random.Random] = None) -> PowercycleModel:
-    rng = rng or random.Random()
-    if min_disk_size_bytes < MIN_REGION_BYTES * 2:
-        raise ValueError(f"disk too small for powercycle model: {min_disk_size_bytes}")
-
-    block_size = _aligned_random(
-        rng,
-        MIN_BLOCK_BYTES,
-        min(MAX_BLOCK_BYTES, min_disk_size_bytes // 16),
-        avoid_alignment=AVOID_ALIGNMENT_BYTES,
-    )
-
-    region_max = _bounded_region_limit(min_disk_size_bytes)
-    region_min = max(8 * 1024 * 1024, min(MIN_REGION_BYTES, block_size * 128))
-    region_max = min(region_max, max(region_min, min_disk_size_bytes // 4))
-    size = _aligned_random(rng, region_min, region_max)
-
-    remaining = min_disk_size_bytes - size
-    if remaining < 0:
-        raise ValueError("generated region exceeds disk size")
-
-    offset = 0
-    if remaining >= ALIGNMENT_BYTES:
-        offset = _aligned_random(rng, 0, remaining, avoid_alignment=AVOID_ALIGNMENT_BYTES)
-
-    queue_depth = rng.choice([1, 2, 4, 8, 16, 32])
-
-    return PowercycleModel(
-        block_size=block_size,
-        queue_depth=queue_depth,
-        offset=offset,
-        size=size,
-    )
+def _align_up(value: int, align: int) -> int:
+    if align <= 0:
+        return value
+    return ((value + align - 1) // align) * align
 
 
-def model_to_row(model: PowercycleModel, verify_mode: str) -> list[str]:
+def _layout_seed(plan_seed: int, disk_size_bytes: int) -> int:
+    raw = f"{plan_seed}:{disk_size_bytes}:powercycle".encode()
+    return int(hashlib.sha256(raw).hexdigest()[:16], 16)
+
+
+def _effective_window_count(disk_size_bytes: int) -> int:
+    if disk_size_bytes < WINDOW_BYTES:
+        return 1
+    return min(WINDOW_COUNT, max(1, disk_size_bytes // WINDOW_BYTES))
+
+
+def _window_size_bytes(block_size: int) -> int:
+    size = _align_down(WINDOW_BYTES, block_size) or block_size
+    return max(size, block_size)
+
+
+def layout_windows(
+    models: List[PowercycleModel],
+    disk_size_bytes: int,
+    plan_seed: int,
+) -> List[PowercycleModel]:
+    """Place non-overlapping windows across the disk (deterministic from plan_seed)."""
+    if disk_size_bytes < ALIGNMENT_BYTES:
+        raise ValueError(f"disk too small: {disk_size_bytes}")
+
+    sized = [(model, model.block_size, model.size) for model in models]
+    total_payload = sum(item[2] for item in sized)
+    if total_payload > disk_size_bytes:
+        raise ValueError(
+            f"disk too small for {len(sized)} windows: need {total_payload}B, have {disk_size_bytes}B"
+        )
+
+    rng = random.Random(_layout_seed(plan_seed, disk_size_bytes))
+    rng.shuffle(sized)
+
+    free = [(0, disk_size_bytes)]
+    placed: List[PowercycleModel] = []
+
+    for model, bs, size_bytes in sized:
+        candidates = []
+        for idx, (start, end) in enumerate(free):
+            aligned_start = _align_up(start, bs)
+            if aligned_start + size_bytes > end:
+                continue
+            max_start = _align_down(end - size_bytes, bs)
+            if max_start < aligned_start:
+                continue
+            steps = ((max_start - aligned_start) // bs) + 1
+            candidates.append((idx, aligned_start, steps))
+
+        if not candidates:
+            raise ValueError(
+                f"disk too fragmented for window bs={bs} size={size_bytes} on {disk_size_bytes}B disk"
+            )
+
+        idx, aligned_start, steps = rng.choices(
+            candidates, weights=[item[2] for item in candidates], k=1
+        )[0]
+        offset_bytes = aligned_start + rng.randrange(steps) * bs
+        end_bytes = offset_bytes + size_bytes
+
+        start, end = free.pop(idx)
+        parts = []
+        if start < offset_bytes:
+            parts.append((start, offset_bytes))
+        if end_bytes < end:
+            parts.append((end_bytes, end))
+        free[idx:idx] = parts
+
+        placed.append(
+            PowercycleModel(
+                block_size=model.block_size,
+                queue_depth=model.queue_depth,
+                offset=offset_bytes,
+                size=size_bytes,
+                verify_type=model.verify_type,
+                random_percentage=model.random_percentage,
+                read_percentage=model.read_percentage,
+                num_jobs=model.num_jobs,
+            )
+        )
+
+    placed.sort(key=lambda item: item.offset)
+    return placed
+
+
+def generate_window_specs(
+    disk_size_bytes: int,
+    plan_seed: int,
+    rng: Optional[random.Random] = None,
+) -> List[PowercycleModel]:
+    rng = rng or random.Random(plan_seed)
+    count = _effective_window_count(disk_size_bytes)
+    rw_pool = list(RW_CHOICES)
+    rng.shuffle(rw_pool)
+
+    specs: List[PowercycleModel] = []
+    for index in range(count):
+        block_size = rng.choice(BLOCK_SIZES_BYTES)
+        if block_size > MAX_BLOCK_BYTES:
+            block_size = MAX_BLOCK_BYTES
+        size_bytes = _window_size_bytes(block_size)
+        rw = rw_pool[index % len(rw_pool)]
+        specs.append(
+            PowercycleModel(
+                block_size=block_size,
+                queue_depth=rng.choice(IODEPTHS),
+                offset=0,
+                size=size_bytes,
+                random_percentage=rw["random_pct"],
+                read_percentage=rw["read_pct"],
+            )
+        )
+
+    return layout_windows(specs, disk_size_bytes, plan_seed)
+
+
+def model_to_row(
+    model: PowercycleModel,
+    verify_mode: str,
+    *,
+    stress_runtime: int = DEFAULT_STRESS_RUNTIME,
+) -> list[str]:
+    random_pct = model.random_percentage
+    read_pct = model.read_percentage
+    iodepth = model.queue_depth
+    run_time = "0"
+
+    if verify_mode == "FILL":
+        random_pct = 0
+        read_pct = 0
+        iodepth = FILL_VERIFY_IODEPTH
+    elif verify_mode == "VERIFY":
+        random_pct = 0
+        read_pct = 100
+        iodepth = FILL_VERIFY_IODEPTH
+    elif verify_mode == "STRESS":
+        run_time = str(stress_runtime)
+    elif verify_mode == "WRITE":
+        # Legacy alias for FILL.
+        random_pct = 0
+        read_pct = 0
+        iodepth = FILL_VERIFY_IODEPTH
+        verify_mode = "FILL"
+
     return [
         str(model.block_size),
-        str(model.random_percentage),
-        str(model.read_percentage),
-        str(model.queue_depth),
-        "0",
+        str(random_pct),
+        str(read_pct),
+        str(iodepth),
+        run_time,
         str(model.num_jobs),
         str(model.offset),
         str(model.size),
         verify_mode,
         model.verify_type,
     ]
+
+
+def _pending_windows(state: dict) -> List[dict]:
+    if not state.get("pending_verify"):
+        return []
+    windows = state.get("windows")
+    if windows:
+        return windows
+    legacy = state.get("model")
+    if legacy:
+        return [legacy]
+    return []
 
 
 def load_state(path: str) -> dict:
@@ -125,26 +263,46 @@ def write_state(path: str, payload: dict) -> None:
         json.dump(payload, handle, indent=2, sort_keys=True)
 
 
-def build_plan(state: dict, current_loop: int, total_loops: int, min_disk_size_bytes: int, rng: Optional[random.Random] = None):
+def build_plan(
+    state: dict,
+    current_loop: int,
+    total_loops: int,
+    min_disk_size_bytes: int,
+    rng: Optional[random.Random] = None,
+):
     rng = rng or random.Random()
     rows: list[list[str]] = []
     summary: list[str] = []
 
-    pending_model = state.get("model") if state.get("pending_verify") else None
-    if pending_model:
-        model = PowercycleModel(**pending_model)
-        rows.append(model_to_row(model, "VERIFY"))
+    pending = _pending_windows(state)
+    if pending:
+        for model_data in pending:
+            model = PowercycleModel(**model_data)
+            rows.append(model_to_row(model, "VERIFY"))
         summary.append(
-            f"verify previous model: bs={model.block_size} offset={model.offset} size={model.size} qd={model.queue_depth}"
+            "verify previous windows: "
+            + ", ".join(
+                f"bs={m.block_size} off={m.offset} sz={m.size} qd={m.queue_depth}"
+                for m in (PowercycleModel(**item) for item in pending)
+            )
         )
 
-    next_state = {"pending_verify": False, "model": None}
+    next_state = {"pending_verify": False, "windows": None, "plan_seed": None}
     if current_loop < total_loops:
-        new_model = generate_model(min_disk_size_bytes, rng=rng)
-        rows.append(model_to_row(new_model, "WRITE"))
-        next_state = {"pending_verify": True, "model": asdict(new_model)}
+        plan_seed = rng.randint(1, 2**31 - 1)
+        windows = generate_window_specs(min_disk_size_bytes, plan_seed, rng=rng)
+        for model in windows:
+            rows.append(model_to_row(model, "FILL"))
+        for model in windows:
+            rows.append(model_to_row(model, "STRESS"))
+        next_state = {
+            "pending_verify": True,
+            "plan_seed": plan_seed,
+            "windows": [asdict(model) for model in windows],
+        }
         summary.append(
-            f"write next model: bs={new_model.block_size} offset={new_model.offset} size={new_model.size} qd={new_model.queue_depth}"
+            f"fill+stress {len(windows)} scattered windows (seed={plan_seed}, "
+            f"stress={DEFAULT_STRESS_RUNTIME}s each)"
         )
 
     return rows, next_state, summary

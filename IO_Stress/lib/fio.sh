@@ -552,13 +552,23 @@ function gen_config_file()
         if [[ -n "$verify_mode" ]]; then
             sed -i '/runtime=/d' $Cur_Dir/configuration.tmp
             sed -i '/time_based/d' $Cur_Dir/configuration.tmp
-            sed -i "9i size=config_size" $Cur_Dir/configuration.tmp
             sed -i "9i verify_dump=1" $Cur_Dir/configuration.tmp
             sed -i "9i verify_fatal=1" $Cur_Dir/configuration.tmp
             sed -i "9i verify=config_verify_type" $Cur_Dir/configuration.tmp
             if [[ "$verify_mode" == "VERIFY" ]]; then
+                sed -i "9i size=config_size" $Cur_Dir/configuration.tmp
                 sed -i "9i verify_only=1" $Cur_Dir/configuration.tmp
+            elif [[ "$verify_mode" == "STRESS" ]]; then
+                sed -i "9i size=config_size" $Cur_Dir/configuration.tmp
+                sed -i "9i do_verify=0" $Cur_Dir/configuration.tmp
+                sed -i "9i ramp_time=5" $Cur_Dir/configuration.tmp
+                sed -i "9i norandommap" $Cur_Dir/configuration.tmp
+                sed -i "9i randrepeat=0" $Cur_Dir/configuration.tmp
+                sed -i "9i time_based" $Cur_Dir/configuration.tmp
+                sed -i "9i runtime=${run_time}" $Cur_Dir/configuration.tmp
             else
+                # FILL / legacy WRITE: sequential write full window before reboot.
+                sed -i "9i size=config_size" $Cur_Dir/configuration.tmp
                 sed -i "9i do_verify=0" $Cur_Dir/configuration.tmp
             fi
         fi
