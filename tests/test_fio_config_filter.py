@@ -68,6 +68,14 @@ def test_verify_jobs_replace_full_disk_size_with_slice_size():
     assert 'sed -i "s#^size=100%\\$#size=${io_size}#"' in source
 
 
+def test_powercycle_verify_jobs_enable_serialize_overlap():
+    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+    verify_block = source.split('if [[ -n "$verify_mode" ]]; then', 1)[1]
+
+    assert "serialize_overlap=1" in verify_block
+    assert '/serialize_overlap/d' in source
+
+
 def test_mix_io_generates_random_mixio_jobs():
     source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
 

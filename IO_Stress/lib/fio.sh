@@ -539,6 +539,7 @@ function gen_config_file()
         sed -i '/verify_only=/d' $Cur_Dir/configuration.tmp
         sed -i '/do_verify=/d' $Cur_Dir/configuration.tmp
         sed -i '/size=/d' $Cur_Dir/configuration.tmp
+        sed -i '/serialize_overlap/d' $Cur_Dir/configuration.tmp
         if [[ $disk_mode == "SUBALL" ]];then
             sed -i '/group_reporting/d' $Cur_Dir/configuration.tmp
         fi
@@ -552,6 +553,7 @@ function gen_config_file()
         if [[ -n "$verify_mode" ]]; then
             sed -i '/runtime=/d' $Cur_Dir/configuration.tmp
             sed -i '/time_based/d' $Cur_Dir/configuration.tmp
+            sed -i "9i serialize_overlap=1" $Cur_Dir/configuration.tmp
             sed -i "9i verify_dump=1" $Cur_Dir/configuration.tmp
             sed -i "9i verify_fatal=1" $Cur_Dir/configuration.tmp
             sed -i "9i verify=config_verify_type" $Cur_Dir/configuration.tmp
