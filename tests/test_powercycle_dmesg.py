@@ -15,3 +15,7 @@ def test_powercycle_captures_per_loop_and_summary_dmesg():
 
     assert "collect_powercycle_dmesg" in direct
     assert "collect_powercycle_dmesg" in resume
+    assert "do_fio" in direct
+    assert "skip do_fio" not in direct
+    assert "do_fio" in resume
+    assert "skip do_fio" not in resume
