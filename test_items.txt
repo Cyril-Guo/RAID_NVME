@@ -104,11 +104,5 @@ IGNORE_ERROR              = no
 FIO_DISKS                 =
 STRESS_MONITOR            = no
 MONITOR_RUNTIME           =
-RANDOM_IO_SEED            =
-# STRESS 阶段固定运行时长（秒）。FILL/VERIFY 按 size= 跑完；同 bs+crc32c 验一致性。
-RANDOM_IO_STRESS_RUNTIME  = 45
-# 外层轮数（每轮 FILL -> STRESS -> VERIFY）。自适应小 slice 下约可撑满 ~12h。
-RANDOM_IO_LOOPS           = 200
-# 切片大小：GB 优先于 MB；都留空则按 bs 自适应（约 16–256MiB），便于 12h 多轮。
-RANDOM_IO_SLICE_SIZE_GB   =
-RANDOM_IO_SLICE_SIZE_MB   =
+# 唯一调参：总墙钟时长（到点停）。支持 12h / 720m / 43200。窗口大小与 STRESS 秒数内置。
+RANDOM_IO_DURATION        = 12h
