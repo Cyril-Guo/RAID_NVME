@@ -3,6 +3,7 @@ import json
 import os
 import re
 import sys
+import time
 import uuid
 import xml.etree.ElementTree as ET
 
@@ -37,6 +38,45 @@ def status_from_case(case):
 
 def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
+
+
+def testcase_duration_seconds(case, suite=None):
+    for source in (case, suite):
+        if source is None:
+            continue
+        raw = source.attrib.get("time")
+        if raw in (None, ""):
+            continue
+        try:
+            return max(0.0, float(raw))
+        except ValueError:
+            continue
+    return 0.0
+
+
+def apply_result_timing(result, duration_seconds=0.0):
+    duration_ms = int(max(0.0, float(duration_seconds)) * 1000)
+    stop_ms = int(time.time() * 1000)
+    result["stop"] = stop_ms
+    result["start"] = stop_ms - duration_ms
+    return result
+
+
+def has_pytest_allure_results(allure_dir, target_node=""):
+    for path in glob.glob(os.path.join(allure_dir, "*-result.json")):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                result = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+        labels = _result_labels(result)
+        if labels.get("framework") != "pytest":
+            continue
+        host = labels.get("host", "")
+        if target_node and host not in ("", target_node):
+            continue
+        return True
+    return False
 
 
 def report_context(junit_file):
@@ -186,7 +226,7 @@ def extract_fio_failure_details(text):
     return lines
 
 
-def write_result(allure_dir, suite_name, case, target_node="", target_kind=""):
+def write_result(allure_dir, suite_name, case, target_node="", target_kind="", suite=None):
     test_uuid = str(uuid.uuid4())
     status, detail = status_from_case(case)
     name = case.attrib.get("name", "unknown")
@@ -239,6 +279,8 @@ def write_result(allure_dir, suite_name, case, target_node="", target_kind=""):
                 "message": message or status,
                 "trace": trace or message or status,
             }
+
+    apply_result_timing(result, testcase_duration_seconds(case, suite))
 
     with open(os.path.join(allure_dir, f"{test_uuid}-result.json"), "w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=False)
@@ -305,6 +347,7 @@ def write_status_log_results(
                 "trace": "\n".join(summary or text.splitlines()[-120:]),
             },
         }
+        apply_result_timing(result)
 
         with open(os.path.join(allure_dir, f"{test_uuid}-result.json"), "w", encoding="utf-8") as handle:
             json.dump(result, handle, ensure_ascii=False)
@@ -449,6 +492,7 @@ def write_failed_execution_results(allure_dir, existing_ids):
                 "trace": "\n".join(summary or text.splitlines()[-120:] or [default_message]),
             },
         }
+        apply_result_timing(result)
         with open(os.path.join(allure_dir, f"{test_uuid}-result.json"), "w", encoding="utf-8") as handle:
             json.dump(result, handle, ensure_ascii=False)
         existing_ids.add(key)
@@ -510,6 +554,7 @@ def write_console_fallback_result(allure_dir, existing_ids, console_path="jenkin
             "trace": "\n".join(summary or text.splitlines()[-120:] or [default_message]),
         },
     }
+    apply_result_timing(result)
     with open(os.path.join(allure_dir, f"{test_uuid}-result.json"), "w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=False)
     existing_ids.add(key)
@@ -693,6 +738,8 @@ def main():
         except ET.ParseError:
             continue
         target_node, target_kind = report_context(junit_file)
+        if has_pytest_allure_results(allure_dir, target_node):
+            continue
 
         for suite in normalize_root(root):
             suite_name = suite.attrib.get("name", "unknown")
@@ -702,7 +749,7 @@ def main():
                 key = result_key(classname, name, target_node, target_kind)
                 if key in existing_ids:
                     continue
-                write_result(allure_dir, suite_name, case, target_node, target_kind)
+                write_result(allure_dir, suite_name, case, target_node, target_kind, suite=suite)
                 existing_ids.add(key)
                 generated += 1
 

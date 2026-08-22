@@ -37,7 +37,45 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
     assert len(results) == 1
     result = json.loads(results[0].read_text(encoding="utf-8"))
     assert result["name"] == "[Physical 192.168.22.134] test_lawdiskstress"
+    assert "start" in result and "stop" in result
+    assert result["stop"] >= result["start"]
     assert result["attachments"][0]["source"] == "monitor_log_lawdisk.tar.gz"
+
+    assert junit_to_allure.main() == 0
+    assert len(list(allure_dir.glob("*-result.json"))) == 1
+
+
+def test_junit_to_allure_skips_node_junit_when_pytest_allure_exists(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    existing_uuid = "11111111-1111-1111-1111-111111111111"
+    (allure_dir / f"{existing_uuid}-result.json").write_text(
+        json.dumps(
+            {
+                "uuid": existing_uuid,
+                "name": "[Physical 192.168.22.134] test_lawdiskstress",
+                "status": "passed",
+                "stage": "finished",
+                "start": 1_700_000_000_000,
+                "stop": 1_700_000_123_000,
+                "labels": [
+                    {"name": "framework", "value": "pytest"},
+                    {"name": "host", "value": "192.168.22.134"},
+                    {"name": "run_key", "value": "lawdisk__2"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        """<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="pytest" tests="1">
+  <testcase classname="test_items.lawdisk__2" name="test_lawdiskstress" time="12.5" />
+</testsuite>
+""",
+        encoding="utf-8",
+    )
 
     assert junit_to_allure.main() == 0
     assert len(list(allure_dir.glob("*-result.json"))) == 1

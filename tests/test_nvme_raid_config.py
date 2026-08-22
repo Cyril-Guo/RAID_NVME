@@ -270,14 +270,14 @@ IGNORE_ERROR = no
     assert selected == ["basic_io", "mix", "basic_rebuild_io", "mix"]
     assert [entry["item"] for entry in plan] == selected
     assert [entry["run_key"] for entry in plan] == [
-        "basic_io",
+        "basic_io__1",
         "mix__8",
-        "basic_rebuild_io",
+        "basic_rebuild_io__9",
         "mix__10",
     ]
 
 
-def test_build_run_plan_keeps_single_order_run_key(tmp_path):
+def test_build_run_plan_tags_run_key_with_order(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
         """
@@ -294,7 +294,7 @@ IGNORE_ERROR = no
 
     plan = nvme_raid_test.build_run_plan(str(config), test_items=catalog)
 
-    assert plan == [{"item": "lawdisk", "order": 3, "run_key": "lawdisk"}]
+    assert plan == [{"item": "lawdisk", "order": 3, "run_key": "lawdisk__3"}]
 
 
 def test_run_single_item_omits_allure_args_without_plugin(monkeypatch, tmp_path):

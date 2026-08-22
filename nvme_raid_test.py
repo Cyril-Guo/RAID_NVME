@@ -8,7 +8,6 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 import importlib.util
-from collections import Counter
 
 import pytest
 
@@ -189,8 +188,8 @@ def read_enabled_selection(path):
 def build_run_plan(path, test_items=None):
     """Expand enabled selection lines into ordered run slots.
 
-    ``mix 8 10`` contributes two slots (orders 8 and 10). When an item appears
-    more than once, ``run_key`` becomes ``{item}__{order}`` for isolated artifacts.
+    ``mix 8 10`` contributes two slots (orders 8 and 10). Every slot uses
+    ``run_key`` ``{item}__{order}`` for isolated artifacts and reporting.
     """
     catalog = test_items if test_items is not None else TEST_ITEMS
     slots = []
@@ -205,10 +204,9 @@ def build_run_plan(path, test_items=None):
 
     slots.sort(key=lambda entry: (entry[0], entry[1]))
 
-    counts = Counter(name for _order, name in slots)
     plan = []
     for order, name in slots:
-        run_key = f"{name}__{order}" if counts[name] > 1 else name
+        run_key = f"{name}__{order}"
         plan.append({"item": name, "order": order, "run_key": run_key})
     return plan
 
