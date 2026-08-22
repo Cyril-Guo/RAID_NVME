@@ -7,6 +7,7 @@ def test_env_prepare():
     allure.dynamic.title("Test_CI_env_prepare")
     allure.dynamic.description(
         "Physical DUT environment prepare (SMOKE physical parity): "
+        "stop QEMU if running, unload draid, return vfio devices to host, "
         "clear dirty CSD flash, install dpraid, rebuild/reload draid, restore VD/PD."
     )
 

@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # DUT environment prepare for the env_prepare test case.
-# Mirrors SMOKE physical-host Environment_Prepare (non-QEMU):
-#   clear dirty CSD flash -> install dpraid -> build/reload draid -> restore VD/PD.
+# Sequence (physical host):
+#   reclaim host from QEMU (stop VM / unload draid / unbind vfio)
+#   -> clear dirty CSD flash
+#   -> install dpraid
+#   -> build/reload draid
+#   -> restore VD/PD
 set -euo pipefail
 
 NODE_IP=${NODE_IP:-unknown}
@@ -10,15 +14,20 @@ REPO_ROOT=$(cd "${SCRIPT_DIR}/.." && pwd)
 REMOTE_DIR=${REMOTE_DIR:-${REPO_ROOT}}
 DPRAID_STAGED=${DPRAID_STAGED:-"${REMOTE_DIR}/artifacts/dpraid"}
 DRAID_DIR=${DRAID_DIR:-"${REMOTE_DIR}/kernel_driver/drivers/draid"}
+export DRAID_DIR
 
 echo "[${NODE_IP}] ===== prepare_env start ====="
 echo "[${NODE_IP}] REMOTE_DIR=${REMOTE_DIR}"
 
-echo "[${NODE_IP}] (1/4) clear dirty CSD flash"
+echo "[${NODE_IP}] (1/5) stop QEMU if running, unload draid, return devices to physical host"
+chmod +x "${SCRIPT_DIR}/reclaim_physical_host.sh" 2>/dev/null || true
+NODE_IP="${NODE_IP}" DRAID_DIR="${DRAID_DIR}" "${SCRIPT_DIR}/reclaim_physical_host.sh"
+
+echo "[${NODE_IP}] (2/5) clear dirty CSD flash"
 chmod +x "${SCRIPT_DIR}/clear_8p_csd_flash.sh" "${SCRIPT_DIR}/flash-clear.sh" 2>/dev/null || true
 NODE_IP="${NODE_IP}" "${SCRIPT_DIR}/clear_8p_csd_flash.sh"
 
-echo "[${NODE_IP}] (2/4) update dpraid"
+echo "[${NODE_IP}] (3/5) update dpraid"
 if [ -x "${DPRAID_STAGED}" ]; then
     install -m 0755 "${DPRAID_STAGED}" /usr/bin/dpraid
     echo "[${NODE_IP}] installed dpraid from ${DPRAID_STAGED}"
@@ -30,7 +39,7 @@ else
 fi
 /usr/bin/dpraid --help >/dev/null
 
-echo "[${NODE_IP}] (3/4) rebuild and reload draid (rmmod/insmod)"
+echo "[${NODE_IP}] (4/5) rebuild and reload draid (rmmod/insmod)"
 test -d "${DRAID_DIR}" || {
     echo "[${NODE_IP}] ERROR: draid source dir missing: ${DRAID_DIR}" >&2
     exit 1
@@ -66,7 +75,7 @@ test -d "${DRAID_DIR}" || {
     echo "[${NODE_IP}] draid module loaded: ${module_name}"
 )
 
-echo "[${NODE_IP}] (4/4) clear leftover VD/PD"
+echo "[${NODE_IP}] (5/5) clear leftover VD/PD"
 chmod +x "${SCRIPT_DIR}/restore_physical_raid_state.sh"
 NODE_IP="${NODE_IP}" "${SCRIPT_DIR}/restore_physical_raid_state.sh"
 

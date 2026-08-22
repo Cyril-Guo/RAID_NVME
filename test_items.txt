@@ -80,7 +80,8 @@ MONITOR_RUNTIME =
 MIX_FAIL_ON_ANY = no
 
 [env_prepare]
-# DUT flash clear + dpraid/draid reload + VD/PD clear (SMOKE physical parity).
+# Stop QEMU if running, unload draid, return vfio devices to host,
+# then CSD flash clear + dpraid/draid reload + VD/PD clear (SMOKE physical parity).
 # Run before basic_io / basic_rebuild_io.
 
 [basic_io]

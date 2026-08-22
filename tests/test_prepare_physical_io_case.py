@@ -4,6 +4,7 @@ from pathlib import Path
 def test_prepare_env_script_covers_smoke_physical_steps():
     source = Path("ci/prepare_env.sh").read_text(encoding="utf-8")
 
+    assert "reclaim_physical_host.sh" in source
     assert "clear_8p_csd_flash.sh" in source
     assert "flash-clear.sh" in source
     assert "skip dirty CSD flash clear" not in source
@@ -13,6 +14,24 @@ def test_prepare_env_script_covers_smoke_physical_steps():
     assert "restore_physical_raid_state.sh" in source
     assert "/usr/bin/dpraid --help >/dev/null" in source
     assert "/usr/bin/dpraid --help >/dev/null 2>&1 || true" not in source
+    # reclaim must happen before CSD flash clear
+    assert source.index("reclaim_physical_host.sh") < source.index("clear_8p_csd_flash.sh")
+
+
+def test_reclaim_physical_host_stops_qemu_unloads_draid_and_unbinds_vfio():
+    source = Path("ci/reclaim_physical_host.sh").read_text(encoding="utf-8")
+
+    assert "qemu_guest_reachable" in source
+    assert "poweroff" in source
+    assert "qemu-system-x86_64.*vm-serial.log" in source
+    assert "unload draid" in source or "unload_draid_module" in source
+    assert "rmmod" in source
+    assert "list_vfio_nvme_devices" in source
+    assert "vfio-pci" in source
+    assert "unbind" in source
+    assert "QEMU_VM_WORKDIR" in source
+    assert "vfio-bind.sh" in source
+    assert "/sys/bus/pci/rescan" in source
 
 
 def test_install_dpraid_stages_artifact_for_env_prepare():
@@ -27,3 +46,4 @@ def test_install_dpraid_stages_artifact_for_env_prepare():
 def test_legacy_prepare_physical_io_case_script_removed():
     assert not Path("ci/prepare_physical_io_case.sh").exists()
     assert Path("ci/prepare_env.sh").is_file()
+    assert Path("ci/reclaim_physical_host.sh").is_file()

@@ -140,7 +140,7 @@ def run_env_prepare(log):
     env = os.environ.copy()
     env.setdefault("REMOTE_DIR", str(repo_root))
     env.setdefault("NODE_IP", env.get("NODE_IP", "local"))
-    log.write("phase: env_prepare (flash clear / dpraid / draid reload / VD-PD clear)")
+    log.write("phase: env_prepare (reclaim host / flash clear / dpraid / draid reload / VD-PD clear)")
     run_cmd(["bash", str(script)], log, check=True, shell=False, env=env)
 
 
