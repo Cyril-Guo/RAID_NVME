@@ -72,7 +72,12 @@ def existing_history_ids(allure_dir):
     return ids
 
 
-def result_matches_item(result, item):
+def result_matches_item(result, item, run_key=None):
+    if run_key:
+        labels = _result_labels(result)
+        labeled = labels.get("run_key") or labels.get("package") or labels.get("suite")
+        if labeled and labeled != run_key:
+            return False
     parts = [
         str(result.get(key, "")).lower()
         for key in ("name", "fullName", "historyId", "testCaseId")
@@ -590,8 +595,12 @@ def collect_item_console_chunks(console_path="jenkins_console.log"):
 
 
 def matching_console_item(result, items):
+    labels = _result_labels(result)
+    run_key = labels.get("run_key") or labels.get("package")
+    if run_key and run_key in items:
+        return run_key
     for item in sorted(items, key=len, reverse=True):
-        if result_matches_item(result, item):
+        if result_matches_item(result, item, run_key=run_key):
             return item
     return None
 

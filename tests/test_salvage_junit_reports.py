@@ -9,7 +9,7 @@ def test_merge_from_directory_writes_node_report(tmp_path):
     (item_dir / "report_lawdisk.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
-  <testcase classname="test_items.test_ci_03_lawdisk" name="test_lawdiskstress" />
+  <testcase classname="test_items.lawdisk" name="test_lawdiskstress" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -21,6 +21,29 @@ def test_merge_from_directory_writes_node_report(tmp_path):
     assert items == ["lawdisk"]
     assert output.exists()
     assert "test_lawdiskstress" in output.read_text(encoding="utf-8")
+
+
+def test_merge_from_directory_keeps_duplicate_run_keys(tmp_path):
+    item_dir = tmp_path / "items"
+    item_dir.mkdir()
+    for run_key in ("lawdisk__2", "lawdisk__5"):
+        (item_dir / f"report_{run_key}.xml").write_text(
+            f"""<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="pytest" tests="1">
+  <testcase classname="test_items.{run_key}" name="test_lawdiskstress" />
+</testsuite>
+""",
+            encoding="utf-8",
+        )
+    output = tmp_path / "report.xml"
+
+    items = salvage_junit_reports.merge_from_directory(str(item_dir), str(output))
+
+    assert items == ["lawdisk__2", "lawdisk__5"]
+    merged = output.read_text(encoding="utf-8")
+    assert merged.count("testcase") == 2
+    assert "test_items.lawdisk__2" in merged
+    assert "test_items.lawdisk__5" in merged
 
 
 def test_monitor_pkill_pattern_does_not_embed_plain_path():

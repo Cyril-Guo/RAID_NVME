@@ -30,6 +30,10 @@ ITEMS_DIR = "test_items"
 ALLURE_DIR = "allure-results"
 JUNIT_FINAL = "report.xml"
 CASES_DIR = "cases"
+RUN_KEY_ENV = "RAID_NVME_RUN_KEY"
+RUN_ORDER_ENV = "RAID_NVME_RUN_ORDER"
+ITEM_ENV = "RAID_NVME_ITEM"
+_NODE_IP_REPORT_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 
 _CI_NAME_RE = re.compile(r"^test_ci_\d+_(.+)\.py$", re.IGNORECASE)
 _TEST_NAME_RE = re.compile(r"^test_(.+)\.py$", re.IGNORECASE)
@@ -415,10 +419,22 @@ def prepare_case_workdir(repo_root, item):
     return case_dir
 
 
-def collect_case_outputs(case_dir, repo_root, item):
+def discover_junit_run_keys(directory="."):
+    """Return sorted stems for ``report_<run_key>.xml`` (excludes per-node IP reports)."""
+    found = []
+    pattern = os.path.join(directory, "report_*.xml")
+    for path in sorted(glob.glob(pattern)):
+        stem = os.path.basename(path)[len("report_") : -len(".xml")]
+        if _NODE_IP_REPORT_RE.fullmatch(stem):
+            continue
+        found.append(stem)
+    return found
+
+
+def collect_case_outputs(case_dir, repo_root, run_key):
     """Copy per-case junit/allure artifacts back to the build root for Jenkins collect."""
-    src_report = os.path.join(case_dir, f"report_{item}.xml")
-    dst_report = os.path.join(repo_root, f"report_{item}.xml")
+    src_report = os.path.join(case_dir, f"report_{run_key}.xml")
+    dst_report = os.path.join(repo_root, f"report_{run_key}.xml")
     if os.path.isfile(src_report):
         shutil.copy2(src_report, dst_report)
 
@@ -439,16 +455,27 @@ def collect_case_outputs(case_dir, repo_root, item):
             shutil.copy2(src, dst)
 
 
-def run_single_item(item, params, clean_allure, test_items=None, work_dir=None):
+def run_single_item(
+    item,
+    params,
+    clean_allure,
+    test_items=None,
+    work_dir=None,
+    run_key=None,
+    order=None,
+):
     catalog = test_items if test_items is not None else TEST_ITEMS
     test_file = catalog[item]
     work_dir = work_dir or os.getcwd()
+    run_key = run_key or item
 
     for key in ALL_PARAM_KEYS:
         os.environ.pop(key, None)
 
     print("\n" + "=" * 60)
     print(f"[ITEM] {item} -> {test_file}")
+    if run_key != item:
+        print(f"[ITEM] run_key={run_key}")
     print(f"[ITEM] work_dir={work_dir}")
 
     for key, value in params.items():
@@ -466,15 +493,26 @@ def run_single_item(item, params, clean_allure, test_items=None, work_dir=None):
 
     if clean_allure and importlib.util.find_spec("allure_pytest") is not None:
         pytest_args.append("--clean-alluredir")
-    pytest_args.extend([f"--junitxml=report_{item}.xml", test_file])
+    pytest_args.extend([f"--junitxml=report_{run_key}.xml", test_file])
 
     previous = os.getcwd()
     previous_case_root = os.environ.get("RAID_NVME_CASE_ROOT")
+    previous_run_context = {
+        RUN_KEY_ENV: os.environ.get(RUN_KEY_ENV),
+        RUN_ORDER_ENV: os.environ.get(RUN_ORDER_ENV),
+        ITEM_ENV: os.environ.get(ITEM_ENV),
+    }
     try:
         os.chdir(work_dir)
         # Smoke tests must not resolve IO_Stress via dirname(__file__): test_items is
         # symlinked into cases/<item>/, so __file__ points at the shared tree.
         os.environ["RAID_NVME_CASE_ROOT"] = os.path.abspath(work_dir)
+        os.environ[RUN_KEY_ENV] = run_key
+        os.environ[ITEM_ENV] = item
+        if order is not None:
+            os.environ[RUN_ORDER_ENV] = str(order)
+        else:
+            os.environ.pop(RUN_ORDER_ENV, None)
         return int(pytest.main(pytest_args))
     finally:
         os.chdir(previous)
@@ -482,6 +520,11 @@ def run_single_item(item, params, clean_allure, test_items=None, work_dir=None):
             os.environ.pop("RAID_NVME_CASE_ROOT", None)
         else:
             os.environ["RAID_NVME_CASE_ROOT"] = previous_case_root
+        for key, value in previous_run_context.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 def merge_junit_reports(items, out_path):
@@ -569,7 +612,20 @@ def stop_monitor_for_item(base_dir, wait_seconds=30):
         time.sleep(1)
 
 
-def result_matches_item(result, item):
+def _result_label_map(result):
+    return {
+        label.get("name"): label.get("value")
+        for label in result.get("labels") or []
+        if label.get("name")
+    }
+
+
+def result_matches_item(result, item, run_key=None):
+    if run_key:
+        labels = _result_label_map(result)
+        labeled = labels.get("run_key") or labels.get("package") or labels.get("suite")
+        if labeled and labeled != run_key:
+            return False
     text = " ".join(
         str(result.get(key, "")).lower()
         for key in ("name", "fullName", "historyId", "testCaseId")
@@ -587,10 +643,11 @@ def result_matches_item(result, item):
     return any(alias in text for alias in aliases.get(item, (item,)))
 
 
-def attach_monitor_archive_to_result(item, base_dir, archive_name):
+def attach_monitor_archive_to_result(item, base_dir, archive_name, run_key=None):
     allure_dir = os.path.join(base_dir, ALLURE_DIR)
+    label = run_key or item
     attachment = {
-        "name": "monitor_log_{}".format(item),
+        "name": "monitor_log_{}".format(label),
         "source": archive_name,
         "type": "application/gzip",
     }
@@ -604,7 +661,7 @@ def attach_monitor_archive_to_result(item, base_dir, archive_name):
                 result = json.load(handle)
         except (OSError, json.JSONDecodeError):
             continue
-        if not result_matches_item(result, item):
+        if not result_matches_item(result, item, run_key=run_key):
             continue
 
         attachments = result.setdefault("attachments", [])
@@ -626,7 +683,8 @@ def attach_monitor_archive_to_result(item, base_dir, archive_name):
     return False
 
 
-def add_allure_monitor_archive(item, base_dir):
+def add_allure_monitor_archive(run_key, base_dir, item=None):
+    item = item or run_key.split("__", 1)[0]
     _, monitor_log = monitor_paths(base_dir)
     if not os.path.isdir(monitor_log):
         return
@@ -634,10 +692,10 @@ def add_allure_monitor_archive(item, base_dir):
     allure_dir = os.path.join(base_dir, ALLURE_DIR)
     os.makedirs(allure_dir, exist_ok=True)
 
-    archive_name = "monitor_log_{}.tar.gz".format(item)
-    base_name = os.path.join(allure_dir, "monitor_log_{}".format(item))
+    archive_name = "monitor_log_{}.tar.gz".format(run_key)
+    base_name = os.path.join(allure_dir, "monitor_log_{}".format(run_key))
     shutil.make_archive(base_name, "gztar", root_dir=os.path.dirname(monitor_log), base_dir=os.path.basename(monitor_log))
-    attach_monitor_archive_to_result(item, base_dir, archive_name)
+    attach_monitor_archive_to_result(item, base_dir, archive_name, run_key=run_key)
 
 
 def main(argv=None):
@@ -707,15 +765,17 @@ def main(argv=None):
                 clean_allure=True,
                 test_items=test_items,
                 work_dir=case_dir,
+                run_key=run_key,
+                order=order,
             )
             print(f"[ITEM_END] {run_key} exit_code={exit_code}")
         finally:
             if monitor_enabled:
                 stop_monitor_for_item(case_dir)
                 try:
-                    add_allure_monitor_archive(item, case_dir)
+                    add_allure_monitor_archive(run_key, case_dir, item=item)
                 except Exception as exc:
-                    print(f"[WARN] Failed to archive monitor log for {item}: {exc}")
+                    print(f"[WARN] Failed to archive monitor log for {run_key}: {exc}")
             try:
                 collect_case_outputs(case_dir, base_dir, run_key)
             except Exception as exc:

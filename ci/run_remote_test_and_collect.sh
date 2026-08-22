@@ -91,10 +91,7 @@ if [ ! -f "${report_file}" ]; then
     item_dir="item-junit-${NODE_IP}${report_suffix}"
     rm -rf "${item_dir}"
     mkdir -p "${item_dir}"
-    item_list="$(python3 -c 'import nvme_raid_test; print(" ".join(nvme_raid_test.TEST_ITEMS))')"
-    for item in ${item_list}; do
-        eval "${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report_${item}.xml ${item_dir}/" 2>/dev/null || true
-    done
+    eval "${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report_*.xml ${item_dir}/" 2>/dev/null || true
     python3 ci/salvage_junit_reports.py --from-dir "${item_dir}" --output "${report_file}" || true
     rm -rf "${item_dir}"
 fi

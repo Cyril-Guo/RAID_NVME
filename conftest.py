@@ -1,3 +1,4 @@
+import os
 import sys
 
 import pytest
@@ -34,7 +35,22 @@ except ImportError:
     allure = _NoopAllure()
     sys.modules["allure"] = allure
 
-@pytest.hookimpl(tryfirst=True)
-def pytest_runtest_setup(item):
-    allure.dynamic.parent_suite("测试日志")
 
+@pytest.fixture(autouse=True)
+def raid_nvme_run_context(record_xml_attribute):
+    run_key = os.environ.get("RAID_NVME_RUN_KEY", "").strip()
+    order = os.environ.get("RAID_NVME_RUN_ORDER", "").strip()
+    item = os.environ.get("RAID_NVME_ITEM", "").strip()
+
+    allure.dynamic.parent_suite("测试日志")
+    if run_key:
+        allure.dynamic.label("run_key", run_key)
+        allure.dynamic.label("package", run_key)
+        allure.dynamic.suite(run_key)
+        if order:
+            allure.dynamic.label("order", order)
+        record_xml_attribute("classname", f"test_items.{run_key}")
+    elif item:
+        record_xml_attribute("classname", f"test_items.{item}")
+
+    yield

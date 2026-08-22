@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 import pytest
 
@@ -316,6 +317,64 @@ def test_run_single_item_omits_allure_args_without_plugin(monkeypatch, tmp_path)
     assert "--junitxml=report_lawdisk.xml" in args
 
 
+def test_run_single_item_uses_run_key_for_junit_and_env(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_pytest_main(args):
+        captured["args"] = args
+        captured["run_key"] = os.environ.get("RAID_NVME_RUN_KEY")
+        captured["order"] = os.environ.get("RAID_NVME_RUN_ORDER")
+        captured["item"] = os.environ.get("RAID_NVME_ITEM")
+        return 0
+
+    monkeypatch.setattr(nvme_raid_test.importlib.util, "find_spec", lambda name: None)
+    monkeypatch.setattr(nvme_raid_test.pytest, "main", fake_pytest_main)
+
+    assert nvme_raid_test.run_single_item(
+        "lawdisk",
+        {},
+        clean_allure=True,
+        work_dir=str(tmp_path),
+        run_key="lawdisk__2",
+        order=2,
+    ) == 0
+
+    assert "--junitxml=report_lawdisk__2.xml" in captured["args"]
+    assert captured["run_key"] == "lawdisk__2"
+    assert captured["order"] == "2"
+    assert captured["item"] == "lawdisk"
+    assert os.environ.get("RAID_NVME_RUN_KEY") is None
+
+
+def test_merge_junit_reports_keeps_duplicate_run_keys(tmp_path):
+    for run_key in ("lawdisk__2", "lawdisk__5"):
+        (tmp_path / f"report_{run_key}.xml").write_text(
+            f"""<?xml version="1.0" encoding="utf-8"?>
+<testsuite name="pytest" tests="1">
+  <testcase classname="test_items.{run_key}" name="test_lawdiskstress" />
+</testsuite>
+""",
+            encoding="utf-8",
+        )
+    output = tmp_path / "report.xml"
+    previous = os.getcwd()
+    try:
+        os.chdir(tmp_path)
+        nvme_raid_test.merge_junit_reports(["lawdisk__2", "lawdisk__5"], "report.xml")
+    finally:
+        os.chdir(previous)
+
+    merged = output.read_text(encoding="utf-8")
+    assert merged.count("testcase") == 2
+
+
+def test_discover_junit_run_keys_skips_node_reports(tmp_path):
+    (tmp_path / "report_lawdisk__2.xml").write_text("<testsuite/>", encoding="utf-8")
+    (tmp_path / "report_192.168.1.10.xml").write_text("<testsuite/>", encoding="utf-8")
+
+    assert nvme_raid_test.discover_junit_run_keys(str(tmp_path)) == ["lawdisk__2"]
+
+
 def test_prepare_case_workdir_isolates_io_stress(tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -372,7 +431,7 @@ def test_main_stops_after_first_failed_item(monkeypatch, tmp_path):
     monkeypatch.setattr(
         nvme_raid_test,
         "run_single_item",
-        lambda item, params, clean_allure, test_items=None, work_dir=None: executed.append(item) or (1 if item == "lawdisk" else 0),
+        lambda item, params, clean_allure, test_items=None, work_dir=None, **kwargs: executed.append(item) or (1 if item == "lawdisk" else 0),
     )
     monkeypatch.setattr(
         nvme_raid_test,
@@ -422,7 +481,7 @@ def test_main_uses_whitelist_order_not_discovery_order(monkeypatch, tmp_path):
     monkeypatch.setattr(
         nvme_raid_test,
         "run_single_item",
-        lambda item, params, clean_allure, test_items=None, work_dir=None: executed.append(item) or 0,
+        lambda item, params, clean_allure, test_items=None, work_dir=None, **kwargs: executed.append(item) or 0,
     )
     monkeypatch.setattr(nvme_raid_test, "merge_junit_reports", lambda items, out_path: None)
 

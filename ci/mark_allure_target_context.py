@@ -38,6 +38,11 @@ def normalize_result(path, allure_dir, node, kind):
     original_name = result.get("name") or "unknown"
     display_name = original_name if original_name.startswith(prefix_text) else f"{prefix_text}{original_name}"
     base_full_name = result.get("fullName") or result.get("historyId") or original_name
+    labels = result.get("labels") or []
+    label_map = {label.get("name"): label.get("value") for label in labels if label.get("name")}
+    run_key = label_map.get("run_key") or label_map.get("package") or ""
+    if run_key and run_key not in base_full_name:
+        base_full_name = f"{run_key}::{base_full_name}"
     context_key = f"{kind}:{node}:{base_full_name}"
 
     result["name"] = display_name
