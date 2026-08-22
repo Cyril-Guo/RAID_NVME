@@ -10,9 +10,9 @@ from nvme_raid_test import (
 )
 
 
-def test_item_name_from_filename_supports_smoke_and_plain_patterns():
-    assert item_name_from_filename("test_smoke_03_lawdisk.py") == "lawdisk"
-    assert item_name_from_filename("test_smoke_01_reboot.py") == "reboot"
+def test_item_name_from_filename_supports_ci_and_plain_patterns():
+    assert item_name_from_filename("test_ci_03_lawdisk.py") == "lawdisk"
+    assert item_name_from_filename("test_ci_01_reboot.py") == "reboot"
     assert item_name_from_filename("test_foo.py") == "foo"
     assert item_name_from_filename("basic_io_common.py") is None
     assert item_name_from_filename("test_basic_io_common.py") is None
@@ -23,24 +23,24 @@ def test_item_name_from_filename_supports_smoke_and_plain_patterns():
     assert item_name_from_filename("__init__.py") is None
 
 
-def test_discover_test_items_finds_repository_smoke_cases():
+def test_discover_test_items_finds_repository_ci_cases():
     catalog = discover_test_items()
 
-    assert catalog["reboot"] == "test_items/test_smoke_01_reboot.py"
-    assert catalog["dc"] == "test_items/test_smoke_02_dc.py"
-    assert catalog["lawdisk"] == "test_items/test_smoke_03_lawdisk.py"
-    assert catalog["filesystem"] == "test_items/test_smoke_04_filesystem.py"
-    assert catalog["mix"] == "test_items/test_smoke_05_mix.py"
-    assert catalog["basic_io"] == "test_items/test_smoke_06_basic_io.py"
-    assert catalog["basic_rebuild_io"] == "test_items/test_smoke_07_basic_rebuild_io.py"
-    assert catalog["random_io"] == "test_items/test_smoke_08_random_io.py"
-    assert catalog["env_prepare"] == "test_items/test_smoke_00_env_prepare.py"
+    assert catalog["reboot"] == "test_items/test_ci_01_reboot.py"
+    assert catalog["dc"] == "test_items/test_ci_02_dc.py"
+    assert catalog["lawdisk"] == "test_items/test_ci_03_lawdisk.py"
+    assert catalog["filesystem"] == "test_items/test_ci_04_filesystem.py"
+    assert catalog["mix"] == "test_items/test_ci_05_mix.py"
+    assert catalog["basic_io"] == "test_items/test_ci_06_basic_io.py"
+    assert catalog["basic_rebuild_io"] == "test_items/test_ci_07_basic_rebuild_io.py"
+    assert catalog["random_io"] == "test_items/test_ci_08_random_io.py"
+    assert catalog["env_prepare"] == "test_items/test_ci_00_env_prepare.py"
 
 
 def test_discover_test_items_rejects_duplicate_names(tmp_path):
     items_dir = tmp_path / "test_items"
     items_dir.mkdir()
-    (items_dir / "test_smoke_01_foo.py").write_text("def test_a():\n    pass\n", encoding="utf-8")
+    (items_dir / "test_ci_01_foo.py").write_text("def test_a():\n    pass\n", encoding="utf-8")
     (items_dir / "test_foo.py").write_text("def test_b():\n    pass\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Duplicate test item name 'foo'"):
@@ -107,11 +107,11 @@ IGNORE_ERROR = no
         newline="\n",
     )
     catalog = {
-        "reboot": "test_items/test_smoke_01_reboot.py",
-        "dc": "test_items/test_smoke_02_dc.py",
-        "lawdisk": "test_items/test_smoke_03_lawdisk.py",
-        "filesystem": "test_items/test_smoke_04_filesystem.py",
-        "mix": "test_items/test_smoke_05_mix.py",
+        "reboot": "test_items/test_ci_01_reboot.py",
+        "dc": "test_items/test_ci_02_dc.py",
+        "lawdisk": "test_items/test_ci_03_lawdisk.py",
+        "filesystem": "test_items/test_ci_04_filesystem.py",
+        "mix": "test_items/test_ci_05_mix.py",
     }
 
     assert nvme_raid_test.sync_selection_list(str(config), catalog) is True
@@ -154,11 +154,11 @@ IGNORE_ERROR = no
         newline="\n",
     )
     catalog = {
-        "reboot": "test_items/test_smoke_01_reboot.py",
-        "dc": "test_items/test_smoke_02_dc.py",
-        "lawdisk": "test_items/test_smoke_03_lawdisk.py",
-        "filesystem": "test_items/test_smoke_04_filesystem.py",
-        "mix": "test_items/test_smoke_05_mix.py",
+        "reboot": "test_items/test_ci_01_reboot.py",
+        "dc": "test_items/test_ci_02_dc.py",
+        "lawdisk": "test_items/test_ci_03_lawdisk.py",
+        "filesystem": "test_items/test_ci_04_filesystem.py",
+        "mix": "test_items/test_ci_05_mix.py",
     }
 
     assert nvme_raid_test.sync_selection_list(str(config), catalog) is False
@@ -286,8 +286,8 @@ def test_main_stops_after_first_failed_item(monkeypatch, tmp_path):
         nvme_raid_test,
         "discover_test_items",
         lambda items_dir=None: {
-            "lawdisk": "test_items/test_smoke_03_lawdisk.py",
-            "mix": "test_items/test_smoke_05_mix.py",
+            "lawdisk": "test_items/test_ci_03_lawdisk.py",
+            "mix": "test_items/test_ci_05_mix.py",
         },
     )
     monkeypatch.setattr(
@@ -328,8 +328,8 @@ def test_main_uses_whitelist_order_not_discovery_order(monkeypatch, tmp_path):
         nvme_raid_test,
         "discover_test_items",
         lambda items_dir=None: {
-            "lawdisk": "test_items/test_smoke_03_lawdisk.py",
-            "mix": "test_items/test_smoke_05_mix.py",
+            "lawdisk": "test_items/test_ci_03_lawdisk.py",
+            "mix": "test_items/test_ci_05_mix.py",
         },
     )
     monkeypatch.setattr(

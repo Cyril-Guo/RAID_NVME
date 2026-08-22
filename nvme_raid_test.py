@@ -30,7 +30,7 @@ ALLURE_DIR = "allure-results"
 JUNIT_FINAL = "report.xml"
 CASES_DIR = "cases"
 
-_SMOKE_NAME_RE = re.compile(r"^test_smoke_\d+_(.+)\.py$", re.IGNORECASE)
+_CI_NAME_RE = re.compile(r"^test_ci_\d+_(.+)\.py$", re.IGNORECASE)
 _TEST_NAME_RE = re.compile(r"^test_(.+)\.py$", re.IGNORECASE)
 _SKIP_NAME_RE = re.compile(
     r"(^__init__\.py$|_common\.py$|^powercycle_launch\.py$|^fio_run\.py$|^fio_allure\.py$|^random_io_plan\.py$)",
@@ -39,10 +39,10 @@ _SKIP_NAME_RE = re.compile(
 
 
 def item_name_from_filename(filename):
-    """Map test_smoke_03_lawdisk.py -> lawdisk, test_foo.py -> foo."""
+    """Map test_ci_03_lawdisk.py -> lawdisk, test_foo.py -> foo."""
     if _SKIP_NAME_RE.search(filename):
         return None
-    match = _SMOKE_NAME_RE.match(filename)
+    match = _CI_NAME_RE.match(filename)
     if match:
         return match.group(1).strip().lower()
     match = _TEST_NAME_RE.match(filename)
@@ -78,7 +78,7 @@ TEST_ITEMS = discover_test_items()
 
 SELECTION_BEGIN = "# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）==="
 SELECTION_END = "# === END SELECTION ==="
-_SMOKE_ORDER_RE = re.compile(r"^test_smoke_(\d+)_.+\.py$", re.IGNORECASE)
+_CI_ORDER_RE = re.compile(r"^test_ci_(\d+)_.+\.py$", re.IGNORECASE)
 _SELECTION_ENTRY_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\s+(\d+))?$")
 
 
@@ -112,9 +112,9 @@ def _selection_entry_name(line):
 
 
 def catalog_default_order(name, catalog):
-    """Prefer smoke file number (test_smoke_03_*.py -> 3); else None."""
+    """Prefer CI file number (test_ci_03_*.py -> 3); else None."""
     path = catalog.get(name, "")
-    match = _SMOKE_ORDER_RE.match(os.path.basename(path))
+    match = _CI_ORDER_RE.match(os.path.basename(path))
     if match:
         return int(match.group(1))
     return None

@@ -9,11 +9,11 @@ def test_report_metrics_counts_testcase_nodes_when_testsuites_root_is_zero(tmp_p
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuites tests="0" failures="0" errors="0" skipped="0">
   <testsuite name="pytest">
-    <testcase classname="test_items.test_smoke_03_lawdisk" name="test_lawdiskstress" />
-    <testcase classname="test_items.test_smoke_04_mix" name="test_mix_stress">
+    <testcase classname="test_items.test_ci_03_lawdisk" name="test_lawdiskstress" />
+    <testcase classname="test_items.test_ci_04_mix" name="test_mix_stress">
       <failure message="fio failed">trace</failure>
     </testcase>
-    <testcase classname="test_items.test_smoke_05_reboot" name="test_reboot_powercycle">
+    <testcase classname="test_items.test_ci_05_reboot" name="test_reboot_powercycle">
       <error message="setup failed">trace</error>
     </testcase>
   </testsuite>

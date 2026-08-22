@@ -1,4 +1,4 @@
-"""Per-case FIO launch helpers. Each smoke test supplies its own CSV and mode."""
+"""Per-case FIO launch helpers. Each CI test supplies its own CSV and mode."""
 import os
 import sys
 import subprocess

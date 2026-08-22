@@ -9,7 +9,7 @@ def test_merge_from_directory_writes_node_report(tmp_path):
     (item_dir / "report_lawdisk.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
-  <testcase classname="test_items.test_smoke_03_lawdisk" name="test_lawdiskstress" />
+  <testcase classname="test_items.test_ci_03_lawdisk" name="test_lawdiskstress" />
 </testsuite>
 """,
         encoding="utf-8",

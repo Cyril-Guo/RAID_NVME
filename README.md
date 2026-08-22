@@ -25,7 +25,7 @@ RAID_NVME/
 ├── MachineCheck/           # 机器信息采集（共用）：盘符 / NVMe PCIe / 链路与 AER
 ├── Stress_Monitor/         # 后台压力监控工具（共用）
 └── test_items/             # 纯测试项：仅存放各 Pytest 测试用例
-    └── test_smoke_*.py     # 各测试用例（各自独立、自包含）
+    └── test_ci_*.py     # 各测试用例（各自独立、自包含）
 ```
 
 > 说明：`IO_Stress`、`MachineCheck`、`Stress_Monitor` 为多个测试项共用的引擎/工具，
@@ -53,7 +53,7 @@ Jenkins 通过 **`sshpass` + 密码** 连接被测机，**不再依赖 SSH 免�
 
 1. **`BEGIN/END SELECTION` 块**：列出全部已发现用例，格式为 `名称 序号`。  
    - 行首 `#` = 不跑；去掉 `#` = 跑  
-   - **按数字升序执行**（与 `test_smoke_NN_*.py` 编号对齐更清晰）  
+   - **按数字升序执行**（与 `test_ci_NN_*.py` 编号对齐更清晰）  
    - 同步会按序号重排、保留启用状态，并给新用例补上 `# <name> <序号>`（也可手动  
      `python nvme_raid_test.py --sync-selection`）
 2. **`[用例名]` 参数块**：每个用例自己的参数，只写该用例会用到的键。

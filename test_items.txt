@@ -15,11 +15,11 @@
 #   其余行保持 # 注释
 #
 # 命名对应：
-#   test_smoke_03_lawdisk.py  ->  lawdisk（建议序号 3）
+#   test_ci_03_lawdisk.py  ->  lawdisk（建议序号 3）
 #   test_foo.py               ->  foo
 #
 # 新增用例：
-#   1. 添加 test_items/test_<name>.py（或 test_smoke_NN_<name>.py）
+#   1. 添加 test_items/test_<name>.py（或 test_ci_NN_<name>.py）
 #   2. 运行 sync（或任意测试）— 下方出现「# <name> <序号>」
 #   3. 去掉 # 启用；按需补充 [<name>] 参数块
 # ============================================================

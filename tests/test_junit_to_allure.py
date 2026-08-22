@@ -10,7 +10,7 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
     (tmp_path / "report_192.168.22.134.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
-  <testcase classname="test_items.test_smoke_03_lawdisk" name="test_lawdiskstress" />
+  <testcase classname="test_items.test_ci_03_lawdisk" name="test_lawdiskstress" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -50,7 +50,7 @@ def test_junit_to_allure_attaches_console_snapshot(tmp_path, monkeypatch):
     allure_dir.mkdir()
     (tmp_path / "report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
-  <testcase classname="test_items.test_smoke" name="test_basic_io" />
+  <testcase classname="test_items.test_ci" name="test_basic_io" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -58,7 +58,7 @@ def test_junit_to_allure_attaches_console_snapshot(tmp_path, monkeypatch):
     (tmp_path / "jenkins_console.log").write_text(
         "[Pipeline] stage\n"
         "[ITEM_START] basic_io\n"
-        "[ITEM] basic_io -> test_items/test_smoke_06_basic_io.py\n"
+        "[ITEM] basic_io -> test_items/test_ci_06_basic_io.py\n"
         "all console output\n"
         "[ITEM_END] basic_io exit_code=0\n"
         "[Pipeline] echo\n",
@@ -85,7 +85,7 @@ def test_junit_to_allure_large_console_uses_english_hint(tmp_path, monkeypatch):
     allure_dir.mkdir()
     (tmp_path / "report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
-  <testcase classname="test_items.test_smoke" name="test_basic_io" />
+  <testcase classname="test_items.test_ci" name="test_basic_io" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -114,8 +114,8 @@ def test_junit_to_allure_does_not_copy_global_fio_summary_onto_every_case(tmp_pa
     (tmp_path / "report_192.168.23.94.xml").write_text(
         """<testsuites>
   <testsuite name="pytest">
-    <testcase classname="test_items.test_smoke_05_mix" name="test_mix_stress" />
-    <testcase classname="test_items.test_smoke_06_basic_io" name="test_basic_io" />
+    <testcase classname="test_items.test_ci_05_mix" name="test_mix_stress" />
+    <testcase classname="test_items.test_ci_06_basic_io" name="test_basic_io" />
   </testsuite>
 </testsuites>
 """,
@@ -167,7 +167,7 @@ def test_junit_to_allure_does_not_copy_full_jenkins_console_onto_pytest_case(tmp
     allure_dir.mkdir()
     (tmp_path / "report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
-  <testcase classname="test_items.test_smoke_05_mix" name="test_mix_stress" />
+  <testcase classname="test_items.test_ci_05_mix" name="test_mix_stress" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -192,11 +192,11 @@ def test_junit_to_allure_keeps_existing_pytest_terminal_output(tmp_path, monkeyp
     (allure_dir / source).write_text("this case stdout only\n", encoding="utf-8")
     result = {
         "name": "FIO 测试: mix (混合 IO)",
-        "historyId": "192.168.23.94::physical::test_items.test_smoke_05_mix::test_mix_stress",
-        "fullName": "physical:192.168.23.94:test_items.test_smoke_05_mix#test_mix_stress",
-        "testCaseId": "192.168.23.94::physical::test_items.test_smoke_05_mix::test_mix_stress",
+        "historyId": "192.168.23.94::physical::test_items.test_ci_05_mix::test_mix_stress",
+        "fullName": "physical:192.168.23.94:test_items.test_ci_05_mix#test_mix_stress",
+        "testCaseId": "192.168.23.94::physical::test_items.test_ci_05_mix::test_mix_stress",
         "labels": [
-            {"name": "package", "value": "test_items.test_smoke_05_mix"},
+            {"name": "package", "value": "test_items.test_ci_05_mix"},
             {"name": "framework", "value": "pytest"},
         ],
         "attachments": [{"name": "终端输出", "source": source, "type": "text/plain"}],
@@ -204,7 +204,7 @@ def test_junit_to_allure_keeps_existing_pytest_terminal_output(tmp_path, monkeyp
     (allure_dir / "pytest-mix-result.json").write_text(json.dumps(result), encoding="utf-8")
     (tmp_path / "report_192.168.23.94.xml").write_text(
         """<testsuite name="pytest">
-  <testcase classname="test_items.test_smoke_05_mix" name="test_mix_stress" />
+  <testcase classname="test_items.test_ci_05_mix" name="test_mix_stress" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -229,7 +229,7 @@ def test_split_item_console_chunks_uses_item_markers():
         "mix body\n"
         "[ITEM_END] mix exit_code=0\n"
         "between cases\n"
-        "[ITEM] lawdisk -> test_items/test_smoke_03_lawdisk.py\n"
+        "[ITEM] lawdisk -> test_items/test_ci_03_lawdisk.py\n"
         "lawdisk body\n"
     )
     chunks = junit_to_allure.split_item_console_chunks(text)
@@ -301,7 +301,7 @@ def test_junit_to_allure_skips_per_item_junit_reports(tmp_path, monkeypatch):
     allure_dir.mkdir()
     (tmp_path / "report_lawdisk.xml").write_text(
         """<testsuite name="pytest">
-  <testcase classname="test_items.test_smoke_03_lawdisk" name="test_lawdiskstress" />
+  <testcase classname="test_items.test_ci_03_lawdisk" name="test_lawdiskstress" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -330,7 +330,7 @@ def test_junit_to_allure_surfaces_fio_model_elapsed_in_report(tmp_path, monkeypa
     (tmp_path / "report_192.168.22.134.xml").write_text(
         f"""<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1" failures="1">
-  <testcase classname="test_items.test_smoke_03_lawdisk" name="test_lawdiskstress">
+  <testcase classname="test_items.test_ci_03_lawdisk" name="test_lawdiskstress">
     <failure message="FIO 脚本执行失败，返回码: 8&#10;{fio_line}&#10;{fio_detail}">AssertionError</failure>
   </testcase>
 </testsuite>
@@ -386,7 +386,7 @@ def test_junit_to_allure_generates_execution_result_when_junit_only_passed(tmp_p
     allure_dir.mkdir()
     (tmp_path / "report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
-  <testcase classname="test_items.test_smoke_05_mix" name="test_mix_stress" />
+  <testcase classname="test_items.test_ci_05_mix" name="test_mix_stress" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -453,7 +453,7 @@ def test_junit_to_allure_treats_all_node_reports_as_physical(tmp_path, monkeypat
     allure_dir.mkdir()
     junit = """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
-  <testcase classname="test_items.test_smoke_06_basic_io" name="test_basic_io" />
+  <testcase classname="test_items.test_ci_06_basic_io" name="test_basic_io" />
 </testsuite>
 """
     (tmp_path / "report_192.168.22.134.xml").write_text(junit, encoding="utf-8")
@@ -480,7 +480,7 @@ def test_junit_to_allure_dedupes_legacy_physical_suffixed_report(tmp_path, monke
     allure_dir.mkdir()
     junit = """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
-  <testcase classname="test_items.test_smoke_06_basic_io" name="test_basic_io" />
+  <testcase classname="test_items.test_ci_06_basic_io" name="test_basic_io" />
 </testsuite>
 """
     (tmp_path / "report_192.168.22.134.xml").write_text(junit, encoding="utf-8")

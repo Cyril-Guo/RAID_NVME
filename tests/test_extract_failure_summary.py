@@ -6,7 +6,7 @@ def test_failure_summary_collects_junit_and_watchdog_errors(tmp_path, monkeypatc
     (tmp_path / "report_192.168.22.134.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest">
-  <testcase classname="test_items.test_smoke" name="test_basic_io">
+  <testcase classname="test_items.test_ci" name="test_basic_io">
     <failure message="FIO verification failed">AssertionError: bad data</failure>
   </testcase>
 </testsuite>

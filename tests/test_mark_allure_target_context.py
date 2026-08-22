@@ -11,7 +11,7 @@ def write_result(path, name, history_id, attachment_source):
                 "fullName": f"tests#{name}",
                 "historyId": history_id,
                 "testCaseId": history_id,
-                "labels": [{"name": "suite", "value": "test_smoke_06_basic_io"}],
+                "labels": [{"name": "suite", "value": "test_ci_06_basic_io"}],
                 "attachments": [
                     {
                         "name": "monitor_log_basic_io",
