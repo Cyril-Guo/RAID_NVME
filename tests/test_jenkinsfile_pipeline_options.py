@@ -230,9 +230,13 @@ def test_physical_host_installs_full_test_tool_set():
     assert "fio nvme-cli pciutils util-linux smartmontools sdparm" in source
     assert "sysstat gawk nmap bc psmisc numactl lsscsi unzip" in source
     assert "xfsprogs parted make gcc g++" in source
+    assert "build-essential" in source
+    assert "linux-headers-$(uname -r)" in source
+    assert "kmod" in source
+    assert "ripgrep" in source
     assert "python3-pip python3-pytest python-is-python3" in source
-    assert "for tool in fio nvme lspci findmnt lsblk; do" in source
-    assert "Missing required test tools after auto install" in source
+    assert "for tool in fio nvme lspci findmnt lsblk rg make gcc insmod modinfo; do" in source
+    assert "Missing required test/driver-build tools after auto install" in source
 
 
 def test_run_tests_uses_password_host_ssh_without_qemu_ports():

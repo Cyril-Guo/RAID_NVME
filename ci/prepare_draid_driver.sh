@@ -161,7 +161,7 @@ install_driver_build_deps() {
     host_ssh 'bash -s' <<'REMOTE_DEPS'
 set -euo pipefail
 need_driver_deps=0
-for tool in make gcc insmod modinfo; do
+for tool in make gcc insmod modinfo rg; do
     command -v "${tool}" >/dev/null 2>&1 || need_driver_deps=1
 done
 [ -e "/lib/modules/$(uname -r)/build" ] || need_driver_deps=1
@@ -177,11 +177,11 @@ if [ "${need_driver_deps}" = "1" ]; then
             "$@"
         }
         apt_retry apt-get -o DPkg::Lock::Timeout=600 update
-        apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y build-essential "linux-headers-$(uname -r)" kmod
+        apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y build-essential "linux-headers-$(uname -r)" kmod ripgrep
     elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y make gcc kernel-devel kmod
+        dnf install -y make gcc kernel-devel kmod ripgrep
     elif command -v yum >/dev/null 2>&1; then
-        yum install -y make gcc kernel-devel kmod
+        yum install -y make gcc kernel-devel kmod ripgrep
     fi
 fi
 REMOTE_DEPS

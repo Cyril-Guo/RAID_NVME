@@ -1,7 +1,11 @@
 #!/bin/bash
+# Install host/DUT packages needed by CI physical tests and env_prepare draid builds.
+# Mirrors SMOKE driver-build deps (make/gcc/headers/kmod) plus ripgrep for
+# kernel_driver portable-check (scripts/check_portable_sources.sh).
 set -euo pipefail
 
 need_test_deps=0
+KERNEL_BUILD_DIR="/lib/modules/$(uname -r)/build"
 
 fix_ubuntu_package_architectures() {
     command -v dpkg >/dev/null 2>&1 || return 0
@@ -36,9 +40,11 @@ APT_NATIVE_ARCH
 }
 
 python3 -c "import pytest" >/dev/null 2>&1 || need_test_deps=1
-for tool in fio nvme lspci findmnt lsblk; do
+# fio stack + draid build toolchain + portable-check (rg).
+for tool in fio nvme lspci findmnt lsblk rg make gcc insmod modinfo; do
     command -v "$tool" >/dev/null 2>&1 || need_test_deps=1
 done
+[ -e "${KERNEL_BUILD_DIR}" ] || need_test_deps=1
 
 if [ "$need_test_deps" = "1" ]; then
     if command -v apt-get >/dev/null 2>&1; then
@@ -57,19 +63,24 @@ if [ "$need_test_deps" = "1" ]; then
             python3-pip python3-pytest python-is-python3 \
             fio nvme-cli pciutils util-linux smartmontools sdparm \
             sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-            xfsprogs parted make gcc g++
+            xfsprogs parted make gcc g++ \
+            build-essential "linux-headers-$(uname -r)" kmod \
+            ripgrep
     elif command -v dnf >/dev/null 2>&1; then
         dnf install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
             smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-            xfsprogs parted make gcc gcc-c++
+            xfsprogs parted make gcc gcc-c++ \
+            kernel-devel kmod ripgrep
     elif command -v yum >/dev/null 2>&1; then
         yum install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
             smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-            xfsprogs parted make gcc gcc-c++
+            xfsprogs parted make gcc gcc-c++ \
+            kernel-devel kmod ripgrep
     elif command -v zypper >/dev/null 2>&1; then
         zypper install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
             smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
-            xfsprogs parted make gcc gcc-c++
+            xfsprogs parted make gcc gcc-c++ \
+            kernel-devel kmod ripgrep
     fi
 fi
 
@@ -92,12 +103,15 @@ fi
 
 python3 -c "import pytest"
 missing_tools=""
-for tool in fio nvme lspci findmnt lsblk; do
+for tool in fio nvme lspci findmnt lsblk rg make gcc insmod modinfo; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         missing_tools="${missing_tools} ${tool}"
     fi
 done
+if [ ! -e "${KERNEL_BUILD_DIR}" ]; then
+    missing_tools="${missing_tools} kernel-build(${KERNEL_BUILD_DIR})"
+fi
 if [ -n "$missing_tools" ]; then
-    echo "Missing required test tools after auto install:${missing_tools}" >&2
+    echo "Missing required test/driver-build tools after auto install:${missing_tools}" >&2
     exit 1
 fi

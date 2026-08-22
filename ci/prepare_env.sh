@@ -44,6 +44,52 @@ test -d "${DRAID_DIR}" || {
     echo "[${NODE_IP}] ERROR: draid source dir missing: ${DRAID_DIR}" >&2
     exit 1
 }
+
+# Same class of deps as SMOKE prepare_draid_driver.sh, plus ripgrep for portable-check.
+install_draid_build_deps() {
+    need_driver_deps=0
+    for tool in make gcc insmod modinfo rg; do
+        command -v "${tool}" >/dev/null 2>&1 || need_driver_deps=1
+    done
+    [ -e "/lib/modules/$(uname -r)/build" ] || need_driver_deps=1
+    if [ "${need_driver_deps}" != "1" ]; then
+        return 0
+    fi
+    echo "[${NODE_IP}] install draid build deps (make/gcc/headers/kmod/ripgrep)"
+    if command -v apt-get >/dev/null 2>&1; then
+        export DEBIAN_FRONTEND=noninteractive
+        apt_retry() {
+            for attempt in 1 2 3; do
+                "$@" && return 0
+                echo "apt command failed, retry ${attempt}/3: $*" >&2
+                sleep $((attempt * 10))
+            done
+            "$@"
+        }
+        apt_retry apt-get -o DPkg::Lock::Timeout=600 update
+        apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y \
+            build-essential "linux-headers-$(uname -r)" kmod ripgrep
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y make gcc kernel-devel kmod ripgrep
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y make gcc kernel-devel kmod ripgrep
+    else
+        echo "[${NODE_IP}] ERROR: no supported package manager to install draid build deps" >&2
+        exit 1
+    fi
+    for tool in make gcc insmod modinfo rg; do
+        command -v "${tool}" >/dev/null 2>&1 || {
+            echo "[${NODE_IP}] ERROR: missing tool after draid build dep install: ${tool}" >&2
+            exit 1
+        }
+    done
+    [ -e "/lib/modules/$(uname -r)/build" ] || {
+        echo "[${NODE_IP}] ERROR: kernel build dir missing: /lib/modules/$(uname -r)/build" >&2
+        exit 1
+    }
+}
+install_draid_build_deps
+
 (
     cd "${DRAID_DIR}"
     make

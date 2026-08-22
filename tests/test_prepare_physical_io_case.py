@@ -14,8 +14,12 @@ def test_prepare_env_script_covers_smoke_physical_steps():
     assert "restore_physical_raid_state.sh" in source
     assert "/usr/bin/dpraid --help >/dev/null" in source
     assert "/usr/bin/dpraid --help >/dev/null 2>&1 || true" not in source
+    assert "build-essential" in source
+    assert "install_draid_build_deps" in source
+    assert "ripgrep" in source
     # reclaim must happen before CSD flash clear
     assert source.index("reclaim_physical_host.sh") < source.index("clear_8p_csd_flash.sh")
+    assert source.index("install_draid_build_deps") < source.index("\n    make\n")
 
 
 def test_reclaim_physical_host_stops_qemu_unloads_draid_and_unbinds_vfio():
