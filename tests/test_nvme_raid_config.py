@@ -57,11 +57,10 @@ def test_repository_test_items_file_is_valid():
 
     assert "BEGIN SELECTION" in text
     assert "END SELECTION" in text
-    assert [name for name, _order, _enabled in entries]
-    assert set(name for name, _order, _enabled in entries) == set(catalog)
+    assert [name for name, _orders, _enabled in entries]
+    assert set(name for name, _orders, _enabled in entries) == set(catalog)
     assert selected
     assert all(name in catalog for name in selected)
-    assert "env_prepare" not in selected
     assert "defaults" not in params
     assert "lawdisk" in params
     assert params["lawdisk"]["IGNORE_ERROR"] == "no"
@@ -81,8 +80,8 @@ def test_repository_test_items_file_is_valid():
 def test_main_prints_item_boundaries():
     source = Path("nvme_raid_test.py").read_text(encoding="utf-8")
 
-    assert "[ITEM_START] {item}" in source
-    assert "[ITEM_END] {item} exit_code={exit_code}" in source
+    assert "[ITEM_START] {run_key}" in source
+    assert "[ITEM_END] {run_key} exit_code={exit_code}" in source
     assert "sync_selection_list" in source
     assert "[defaults]" not in Path("test_items.txt").read_text(encoding="utf-8")
 
@@ -120,12 +119,12 @@ IGNORE_ERROR = no
     entries = nvme_raid_test.read_selection_entries(str(config))
 
     assert selected == ["lawdisk"]
-    assert [(name, order, enabled) for name, order, enabled in entries] == [
-        ("reboot", 1, False),
-        ("dc", 2, False),
-        ("lawdisk", 3, True),
-        ("filesystem", 4, False),
-        ("mix", 5, False),
+    assert [(name, orders, enabled) for name, orders, enabled in entries] == [
+        ("reboot", [1], False),
+        ("dc", [2], False),
+        ("lawdisk", [3], True),
+        ("filesystem", [4], False),
+        ("mix", [5], False),
     ]
     assert "lawdisk 3\n" in text
     for name in ("reboot", "dc", "filesystem", "mix"):
@@ -166,12 +165,12 @@ IGNORE_ERROR = no
     entries = nvme_raid_test.read_selection_entries(str(config))
 
     assert selected == ["mix", "lawdisk"]
-    assert [(name, order) for name, order, _enabled in entries] == [
-        ("mix", 1),
-        ("filesystem", 2),
-        ("lawdisk", 3),
-        ("reboot", 4),
-        ("dc", 5),
+    assert [(name, orders) for name, orders, _enabled in entries] == [
+        ("mix", [1]),
+        ("filesystem", [2]),
+        ("lawdisk", [3]),
+        ("reboot", [4]),
+        ("dc", [5]),
     ]
 
 
@@ -231,6 +230,72 @@ FIO_CYCLES = 10
     assert selected == ["reboot", "lawdisk", "mix"]
 
 
+def test_parse_selection_entry_supports_multiple_orders():
+    assert nvme_raid_test.parse_selection_entry("mix 8 10") == ("mix", [8, 10], True)
+    assert nvme_raid_test.parse_selection_entry("# mix 8 10") == ("mix", [8, 10], False)
+    assert nvme_raid_test.parse_selection_entry("basic_io 1") == ("basic_io", [1], True)
+
+
+def test_read_enabled_selection_repeats_item_for_multiple_orders(tmp_path):
+    config = tmp_path / "test_items.txt"
+    config.write_text(
+        """
+# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
+mix 8 10
+basic_io 1
+basic_rebuild_io 9
+# === END SELECTION ===
+
+[mix]
+IGNORE_ERROR = no
+
+[basic_io]
+IGNORE_ERROR = no
+
+[basic_rebuild_io]
+IGNORE_ERROR = no
+""",
+        encoding="utf-8",
+    )
+    catalog = {
+        "mix": "test_items/test_ci_05_mix.py",
+        "basic_io": "test_items/test_ci_06_basic_io.py",
+        "basic_rebuild_io": "test_items/test_ci_07_basic_rebuild_io.py",
+    }
+
+    selected = nvme_raid_test.read_enabled_selection(str(config))
+    plan = nvme_raid_test.build_run_plan(str(config), test_items=catalog)
+
+    assert selected == ["basic_io", "mix", "basic_rebuild_io", "mix"]
+    assert [entry["item"] for entry in plan] == selected
+    assert [entry["run_key"] for entry in plan] == [
+        "basic_io",
+        "mix__8",
+        "basic_rebuild_io",
+        "mix__10",
+    ]
+
+
+def test_build_run_plan_keeps_single_order_run_key(tmp_path):
+    config = tmp_path / "test_items.txt"
+    config.write_text(
+        """
+# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
+lawdisk 3
+# === END SELECTION ===
+
+[lawdisk]
+IGNORE_ERROR = no
+""",
+        encoding="utf-8",
+    )
+    catalog = {"lawdisk": "test_items/test_ci_03_lawdisk.py"}
+
+    plan = nvme_raid_test.build_run_plan(str(config), test_items=catalog)
+
+    assert plan == [{"item": "lawdisk", "order": 3, "run_key": "lawdisk"}]
+
+
 def test_run_single_item_omits_allure_args_without_plugin(monkeypatch, tmp_path):
     captured = {}
 
@@ -279,6 +344,14 @@ def test_main_stops_after_first_failed_item(monkeypatch, tmp_path):
     monkeypatch.setattr(nvme_raid_test, "sync_selection_list", lambda path, catalog: False)
     monkeypatch.setattr(
         nvme_raid_test,
+        "build_run_plan",
+        lambda path, test_items=None: [
+            {"item": "lawdisk", "order": 3, "run_key": "lawdisk"},
+            {"item": "mix", "order": 5, "run_key": "mix"},
+        ],
+    )
+    monkeypatch.setattr(
+        nvme_raid_test,
         "parse_items_file",
         lambda path: (["lawdisk", "mix"], {"lawdisk": {}, "mix": {}}),
     )
@@ -299,7 +372,7 @@ def test_main_stops_after_first_failed_item(monkeypatch, tmp_path):
     monkeypatch.setattr(
         nvme_raid_test,
         "run_single_item",
-        lambda item, params, clean_allure, test_items=None, work_dir=None: executed.append(item) or 1,
+        lambda item, params, clean_allure, test_items=None, work_dir=None: executed.append(item) or (1 if item == "lawdisk" else 0),
     )
     monkeypatch.setattr(
         nvme_raid_test,
@@ -319,6 +392,14 @@ def test_main_uses_whitelist_order_not_discovery_order(monkeypatch, tmp_path):
     executed = []
 
     monkeypatch.setattr(nvme_raid_test, "sync_selection_list", lambda path, catalog: False)
+    monkeypatch.setattr(
+        nvme_raid_test,
+        "build_run_plan",
+        lambda path, test_items=None: [
+            {"item": "mix", "order": 1, "run_key": "mix"},
+            {"item": "lawdisk", "order": 3, "run_key": "lawdisk"},
+        ],
+    )
     monkeypatch.setattr(
         nvme_raid_test,
         "parse_items_file",

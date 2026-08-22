@@ -8,6 +8,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 import importlib.util
+from collections import Counter
 
 import pytest
 
@@ -79,11 +80,14 @@ TEST_ITEMS = discover_test_items()
 SELECTION_BEGIN = "# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）==="
 SELECTION_END = "# === END SELECTION ==="
 _CI_ORDER_RE = re.compile(r"^test_ci_(\d+)_.+\.py$", re.IGNORECASE)
-_SELECTION_ENTRY_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\s+(\d+))?$")
+_SELECTION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def parse_selection_entry(line):
-    """Parse a selection line into (name, order|None, enabled), or None."""
+    """Parse a selection line into (name, orders, enabled), or None.
+
+    orders is a sorted list of unique positive integers, e.g. ``mix 8 10`` -> [8, 10].
+    """
     text = line.strip()
     if not text:
         return None
@@ -97,12 +101,21 @@ def parse_selection_entry(line):
         return None
     if "=" in text:
         return None
-    match = _SELECTION_ENTRY_RE.fullmatch(text)
-    if not match:
+
+    parts = text.split()
+    if not parts:
         return None
-    name = match.group(1).lower()
-    order = int(match.group(2)) if match.group(2) else None
-    return name, order, enabled
+    name = parts[0].lower()
+    if not _SELECTION_NAME_RE.fullmatch(name):
+        return None
+
+    orders = []
+    for token in parts[1:]:
+        if not token.isdigit():
+            return None
+        orders.append(int(token))
+    orders = sorted(set(orders))
+    return name, orders, enabled
 
 
 def _selection_entry_name(line):
@@ -120,8 +133,14 @@ def catalog_default_order(name, catalog):
     return None
 
 
+def _selection_sort_key(orders):
+    if orders:
+        return (orders[0],)
+    return (10**9,)
+
+
 def read_selection_entries(path):
-    """Return [(name, order|None, enabled), ...] from the selection block."""
+    """Return [(name, orders, enabled), ...] from the selection block."""
     block_entries = []
     legacy_entries = []
     if not os.path.exists(path):
@@ -159,29 +178,56 @@ def read_selection_entries(path):
 
 
 def read_enabled_selection(path):
-    """Enabled item names sorted by order ascending (then name)."""
-    enabled = [entry for entry in read_selection_entries(path) if entry[2]]
-    enabled.sort(key=lambda entry: (entry[1] if entry[1] is not None else 10**9, entry[0]))
-    return [name for name, _order, _enabled in enabled]
+    """Enabled item names expanded by order slots, sorted ascending (then name)."""
+    return [entry["item"] for entry in build_run_plan(path)]
+
+
+def build_run_plan(path, test_items=None):
+    """Expand enabled selection lines into ordered run slots.
+
+    ``mix 8 10`` contributes two slots (orders 8 and 10). When an item appears
+    more than once, ``run_key`` becomes ``{item}__{order}`` for isolated artifacts.
+    """
+    catalog = test_items if test_items is not None else TEST_ITEMS
+    slots = []
+    for name, orders, enabled in read_selection_entries(path):
+        if not enabled or name not in catalog:
+            continue
+        if not orders:
+            default_order = catalog_default_order(name, catalog)
+            orders = [default_order] if default_order is not None else [10**9]
+        for order in orders:
+            slots.append((order, name))
+
+    slots.sort(key=lambda entry: (entry[0], entry[1]))
+
+    counts = Counter(name for _order, name in slots)
+    plan = []
+    for order, name in slots:
+        run_key = f"{name}__{order}" if counts[name] > 1 else name
+        plan.append({"item": name, "order": order, "run_key": run_key})
+    return plan
 
 
 def build_synced_selection_order(existing_entries, catalog):
-    """Keep known items' order/enable state; assign numbers to new items; sort by order."""
+    """Keep known items' orders/enable state; assign numbers to new items; sort by order."""
     catalog_names = list(catalog)
     catalog_set = set(catalog_names)
     ordered = []
     seen = set()
     used_orders = set()
 
-    for name, order, enabled in existing_entries:
+    for name, orders, enabled in existing_entries:
         if name not in catalog_set or name in seen:
             continue
-        if order is None:
-            order = catalog_default_order(name, catalog)
-        ordered.append((name, order, bool(enabled)))
+        if not orders:
+            default_order = catalog_default_order(name, catalog)
+            orders = [default_order] if default_order is not None else []
+        else:
+            orders = sorted(set(orders))
+        ordered.append((name, orders, bool(enabled)))
         seen.add(name)
-        if order is not None:
-            used_orders.add(order)
+        used_orders.update(orders)
 
     next_order = (max(used_orders) + 1) if used_orders else 1
     for name in catalog_names:
@@ -193,26 +239,29 @@ def build_synced_selection_order(existing_entries, catalog):
                 next_order += 1
             order = next_order
             next_order += 1
-        ordered.append((name, order, False))
+        ordered.append((name, [order], False))
         seen.add(name)
         used_orders.add(order)
 
-    # Fill any still-missing orders stably.
-    for idx, (name, order, enabled) in enumerate(ordered):
-        if order is not None:
+    for idx, (name, orders, enabled) in enumerate(ordered):
+        if orders:
             continue
         while next_order in used_orders:
             next_order += 1
-        ordered[idx] = (name, next_order, enabled)
+        ordered[idx] = (name, [next_order], enabled)
         used_orders.add(next_order)
         next_order += 1
 
-    ordered.sort(key=lambda entry: (entry[1], entry[0]))
+    ordered.sort(key=lambda entry: (_selection_sort_key(entry[1]), entry[0]))
     return ordered
 
 
-def format_selection_line(name, order, enabled):
-    body = f"{name} {order}"
+def format_selection_line(name, orders, enabled):
+    clean_orders = sorted(set(orders))
+    if clean_orders:
+        body = f"{name} " + " ".join(str(order) for order in clean_orders)
+    else:
+        body = name
     return f"{body}\n" if enabled else f"# {body}\n"
 
 
@@ -283,7 +332,8 @@ def parse_items_file(path):
     """Parse whitelist + per-item parameter blocks.
 
     Selection comes from the BEGIN/END SELECTION block: uncommented
-    `name <order>` lines, sorted by order. Each [item] block holds params.
+    ``name <order> [<order> ...]`` lines, expanded and sorted by order.
+    Each [item] block holds params.
     """
     selected = read_enabled_selection(path)
     params_map = {}
@@ -617,30 +667,36 @@ def main(argv=None):
         print(f"[ERROR] Missing test files: {missing}")
         sys.exit(2)
 
-    # selected is already sorted by numeric order from test_items.txt.
-    run_order = [item for item in selected if item in test_items]
+    # Run plan is sorted by numeric order from test_items.txt (items may repeat).
+    run_plan = build_run_plan(items_path, test_items=test_items)
 
-    if not run_order:
+    if not run_plan:
         print(f"[ERROR] No valid test items selected in {ITEMS_FILE}.")
         print(
-            f"[ERROR] Uncomment `name <order>` lines inside BEGIN/END SELECTION. "
+            f"[ERROR] Uncomment `name <order> [<order> ...]` lines inside BEGIN/END SELECTION. "
             f"Available: {list(test_items.keys())}"
         )
         sys.exit(2)
 
+    run_order = [entry["item"] for entry in run_plan]
     print(f"Selected test items: {run_order}")
     print(f"Discovered test items: {list(test_items.keys())}")
 
     exit_codes = []
-    executed_items = []
+    executed_run_keys = []
     junit_final = os.path.join(base_dir, JUNIT_FINAL)
     os.makedirs(os.path.join(base_dir, CASES_DIR), exist_ok=True)
-    for index, item in enumerate(run_order):
+    for entry in run_plan:
+        item = entry["item"]
+        run_key = entry["run_key"]
+        order = entry["order"]
         params = params_map.get(item, {})
         monitor_enabled = stress_monitor_enabled(params)
-        print(f"[ITEM_START] {item}")
+        print(f"[ITEM_START] {run_key}")
+        if run_key != item:
+            print(f"[ITEM] order={order}")
         exit_code = 2
-        case_dir = prepare_case_workdir(base_dir, item)
+        case_dir = prepare_case_workdir(base_dir, run_key)
         print(f"[ITEM] case workspace: {case_dir}")
         try:
             if monitor_enabled:
@@ -652,7 +708,7 @@ def main(argv=None):
                 test_items=test_items,
                 work_dir=case_dir,
             )
-            print(f"[ITEM_END] {item} exit_code={exit_code}")
+            print(f"[ITEM_END] {run_key} exit_code={exit_code}")
         finally:
             if monitor_enabled:
                 stop_monitor_for_item(case_dir)
@@ -661,21 +717,21 @@ def main(argv=None):
                 except Exception as exc:
                     print(f"[WARN] Failed to archive monitor log for {item}: {exc}")
             try:
-                collect_case_outputs(case_dir, base_dir, item)
+                collect_case_outputs(case_dir, base_dir, run_key)
             except Exception as exc:
                 print(f"[WARN] Failed to collect outputs for {item}: {exc}")
-            executed_items.append(item)
+            executed_run_keys.append(run_key)
             exit_codes.append(exit_code)
             # Merge after every item so idle/external kills still keep completed reports.
             previous = os.getcwd()
             try:
                 os.chdir(base_dir)
-                merge_junit_reports(executed_items, junit_final)
+                merge_junit_reports(executed_run_keys, junit_final)
             finally:
                 os.chdir(previous)
 
         if exit_code != 0:
-            print(f"[FAIL_FAST] Stop after {item} failed with exit_code={exit_code}")
+            print(f"[FAIL_FAST] Stop after {run_key} failed with exit_code={exit_code}")
             break
 
     sys.exit(max(exit_codes) if exit_codes else 0)
