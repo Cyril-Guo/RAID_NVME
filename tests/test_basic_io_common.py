@@ -440,12 +440,11 @@ DG/VD  State  Consist TYPE
     assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=512", "drives=7-14"] in calls
 
 
-def test_clear_csd_flash_and_cache_runs_flash_clear_on_unique_controllers(monkeypatch):
+def test_clear_csd_flash_and_cache_only_runs_dirty_csd_helper(monkeypatch):
     calls = []
     disks = [
-        NvmeDisk(namespace="nvme0n1", controller="nvme0", size_gb=Decimal("1000")),
-        NvmeDisk(namespace="nvme0n2", controller="nvme0", size_gb=Decimal("1000")),
-        NvmeDisk(namespace="nvme1n1", controller="nvme1", size_gb=Decimal("1000")),
+        NvmeDisk(namespace="nvme0n1", controller="nvme0", size_gb=Decimal("6400")),
+        NvmeDisk(namespace="nvme1n1", controller="nvme1", size_gb=Decimal("6400")),
     ]
 
     def fake_run_cmd(cmd, log, check=True, shell=False):
@@ -462,12 +461,10 @@ def test_clear_csd_flash_and_cache_runs_flash_clear_on_unique_controllers(monkey
 
     assert len(calls) == 1
     cmd, shell = calls[0]
-    assert shell is True
-    assert "flash-clear.sh" in cmd
-    assert "printf 'CLEAR\\n'" in cmd
-    assert "'/dev/nvme0'" in cmd
-    assert "'/dev/nvme1'" in cmd
-    assert cmd.count("/dev/nvme0") == 1
+    assert shell is False
+    assert cmd[0] == "bash"
+    assert "clear_8p_csd_flash.sh" in cmd[1]
+    assert "flash-clear.sh" not in " ".join(cmd if isinstance(cmd, list) else [cmd])
 
 
 def test_release_and_clear_csd_unloads_before_clear_and_reloads_after(monkeypatch):
@@ -500,9 +497,13 @@ def test_release_and_clear_csd_unloads_before_clear_and_reloads_after(monkeypatc
     basic_io_common.release_and_clear_csd(disks, CommandLog())
 
     rmmod_idx = calls.index(["rmmod", "draid"])
-    flash_idx = next(i for i, cmd in enumerate(calls) if isinstance(cmd, str) and "flash-clear.sh" in cmd)
+    clear_idx = next(
+        i
+        for i, cmd in enumerate(calls)
+        if isinstance(cmd, list) and len(cmd) >= 2 and "clear_8p_csd_flash.sh" in str(cmd[1])
+    )
     insmod_idx = next(i for i, cmd in enumerate(calls) if isinstance(cmd, list) and cmd and cmd[0] == "insmod")
-    assert rmmod_idx < flash_idx < insmod_idx
+    assert rmmod_idx < clear_idx < insmod_idx
     assert draid_loaded["value"] is True
 
 

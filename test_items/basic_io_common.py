@@ -390,6 +390,10 @@ def flash_clear_script_path():
     return Path(__file__).resolve().parents[1] / "ci" / "flash-clear.sh"
 
 
+def clear_8p_script_path():
+    return Path(__file__).resolve().parents[1] / "ci" / "clear_8p_csd_flash.sh"
+
+
 def draid_ko_path():
     return Path(__file__).resolve().parents[1] / "kernel_driver" / "drivers" / "draid" / "draid.ko"
 
@@ -464,31 +468,27 @@ def load_draid_module(log):
 
 
 def clear_csd_flash_and_cache(disks, log):
-    """Force CSD Flash + Cache clear on data NVMe controllers before rebuilding VDs.
+    """Clear only dirty CSD flash+cache before rebuilding VDs.
 
-    Unlike clear_8p_csd_flash.sh (dirty 8P/9P only), this always clears the controllers
-    that the current case will use, so each prepare_* starts from a clean CSD state.
+    Uses clear_8p_csd_flash.sh: detect dirty CSD via lsblk (8P/9P) or nvme list
+    (PB-scale such as 9.01 PB). Healthy TB-scale data drives are never cleared.
+    If no dirty CSD is present the helper exits 0 and this is a no-op.
     Caller must unload draid first so controllers are released.
     """
-    controllers = nvme_controller_paths(disks)
-    if not controllers:
-        raise AssertionError("No NVMe controllers available for CSD flash/cache clear")
-    script = flash_clear_script_path()
+    del disks  # discovery is done inside clear_8p_csd_flash.sh
+    script = clear_8p_script_path()
     if not script.is_file():
-        raise AssertionError(f"flash-clear script not found: {script}")
-    quoted = " ".join(f"'{path}'" for path in controllers)
-    log.write(f"Clear CSD flash+cache on controllers: {', '.join(controllers)}")
-    run_cmd(
-        f"printf 'CLEAR\\n' | bash '{script.as_posix()}' {quoted}",
-        log,
-        check=True,
-        shell=True,
+        raise AssertionError(f"clear_8p script not found: {script}")
+    log.write(
+        "Clear dirty CSD flash+cache only (lsblk 8P/9P or nvme-list PB-scale); "
+        "skip healthy data drives"
     )
-    log.write("CSD flash+cache clear finished")
+    run_cmd(["bash", str(script)], log, check=True)
+    log.write("Dirty CSD flash+cache clear finished (or skipped: none dirty)")
 
 
 def release_and_clear_csd(disks, log):
-    """Delete-time companion: unload draid, clear flash+cache, then reload draid."""
+    """Unload draid, clear dirty CSD flash+cache if any, then reload draid."""
     unload_draid_module(log)
     clear_csd_flash_and_cache(disks, log)
     load_draid_module(log)
