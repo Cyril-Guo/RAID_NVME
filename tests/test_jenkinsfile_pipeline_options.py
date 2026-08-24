@@ -364,10 +364,13 @@ def test_automatic_mr_runs_qemu_then_physical_host():
     source = pipeline_sources()
 
     assert "automaticMrTriggered = true" in source
+    assert "physicalAfterQemuForRun = useQemuVmTarget" in source
+    assert "all selected items on QEMU first, then the same set on physical" in source
     assert "if (qemuVmForNode && runPhysicalAfterQemu)" in source
     assert "Physical Environment_Prepare started after QEMU VM test" in source
     assert "QEMU_VM_TARGET=0" in source
     assert "REPORT_SUFFIX='_physical'" in source
+    assert "replay the same selected items on physical host" in source
 
 
 def test_automatic_mr_moves_nvme_between_host_and_qemu():

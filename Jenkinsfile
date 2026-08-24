@@ -400,6 +400,8 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
 }
 
 def runSmokeNodeWorkloads(ip, remoteDir, targetSsh, targetScp, qemuEnv, qemuVmForNode, raidCliDpraidPathForRun, runPhysicalAfterQemu) {
+    // One nvme_raid_test.py invocation runs all selected items serially on the current target.
+    // QEMU -> physical handoff happens only after that whole suite finishes (not per item).
     echo "[${ip}] run nvme_raid_test.py and copy back reports"
     def testStatus = sh(
         returnStatus: true,
@@ -424,7 +426,7 @@ ci/run_remote_test_and_collect.sh
     }
 
     if (qemuVmForNode && runPhysicalAfterQemu) {
-        echo "[${ip}] QEMU test passed; stop QEMU VM, return NVMe devices, then run physical host test"
+        echo "[${ip}] QEMU suite finished; stop QEMU VM once, return NVMe devices, then replay the same selected items on physical host"
         def hostStatus = sh(
             returnStatus: true,
             script: """#!/bin/bash
@@ -524,7 +526,7 @@ pipeline {
         booleanParam(
             name: 'SIMULATE_AUTO_MR_TRIGGER',
             defaultValue: false,
-            description: 'Debug mode: manual build uses the same QEMU VM target path as automatic MR trigger.'
+            description: '勾选虚拟机路径：先在 QEMU 里按 test_items.txt 串行跑完全部勾选用例，再只 poweroff 一次归还 NVMe，然后在物理机上再串行跑同一批用例（避免每个用例来回开关虚拟机）。'
         )
         string(
             name: 'MANUAL_MR_IID',
@@ -1054,11 +1056,12 @@ PY
                     ).trim()
                     echo "Use dpraid artifact: ${raidCliDpraidPathForRun}"
                     echo "Use raid_cli(${env.RAID_CLI_BRANCH}) commit: ${raidCliCommit}"
-                    echo "QEMU VM target=${useQemuVmTarget}, physical-after-qemu=${automaticMrTriggered}"
-
+                    echo "QEMU VM target=${useQemuVmTarget}, physical-after-qemu=${useQemuVmTarget} (all selected items on QEMU first, then the same set on physical)"
                     def parallelTasks = [:]
                     def qemuVmForRun = useQemuVmTarget
-                    def physicalAfterQemuForRun = automaticMrTriggered
+                    // When VM is selected: finish the full selected suite inside QEMU once,
+                    // then reclaim devices once and replay the same suite on the physical host.
+                    def physicalAfterQemuForRun = useQemuVmTarget
 
                     for (int i = 0; i < targetIPs.size(); i++) {
                         def ip = targetIPs[i]

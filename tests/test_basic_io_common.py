@@ -1,4 +1,5 @@
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -403,6 +404,13 @@ DG/VD  State  Consist TYPE
     monkeypatch.setattr(basic_io_common, "show_virtual_devices", lambda log: next(show_virtual_outputs))
     monkeypatch.setattr(basic_io_common, "discover_nvme_data_disks", lambda log, inventory_disks=None: nvme_disks)
 
+    released = []
+
+    def fake_release_and_clear(disks, log):
+        released.append([disk.controller for disk in disks])
+
+    monkeypatch.setattr(basic_io_common, "release_and_clear_csd", fake_release_and_clear)
+
     def fake_run_cmd(cmd, log, check=True, shell=False):
         calls.append(cmd)
 
@@ -422,15 +430,80 @@ DG/VD  State  Consist TYPE
         ["dpraid", "/c0/v8", "delete"],
     ] + [["dpraid", f"/c0/eall/s{i}", "delete"] for i in range(15)]
     assert calls[: len(expected_cleanup)] == expected_cleanup
-    assert ["rmmod", "draid"] not in calls
-    assert ["insmod", "kernel_driver/drivers/draid/draid.ko"] not in calls
     assert calls[len(expected_cleanup)] == ["nvme", "list"]
+    assert released == [[f"nvme{i}" for i in range(15)]]
     assert ["dpraid", "/c0", "add", "disk", "/dev/nvme0"] in calls
     assert len(disks) == 15
     assert [len(group) for group in groups] == [7, 8]
     assert vd_output == "vd output"
     assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "LogicalBlockSize=512", "drives=0-6"] in calls
     assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=512", "drives=7-14"] in calls
+
+
+def test_clear_csd_flash_and_cache_runs_flash_clear_on_unique_controllers(monkeypatch):
+    calls = []
+    disks = [
+        NvmeDisk(namespace="nvme0n1", controller="nvme0", size_gb=Decimal("1000")),
+        NvmeDisk(namespace="nvme0n2", controller="nvme0", size_gb=Decimal("1000")),
+        NvmeDisk(namespace="nvme1n1", controller="nvme1", size_gb=Decimal("1000")),
+    ]
+
+    def fake_run_cmd(cmd, log, check=True, shell=False):
+        calls.append((cmd, shell))
+
+        class Result:
+            stdout = ""
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+    basic_io_common.clear_csd_flash_and_cache(disks, CommandLog())
+
+    assert len(calls) == 1
+    cmd, shell = calls[0]
+    assert shell is True
+    assert "flash-clear.sh" in cmd
+    assert "printf 'CLEAR\\n'" in cmd
+    assert "'/dev/nvme0'" in cmd
+    assert "'/dev/nvme1'" in cmd
+    assert cmd.count("/dev/nvme0") == 1
+
+
+def test_release_and_clear_csd_unloads_before_clear_and_reloads_after(monkeypatch):
+    calls = []
+    disks = [NvmeDisk(namespace="nvme2n1", controller="nvme2", size_gb=Decimal("1000"))]
+    draid_loaded = {"value": True}
+
+    def fake_run_cmd(cmd, log, check=True, shell=False):
+        calls.append(cmd)
+
+        class Result:
+            stdout = ""
+            returncode = 0
+
+        result = Result()
+        if isinstance(cmd, list) and cmd[:3] == ["modinfo", "-F", "name"]:
+            result.stdout = "draid\n"
+        elif isinstance(cmd, str) and "grep -q '^draid ' /proc/modules" in cmd:
+            result.returncode = 0 if draid_loaded["value"] else 1
+        elif cmd == ["rmmod", "draid"]:
+            draid_loaded["value"] = False
+        elif isinstance(cmd, list) and cmd and cmd[0] == "insmod":
+            draid_loaded["value"] = True
+        return result
+
+    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(basic_io_common, "draid_ko_path", lambda: Path("kernel_driver/drivers/draid/draid.ko"))
+    monkeypatch.setattr(Path, "is_file", lambda self: True)
+
+    basic_io_common.release_and_clear_csd(disks, CommandLog())
+
+    rmmod_idx = calls.index(["rmmod", "draid"])
+    flash_idx = next(i for i, cmd in enumerate(calls) if isinstance(cmd, str) and "flash-clear.sh" in cmd)
+    insmod_idx = next(i for i, cmd in enumerate(calls) if isinstance(cmd, list) and cmd and cmd[0] == "insmod")
+    assert rmmod_idx < flash_idx < insmod_idx
+    assert draid_loaded["value"] is True
 
 
 def test_parse_lsblk_pairs_preserves_empty_parent_columns():

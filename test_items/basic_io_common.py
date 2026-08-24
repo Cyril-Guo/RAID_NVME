@@ -386,6 +386,114 @@ def delete_existing_pds(log):
         run_cmd(["dpraid", f"/c0/eall/{slot}", "delete"], log, check=False)
 
 
+def flash_clear_script_path():
+    return Path(__file__).resolve().parents[1] / "ci" / "flash-clear.sh"
+
+
+def draid_ko_path():
+    return Path(__file__).resolve().parents[1] / "kernel_driver" / "drivers" / "draid" / "draid.ko"
+
+
+def nvme_controller_paths(disks):
+    controllers = []
+    seen = set()
+    for disk in disks:
+        controller = (disk.controller or "").strip()
+        if not controller:
+            continue
+        path = f"/dev/{controller}"
+        if path in seen:
+            continue
+        seen.add(path)
+        controllers.append(path)
+    return controllers
+
+
+def draid_module_candidates(log):
+    names = []
+    ko = draid_ko_path()
+    if ko.is_file():
+        result = run_cmd(["modinfo", "-F", "name", str(ko)], log, check=False)
+        for line in (result.stdout or "").splitlines():
+            name = line.strip()
+            if name:
+                names.append(name)
+                break
+    names.append("draid")
+    return list(dict.fromkeys(names))
+
+
+def unload_draid_module(log):
+    """Unload draid so NVMe controllers are released before CSD flash/cache clear."""
+    log.write("Unload draid module before CSD flash/cache clear")
+    for candidate in draid_module_candidates(log):
+        loaded = run_cmd(f"grep -q '^{candidate} ' /proc/modules", log, check=False, shell=True)
+        if loaded.returncode != 0:
+            continue
+        result = run_cmd(["rmmod", candidate], log, check=False)
+        if result.returncode != 0:
+            run_cmd(["modprobe", "-r", candidate], log, check=False)
+    for candidate in draid_module_candidates(log):
+        still = run_cmd(f"grep -q '^{candidate} ' /proc/modules", log, check=False, shell=True)
+        if still.returncode == 0:
+            raise AssertionError(f"draid module still loaded after unload attempt: {candidate}")
+    log.write("draid module unloaded (or was not loaded)")
+
+
+def load_draid_module(log):
+    """Reload draid after CSD flash/cache clear so subsequent add disk/VD can proceed."""
+    ko = draid_ko_path()
+    if not ko.is_file():
+        raise AssertionError(f"draid.ko not found: {ko}")
+    log.write(f"Load draid module from {ko}")
+    run_cmd(["sync"], log, check=False)
+    run_cmd("echo 3 > /proc/sys/vm/drop_caches", log, check=False, shell=True)
+    result = run_cmd(["insmod", str(ko)], log, check=False)
+    if result.returncode != 0:
+        run_cmd(["sync"], log, check=False)
+        run_cmd("echo 3 > /proc/sys/vm/drop_caches", log, check=False, shell=True)
+        run_cmd(["sleep", "2"], log, check=False)
+        run_cmd(["insmod", str(ko)], log, check=True)
+    module_name = draid_module_candidates(log)[0]
+    loaded = run_cmd(f"grep -q '^{module_name} ' /proc/modules", log, check=False, shell=True)
+    if loaded.returncode != 0:
+        loaded = run_cmd("grep -q '^draid ' /proc/modules", log, check=False, shell=True)
+    if loaded.returncode != 0:
+        raise AssertionError(f"draid module not loaded after insmod: {ko}")
+    log.write("draid module loaded")
+
+
+def clear_csd_flash_and_cache(disks, log):
+    """Force CSD Flash + Cache clear on data NVMe controllers before rebuilding VDs.
+
+    Unlike clear_8p_csd_flash.sh (dirty 8P/9P only), this always clears the controllers
+    that the current case will use, so each prepare_* starts from a clean CSD state.
+    Caller must unload draid first so controllers are released.
+    """
+    controllers = nvme_controller_paths(disks)
+    if not controllers:
+        raise AssertionError("No NVMe controllers available for CSD flash/cache clear")
+    script = flash_clear_script_path()
+    if not script.is_file():
+        raise AssertionError(f"flash-clear script not found: {script}")
+    quoted = " ".join(f"'{path}'" for path in controllers)
+    log.write(f"Clear CSD flash+cache on controllers: {', '.join(controllers)}")
+    run_cmd(
+        f"printf 'CLEAR\\n' | bash '{script.as_posix()}' {quoted}",
+        log,
+        check=True,
+        shell=True,
+    )
+    log.write("CSD flash+cache clear finished")
+
+
+def release_and_clear_csd(disks, log):
+    """Delete-time companion: unload draid, clear flash+cache, then reload draid."""
+    unload_draid_module(log)
+    clear_csd_flash_and_cache(disks, log)
+    load_draid_module(log)
+
+
 def add_physical_disks(disks, log):
     for disk in disks:
         run_cmd(["dpraid", "/c0", "add", "disk", f"/dev/{disk.controller}"], log, check=True)
@@ -580,6 +688,7 @@ def prepare_multi_raid_vds(log, logical_block_size=None):
         raise AssertionError(
             f"Need at least {MIN_MULTI_RAID_DISKS} non-system NVMe disks, got {len(nvme_disks)}"
         )
+    release_and_clear_csd(nvme_disks, log)
     add_physical_disks(nvme_disks, log)
     physical_output = show_physical_devices(log)
     disks = []
@@ -622,6 +731,7 @@ def prepare_basic_raid5_vds(log, logical_block_size=None):
         if disk.size_gb > 0:
             query_bdf(disk, log)
     nvme_disks = discover_nvme_data_disks(log, nvme_inventory_disks)
+    release_and_clear_csd(nvme_disks, log)
     add_physical_disks(nvme_disks, log)
     physical_output = show_physical_devices(log)
     disks = []

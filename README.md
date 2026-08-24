@@ -113,7 +113,9 @@ MONITOR_RUNTIME =
 - 直接构建（`RESTORE` 不勾选）即按 `test_items.txt` 执行测试，不受 MR 轮询去重限制；
   被测驱动默认 checkout `kernel_driver/main`。
 - **`TARGET_PASSWORD`**：物理机 `root` SSH 密码，默认 `123456`；仅当目标机密码不是默认值时再改。
-- 勾选 **`SIMULATE_AUTO_MR_TRIGGER`**：手动构建也走与自动 MR 相同的 **QEMU 虚拟机** 路径（便于调试）。
+- 勾选 **`SIMULATE_AUTO_MR_TRIGGER`（虚拟机路径）**：先在 **QEMU 虚拟机**里按 `test_items.txt`
+  **串行跑完全部勾选用例**，再 **只 poweroff 一次** 归还 NVMe，然后在 **物理机**上对同一批用例再串行跑一遍
+  （自动 MR 触发同样是这条路径；避免每个用例来回开关虚拟机）。
 - 勾选 **`RESTORE`** 后构建：本次不执行测试，仅对 `target_ips.txt` 中所有节点
   **立即停止**正在运行的测试（含后台 FIO / 监控进程），并恢复系统环境
   （还原自动登录、开机自启等配置）。用于随时中止测试。
