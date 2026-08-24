@@ -24,6 +24,7 @@ function clear_log()
     mkdir -p $RawLog
     mkdir -p $MachineCheckLog > /dev/null
 	mkdir -p $MessageRecordLog > /dev/null
+	mkdir -p $SmartErrorLog/CheckNoStop > /dev/null
 	mkdir -p $SystemLog > /dev/null
 
 
@@ -95,6 +96,7 @@ function process_machinecheck_results() {
         sed -i '/RSYE.*184/d' $MachineCheck_Dir/Result/check.log
         sed -i '/RSYE.*187/d' $MachineCheck_Dir/Result/check.log
         if [[ -n $target_check_log ]]; then
+            mkdir -p "$(dirname "$target_check_log")" >/dev/null 2>&1 || true
             cat $MachineCheck_Dir/Result/check.log > "$target_check_log"
         fi
     fi

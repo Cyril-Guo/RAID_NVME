@@ -123,5 +123,5 @@ chmod +x ci/run_remote_test_and_collect.sh
 NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" REMOTE_DIR="${host_remote_dir}" \
     REMOTE_SSH_COMMAND="${host_ssh}" REMOTE_SCP_COMMAND="${host_scp}" \
     TEST_IDLE_TIMEOUT_MINUTES="${TEST_IDLE_TIMEOUT_MINUTES}" QEMU_VM_TARGET=0 \
-    ALLOW_DESTRUCTIVE_FIO="${ALLOW_DESTRUCTIVE_FIO:-YES}" REPORT_SUFFIX='_physical' LOG_SUFFIX='_physical' \
+    ALLOW_DESTRUCTIVE_FIO="${ALLOW_DESTRUCTIVE_FIO:-1}" REPORT_SUFFIX='_physical' LOG_SUFFIX='_physical' \
     TEST_LABEL='physical host nvme_raid_test.py' ci/run_remote_test_and_collect.sh

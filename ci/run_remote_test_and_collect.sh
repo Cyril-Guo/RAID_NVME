@@ -9,7 +9,7 @@ set -euo pipefail
 : "${TEST_IDLE_TIMEOUT_MINUTES:?TEST_IDLE_TIMEOUT_MINUTES is required}"
 
 qemu_target="${QEMU_VM_TARGET:-0}"
-allow_fio="${ALLOW_DESTRUCTIVE_FIO:-YES}"
+allow_fio="${ALLOW_DESTRUCTIVE_FIO:-1}"
 report_suffix="${REPORT_SUFFIX:-}"
 log_suffix="${LOG_SUFFIX:-}"
 test_label="${TEST_LABEL:-nvme_raid_test.py}"

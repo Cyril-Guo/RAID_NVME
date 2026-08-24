@@ -30,7 +30,8 @@ intializer
 
 backup
 
-autologin
+# Stress paths (lawdisk/filesystem/mix/basic_io/multi_raid) must not rewrite
+# getty/tty login policy. Reboot/dc use powercycle paths + autoopen instead.
 
 #install_HPL
 #install_fio

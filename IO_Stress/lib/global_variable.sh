@@ -15,6 +15,7 @@ ResultLog=$LogAd/ResultLog
 RawLog=$LogAd/RawLog
 MachineCheckLog=$RawLog/MachineCheckLog
 MessageRecordLog=$MachineCheckLog/MessagesRecord
+SmartErrorLog=$RawLog/SmartErrorLog
 SystemLog=$RawLog/SystemLog
 MachineCheck_Dir=$(cd "$Cur_Dir/.." && pwd)/MachineCheck
 File_Dir=$Cur_Dir/Config_file
