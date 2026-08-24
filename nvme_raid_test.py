@@ -18,6 +18,8 @@ TEST_ITEMS = {
     "mix": "test_items/test_smoke_05_mix.py",
     "basic_io": "test_items/test_smoke_06_basic_io.py",
     "basic_rebuild_io": "test_items/test_smoke_07_basic_rebuild_io.py",
+    "multi_raid_io": "test_items/test_smoke_08_multi_raid_io.py",
+    "multi_raid_degraded_io": "test_items/test_smoke_09_multi_raid_degraded_io.py",
 }
 
 ITEM_PARAMS = {
@@ -28,6 +30,8 @@ ITEM_PARAMS = {
     "mix": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME"],
     "basic_io": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME", "LOGICAL_BLOCK_SIZE"],
     "basic_rebuild_io": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME", "LOGICAL_BLOCK_SIZE"],
+    "multi_raid_io": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME", "LOGICAL_BLOCK_SIZE"],
+    "multi_raid_degraded_io": ["IGNORE_ERROR", "FIO_DISKS", "STRESS_MONITOR", "MONITOR_RUNTIME", "LOGICAL_BLOCK_SIZE"],
 }
 
 ALL_PARAM_KEYS = sorted({key for keys in ITEM_PARAMS.values() for key in keys})
@@ -283,6 +287,8 @@ def result_matches_item(result, item):
         "dc": ("dc", "dc_powercycle"),
         "basic_io": ("basic_io", "test_basic_io"),
         "basic_rebuild_io": ("basic_rebuild_io", "test_basic_rebuild_io"),
+        "multi_raid_io": ("multi_raid_io", "test_multi_raid_io"),
+        "multi_raid_degraded_io": ("multi_raid_degraded_io", "test_multi_raid_degraded_io"),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))
 

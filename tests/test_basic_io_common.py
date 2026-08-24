@@ -6,19 +6,26 @@ from test_items import basic_io_common
 from test_items.basic_io_common import (
     EXCLUDED_NVME_MODELS,
     CommandLog,
+    MIN_MULTI_RAID_DISKS,
+    MULTI_RAID_VD_COUNT,
     NvmeDisk,
     create_raid5_vds,
+    create_raid_vds,
     drives_expr,
+    expected_degraded_vd_count,
     parse_dpraid_physical_devices,
     parse_dpraid_slots,
     parse_dpraid_virtual_ids,
     parse_lsblk_pairs,
     parse_nvme_list,
+    partition_disks_for_multi_raid,
     prepare_basic_raid5_vds,
     resolve_logical_block_size,
     split_groups,
+    usable_capacity_gb,
     vd_create_cmd,
     vd_size,
+    vd_size_gb_for_raid,
 )
 
 
@@ -508,3 +515,177 @@ def test_power_cycle_skips_excluded_nvme_models(monkeypatch):
         assert "Cannot power-cycle group without BDF mapping" in str(exc)
     else:
         raise AssertionError("Expected excluded QEMU NVMe Ctrl disk to be skipped for power-cycle")
+
+
+def test_partition_disks_for_multi_raid_uses_fixed_layout():
+    disks = [
+        NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("960.20"), did=i)
+        for i in range(MIN_MULTI_RAID_DISKS)
+    ]
+
+    groups = partition_disks_for_multi_raid(disks)
+
+    assert [(spec.raid_level, len(spec.disks)) for spec in groups] == [
+        (0, 1),
+        (0, 2),
+        (1, 2),
+        (10, 4),
+        (50, 6),
+    ]
+    assert [disk.did for spec in groups for disk in spec.disks] == list(range(MIN_MULTI_RAID_DISKS))
+
+
+def test_partition_disks_for_multi_raid_requires_minimum_disks():
+    disks = [
+        NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("960.20"), did=i)
+        for i in range(MIN_MULTI_RAID_DISKS - 1)
+    ]
+
+    with pytest.raises(AssertionError, match=f"Need at least {MIN_MULTI_RAID_DISKS}"):
+        partition_disks_for_multi_raid(disks)
+
+
+def test_vd_size_gb_for_raid_levels():
+    group = [
+        NvmeDisk(namespace="nvme0n1", controller="nvme0", size_gb=Decimal("960.20"), did=0),
+        NvmeDisk(namespace="nvme1n1", controller="nvme1", size_gb=Decimal("900.00"), did=1),
+        NvmeDisk(namespace="nvme2n1", controller="nvme2", size_gb=Decimal("960.20"), did=2),
+        NvmeDisk(namespace="nvme3n1", controller="nvme3", size_gb=Decimal("960.20"), did=3),
+    ]
+
+    assert usable_capacity_gb(0, 2, Decimal("900")) == Decimal("1800")
+    assert usable_capacity_gb(1, 2, Decimal("900")) == Decimal("900")
+    assert usable_capacity_gb(10, 4, Decimal("900")) == Decimal("1800")
+    assert usable_capacity_gb(50, 6, Decimal("900")) == Decimal("3600")
+    assert vd_size_gb_for_raid(0, group[:1]) == 240
+    assert vd_size_gb_for_raid(1, group[:2]) == 225
+    assert vd_size_gb_for_raid(10, group) == 450
+    assert vd_size_gb_for_raid(50, group + group[:2]) == 900
+
+
+def test_vd_create_cmd_supports_raid_level():
+    assert vd_create_cmd("0-1", 100, 512, raid_level=10) == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=10",
+        "Size=100GB",
+        "Strip=4",
+        "LogicalBlockSize=512",
+        "drives=0-1",
+    ]
+
+
+def test_create_raid_vds_creates_four_vds_per_group(monkeypatch):
+    commands = []
+    disks = [
+        NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("5961.593"), did=i)
+        for i in range(15)
+    ]
+    group_specs = [(spec.disks, spec.raid_level) for spec in partition_disks_for_multi_raid(disks)]
+
+    def fake_run_cmd(cmd, log, check=True, shell=False):
+        commands.append(cmd)
+
+        class Result:
+            stdout = ""
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+    create_raid_vds(group_specs, CommandLog())
+
+    add_vd_commands = [cmd for cmd in commands if cmd[:4] == ["dpraid", "/c0", "add", "vd"]]
+    assert len(add_vd_commands) == MULTI_RAID_VD_COUNT
+    assert add_vd_commands[0] == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=0",
+        "Size=1370GB",
+        "Strip=4",
+        "LogicalBlockSize=512",
+        "drives=0",
+    ]
+    assert add_vd_commands[4] == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=0",
+        "Size=2741GB",
+        "Strip=4",
+        "LogicalBlockSize=512",
+        "drives=1-2",
+    ]
+    assert add_vd_commands[8] == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=1",
+        "Size=1370GB",
+        "Strip=4",
+        "LogicalBlockSize=512",
+        "drives=3-4",
+    ]
+    assert add_vd_commands[12] == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=10",
+        "Size=2741GB",
+        "Strip=4",
+        "LogicalBlockSize=512",
+        "drives=5-8",
+    ]
+    assert add_vd_commands[16] == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=50",
+        "Size=5484GB",
+        "Strip=4",
+        "LogicalBlockSize=512",
+        "drives=9-14",
+    ]
+
+
+def test_expected_degraded_vd_count_skips_raid0_groups():
+    group_specs = partition_disks_for_multi_raid(
+        [
+            NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("960.20"), did=i)
+            for i in range(MIN_MULTI_RAID_DISKS)
+        ]
+    )
+
+    assert expected_degraded_vd_count(group_specs) == 12
+
+
+def test_degrade_non_raid0_groups_only_power_cycles_non_raid0(monkeypatch):
+    calls = []
+    group_specs = partition_disks_for_multi_raid(
+        [
+            NvmeDisk(
+                namespace=f"nvme{i}n1",
+                controller=f"nvme{i}",
+                size_gb=Decimal("960.20"),
+                did=i,
+                bdf=f"0000:{i:02d}:00.0",
+            )
+            for i in range(MIN_MULTI_RAID_DISKS)
+        ]
+    )
+
+    def fake_power_cycle(groups, log):
+        calls.append([[disk.did for disk in group] for group in groups])
+
+    monkeypatch.setattr(basic_io_common, "power_cycle_one_disk_per_group", fake_power_cycle)
+    basic_io_common.degrade_non_raid0_groups(group_specs, CommandLog())
+
+    assert calls == [[[3, 4], [5, 6, 7, 8], [9, 10, 11, 12, 13, 14]]]

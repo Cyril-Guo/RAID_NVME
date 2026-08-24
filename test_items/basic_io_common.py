@@ -21,6 +21,16 @@ class NvmeDisk:
     did: int | None = None
 
 
+@dataclass
+class RaidGroupSpec:
+    raid_level: int
+    disks: list
+
+    @property
+    def label(self):
+        return f"raid{self.raid_level}-{len(self.disks)}"
+
+
 EXCLUDED_NVME_MODELS = {
     "DAPUSTOR DPRP5108T0TF06T4000",
     "QEMU NVMe Ctrl",
@@ -31,6 +41,10 @@ VD_SIZE_RETRY_STEP_PERCENT = Decimal("5")
 VD_SIZE_RETRY_LIMIT = 6
 ALLOWED_LOGICAL_BLOCK_SIZES = {512, 4096}
 DEFAULT_LOGICAL_BLOCK_SIZE = 512
+MULTI_RAID_LEVELS = [0, 0, 1, 10, 50]
+MULTI_RAID_DISK_COUNTS = [1, 2, 2, 4, 6]
+MIN_MULTI_RAID_DISKS = sum(MULTI_RAID_DISK_COUNTS)
+MULTI_RAID_VD_COUNT = len(MULTI_RAID_LEVELS) * VDS_PER_GROUP
 
 
 def resolve_logical_block_size(value=None):
@@ -44,13 +58,13 @@ def resolve_logical_block_size(value=None):
     return int(normalized)
 
 
-def vd_create_cmd(expr, size_gb, logical_block_size):
+def vd_create_cmd(expr, size_gb, logical_block_size, raid_level=5):
     return [
         "dpraid",
         "/c0",
         "add",
         "vd",
-        "r=5",
+        f"r={raid_level}",
         f"Size={size_gb}GB",
         "Strip=4",
         f"LogicalBlockSize={logical_block_size}",
@@ -332,6 +346,19 @@ def split_groups(disks):
     return [disks[:split_at], disks[split_at:]]
 
 
+def partition_disks_for_multi_raid(disks):
+    if len(disks) < MIN_MULTI_RAID_DISKS:
+        raise AssertionError(
+            f"Need at least {MIN_MULTI_RAID_DISKS} disks for multi-RAID layout, got {len(disks)}"
+        )
+    groups = []
+    index = 0
+    for raid_level, disk_count in zip(MULTI_RAID_LEVELS, MULTI_RAID_DISK_COUNTS):
+        groups.append(RaidGroupSpec(raid_level=raid_level, disks=disks[index : index + disk_count]))
+        index += disk_count
+    return groups
+
+
 def show_virtual_devices(log):
     return run_cmd(["dpraid", "/c0/vall", "show"], log, check=True).stdout
 
@@ -414,23 +441,49 @@ def apply_bdf_from_nvme_inventory(dpraid_disks, nvme_disks, log):
 def drives_expr(group):
     dids = [disk.did for disk in group]
     if any(did is None for did in dids):
-        raise AssertionError("Missing DID for RAID5 drive group")
+        raise AssertionError("Missing DID for RAID drive group")
     dids = sorted(dids)
+    if len(dids) == 1:
+        return str(dids[0])
     if dids == list(range(dids[0], dids[-1] + 1)):
         return f"{dids[0]}-{dids[-1]}"
     return ",".join(str(did) for did in dids)
 
 
-def vd_size_gb(group, reserve_percent=Decimal("0")):
+def usable_capacity_gb(raid_level, disk_count, min_size_gb):
+    if raid_level == 0:
+        return min_size_gb * disk_count
+    if raid_level == 1:
+        return min_size_gb
+    if raid_level == 10:
+        return min_size_gb * (disk_count // 2)
+    if raid_level == 50:
+        span = 3
+        spans = disk_count // span
+        return min_size_gb * spans * (span - 1)
+    if raid_level == 5:
+        return min_size_gb * (disk_count - 1)
+    raise AssertionError(f"Unsupported RAID level: {raid_level}")
+
+
+def vd_size_gb_for_raid(raid_level, group, reserve_percent=Decimal("0")):
     min_size = min(disk.size_gb for disk in group)
-    size = (min_size * Decimal(len(group) - 1) / Decimal(4)).to_integral_value(rounding=ROUND_FLOOR)
+    size = (usable_capacity_gb(raid_level, len(group), min_size) / Decimal(4)).to_integral_value(
+        rounding=ROUND_FLOOR
+    )
     if reserve_percent:
         size = (size * (Decimal("100") - reserve_percent) / Decimal("100")).to_integral_value(
             rounding=ROUND_FLOOR
         )
     if size <= 0:
-        raise AssertionError(f"Invalid RAID5 VD size calculated from group: {group}")
+        raise AssertionError(
+            f"Invalid RAID{raid_level} VD size calculated from group: {group}"
+        )
     return int(size)
+
+
+def vd_size_gb(group, reserve_percent=Decimal("0")):
+    return vd_size_gb_for_raid(5, group, reserve_percent)
 
 
 def vd_size(group):
@@ -443,17 +496,17 @@ def cleanup_created_vds(before_ids, log):
         run_cmd(["dpraid", f"/c0/v{index}", "delete"], log, check=False)
 
 
-def create_raid5_vds(groups, log, logical_block_size=DEFAULT_LOGICAL_BLOCK_SIZE):
+def create_raid_vds(group_specs, log, logical_block_size=DEFAULT_LOGICAL_BLOCK_SIZE):
     logical_block_size = resolve_logical_block_size(logical_block_size)
-    for group in groups:
+    for group, raid_level in group_specs:
         expr = drives_expr(group)
-        size_gb = vd_size_gb(group, VD_SIZE_RESERVE_PERCENT)
+        size_gb = vd_size_gb_for_raid(raid_level, group, VD_SIZE_RESERVE_PERCENT)
         for attempt in range(1, VD_SIZE_RETRY_LIMIT + 1):
             before_ids = set(parse_dpraid_virtual_ids(show_virtual_devices(log)))
             failed_result = None
             for _ in range(VDS_PER_GROUP):
                 result = run_cmd(
-                    vd_create_cmd(expr, size_gb, logical_block_size),
+                    vd_create_cmd(expr, size_gb, logical_block_size, raid_level=raid_level),
                     log,
                     check=False,
                 )
@@ -467,24 +520,29 @@ def create_raid5_vds(groups, log, logical_block_size=DEFAULT_LOGICAL_BLOCK_SIZE)
             if "Cannot allocate memory" not in output:
                 raise AssertionError(
                     f"Command failed rc={failed_result.returncode}: "
-                    f"{' '.join(vd_create_cmd(expr, size_gb, logical_block_size))}"
+                    f"{' '.join(vd_create_cmd(expr, size_gb, logical_block_size, raid_level=raid_level))}"
                 )
             if attempt == VD_SIZE_RETRY_LIMIT:
                 raise AssertionError(
-                    f"Cannot create RAID5 VDs after {VD_SIZE_RETRY_LIMIT} attempts: drives={expr}, last Size={size_gb}GB"
+                    f"Cannot create RAID{raid_level} VDs after {VD_SIZE_RETRY_LIMIT} attempts: "
+                    f"drives={expr}, last Size={size_gb}GB"
                 )
             step = max(1, (size_gb * int(VD_SIZE_RETRY_STEP_PERCENT) // 100))
             next_size_gb = size_gb - step
             if next_size_gb <= 0:
                 raise AssertionError(
-                    f"Cannot create RAID5 VDs: next Size would be {next_size_gb}GB after allocation failure: "
+                    f"Cannot create RAID{raid_level} VDs: next Size would be {next_size_gb}GB after allocation failure: "
                     f"drives={expr}, last Size={size_gb}GB"
                 )
             log.write(
-                f"Retry RAID5 VD creation with smaller size after allocation failure: "
+                f"Retry RAID{raid_level} VD creation with smaller size after allocation failure: "
                 f"drives={expr}, {size_gb}GB -> {next_size_gb}GB"
             )
             size_gb = next_size_gb
+
+
+def create_raid5_vds(groups, log, logical_block_size=DEFAULT_LOGICAL_BLOCK_SIZE):
+    create_raid_vds([(group, 5) for group in groups], log, logical_block_size=logical_block_size)
 
 
 def dp_vd_devices(log):
@@ -503,6 +561,56 @@ def verify_vd_count(log, expected=8):
     if len(devices) != expected:
         raise AssertionError(f"Expected {expected} VD block devices, got {len(devices)}: {devices}")
     return devices
+
+
+def expected_degraded_vd_count(group_specs):
+    return sum(VDS_PER_GROUP for spec in group_specs if spec.raid_level != 0)
+
+
+def prepare_multi_raid_vds(log, logical_block_size=None):
+    logical_block_size = resolve_logical_block_size(logical_block_size)
+    delete_existing_vds(log)
+    delete_existing_pds(log)
+    nvme_inventory_disks = nvme_inventory(log)
+    for disk in nvme_inventory_disks:
+        if disk.size_gb > 0:
+            query_bdf(disk, log)
+    nvme_disks = discover_nvme_data_disks(log, nvme_inventory_disks)
+    if len(nvme_disks) < MIN_MULTI_RAID_DISKS:
+        raise AssertionError(
+            f"Need at least {MIN_MULTI_RAID_DISKS} non-system NVMe disks, got {len(nvme_disks)}"
+        )
+    add_physical_disks(nvme_disks, log)
+    physical_output = show_physical_devices(log)
+    disks = []
+    for disk in parse_dpraid_physical_devices(physical_output):
+        if is_excluded_nvme_model(disk.model):
+            log.write(f"Skip excluded dpraid physical model: DID{disk.did} {disk.model}")
+            continue
+        disks.append(disk)
+    if len(disks) < MIN_MULTI_RAID_DISKS:
+        raise AssertionError(
+            f"Need at least {MIN_MULTI_RAID_DISKS} dpraid physical disks, got {len(disks)}"
+        )
+    apply_bdf_from_nvme_inventory(disks, nvme_inventory_disks, log)
+    log.write("Assigned DID by dpraid show: " + ", ".join(f"{d.namespace}->DID{d.did}" for d in disks))
+    group_specs = partition_disks_for_multi_raid(disks)
+    log.write(
+        "Multi-RAID disk groups: "
+        + " | ".join(
+            f"{spec.label}({','.join(f'DID{d.did}' for d in spec.disks)})"
+            for spec in group_specs
+        )
+    )
+    log.write(f"Create multi-RAID VDs with LogicalBlockSize={logical_block_size}")
+    create_raid_vds(
+        [(spec.disks, spec.raid_level) for spec in group_specs],
+        log,
+        logical_block_size=logical_block_size,
+    )
+    verify_vd_count(log, expected=MULTI_RAID_VD_COUNT)
+    vd_output = show_virtual_devices(log)
+    return disks, group_specs, vd_output
 
 
 def prepare_basic_raid5_vds(log, logical_block_size=None):
@@ -557,6 +665,21 @@ def drop_pci_disk(bdf, log, remove_settle_seconds=1, rescan_settle_seconds=2):
     run_cmd(["sleep", str(remove_settle_seconds)], log, check=True)
     run_cmd("echo 1 > /sys/bus/pci/rescan", log, check=True, shell=True)
     run_cmd(["sleep", str(rescan_settle_seconds)], log, check=True)
+
+
+def degrade_non_raid0_groups(group_specs, log):
+    non_raid0_groups = [spec.disks for spec in group_specs if spec.raid_level != 0]
+    if not non_raid0_groups:
+        raise AssertionError("No non-RAID0 groups available for degradation")
+    log.write(
+        "Degrade non-RAID0 groups: "
+        + ", ".join(
+            f"raid{spec.raid_level}({','.join(f'DID{d.did}' for d in spec.disks)})"
+            for spec in group_specs
+            if spec.raid_level != 0
+        )
+    )
+    power_cycle_one_disk_per_group(non_raid0_groups, log)
 
 
 def power_cycle_one_disk_per_group(groups, log):

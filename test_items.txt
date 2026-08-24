@@ -7,6 +7,7 @@
 #
 # Run order is fixed by nvme_raid_test.py:
 #   reboot -> dc -> lawdisk -> filesystem -> mix -> basic_io -> basic_rebuild_io
+#   -> multi_raid_io -> multi_raid_degraded_io
 #
 # To add a new item later:
 #   1. Add "new_case = yes/no" in [selection]
@@ -22,6 +23,8 @@ filesystem  = no
 mix         = no
 basic_io    = yes
 basic_rebuild_io = yes
+multi_raid_io = no
+multi_raid_degraded_io = no
 
 
 # ============================================================
@@ -32,7 +35,7 @@ basic_rebuild_io = yes
 # STRESS_MONITOR  Start background stress monitor: yes/no
 # MONITOR_RUNTIME Monitor runtime in seconds. Empty = monitor default.
 # FIO_CYCLES      Power-cycle count. Only used by reboot/dc.
-# LOGICAL_BLOCK_SIZE  VD logical block size for basic_io/basic_rebuild_io: 512 or 4096.
+# LOGICAL_BLOCK_SIZE  VD logical block size for basic_io/basic_rebuild_io/multi_raid_*: 512 or 4096.
 # ============================================================
 
 
@@ -82,6 +85,22 @@ LOGICAL_BLOCK_SIZE = 512
 
 
 [basic_rebuild_io]
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = yes
+MONITOR_RUNTIME = 1000
+LOGICAL_BLOCK_SIZE = 512
+
+
+[multi_raid_io]
+IGNORE_ERROR    = no
+FIO_DISKS       =
+STRESS_MONITOR  = yes
+MONITOR_RUNTIME = 1000
+LOGICAL_BLOCK_SIZE = 512
+
+
+[multi_raid_degraded_io]
 IGNORE_ERROR    = no
 FIO_DISKS       =
 STRESS_MONITOR  = yes

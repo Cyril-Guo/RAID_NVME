@@ -15,14 +15,18 @@ def test_repository_test_items_file_is_valid():
     assert "mix" in params
     assert "basic_io" in params
     assert "basic_rebuild_io" in params
+    assert "multi_raid_io" in params
+    assert "multi_raid_degraded_io" in params
 
 
 def test_basic_io_items_are_registered_after_existing_smoke_items():
     keys = list(nvme_raid_test.TEST_ITEMS)
 
-    assert keys[-2:] == ["basic_io", "basic_rebuild_io"]
+    assert keys[-4:] == ["basic_io", "basic_rebuild_io", "multi_raid_io", "multi_raid_degraded_io"]
     assert nvme_raid_test.TEST_ITEMS["basic_io"] == "test_items/test_smoke_06_basic_io.py"
     assert nvme_raid_test.TEST_ITEMS["basic_rebuild_io"] == "test_items/test_smoke_07_basic_rebuild_io.py"
+    assert nvme_raid_test.TEST_ITEMS["multi_raid_io"] == "test_items/test_smoke_08_multi_raid_io.py"
+    assert nvme_raid_test.TEST_ITEMS["multi_raid_degraded_io"] == "test_items/test_smoke_09_multi_raid_degraded_io.py"
 
 
 def test_main_prints_item_boundaries():
