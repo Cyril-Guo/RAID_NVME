@@ -59,7 +59,7 @@ def resolve_logical_block_size(value=None):
 
 
 def vd_create_cmd(expr, size_gb, logical_block_size, raid_level=5):
-    return [
+    cmd = [
         "dpraid",
         "/c0",
         "add",
@@ -67,9 +67,16 @@ def vd_create_cmd(expr, size_gb, logical_block_size, raid_level=5):
         f"r={raid_level}",
         f"Size={size_gb}GB",
         "Strip=4",
-        f"LogicalBlockSize={logical_block_size}",
-        f"drives={expr}",
     ]
+    if raid_level == 50:
+        cmd.append("PDperArray=3")
+    cmd.extend(
+        [
+            f"LogicalBlockSize={logical_block_size}",
+            f"drives={expr}",
+        ]
+    )
+    return cmd
 
 
 def is_excluded_nvme_model(model):

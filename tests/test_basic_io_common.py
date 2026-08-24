@@ -651,6 +651,21 @@ def test_vd_create_cmd_supports_raid_level():
     ]
 
 
+def test_vd_create_cmd_adds_pd_per_array_for_raid50():
+    assert vd_create_cmd("9-14", 5484, 512, raid_level=50) == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=50",
+        "Size=5484GB",
+        "Strip=4",
+        "PDperArray=3",
+        "LogicalBlockSize=512",
+        "drives=9-14",
+    ]
+
+
 def test_create_raid_vds_creates_four_vds_per_group(monkeypatch):
     commands = []
     disks = [
@@ -725,6 +740,7 @@ def test_create_raid_vds_creates_four_vds_per_group(monkeypatch):
         "r=50",
         "Size=5484GB",
         "Strip=4",
+        "PDperArray=3",
         "LogicalBlockSize=512",
         "drives=9-14",
     ]
