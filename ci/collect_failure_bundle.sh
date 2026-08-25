@@ -222,4 +222,24 @@ else
     log "WARN: failed to create ${ARCHIVE}"
 fi
 
+# Short summary for Allure text attachment (visible without unpacking tar).
+{
+    echo "NODE_IP=${NODE_IP}"
+    echo "RUN_KEY=${RUN_KEY}"
+    echo "REASON=${BUNDLE_REASON}"
+    echo "ARCHIVE=$(basename "${ARCHIVE}")"
+    echo
+    echo "=== gcore_pids ==="
+    cat gcore_pids.txt 2>/dev/null || echo "(none)"
+    echo
+    echo "=== gcore_errors ==="
+    cat gcore_errors.txt 2>/dev/null || echo "(none)"
+    echo
+    if [ ! -s gcore_pids.txt ]; then
+        echo "NOTE: no live fio/dpraid when gcore ran."
+        echo "FIO stage abort / keyword failures usually exit first, so userspace core is empty."
+        echo "Bundle still includes dmesg, dpraid show, binaries, logs for triage."
+    fi
+} >"${BUNDLE_ROOT}/latest_bundle_summary.txt"
+
 exit 0

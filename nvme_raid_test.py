@@ -430,11 +430,14 @@ def discover_junit_run_keys(directory="."):
 
 
 def collect_failure_bundle(base_dir, run_key, reason="item_failure"):
-    """Best-effort gcore + diagnostic tar on the DUT; never raises."""
+    """Best-effort gcore + diagnostic tar on the DUT; never raises.
+
+    Returns absolute path to the created archive when available.
+    """
     script = os.path.join(base_dir, "ci", "collect_failure_bundle.sh")
     if not os.path.isfile(script):
         print(f"[WARN] Missing failure bundle script: {script}")
-        return
+        return None
     env = os.environ.copy()
     env["REMOTE_DIR"] = base_dir
     env["NODE_IP"] = env.get("NODE_IP") or env.get("TARGET_IP") or "local"
@@ -450,6 +453,23 @@ def collect_failure_bundle(base_dir, run_key, reason="item_failure"):
         )
     except Exception as exc:
         print(f"[WARN] Failure bundle collection failed for {run_key}: {exc}")
+        return None
+
+    bundle_root = os.path.join(base_dir, "failure_bundles")
+    latest_path = os.path.join(bundle_root, "latest_bundle_path.txt")
+    try:
+        with open(latest_path, "r", encoding="utf-8") as handle:
+            archive = handle.read().strip()
+        if archive and os.path.isfile(archive):
+            return archive
+    except OSError:
+        pass
+    matches = sorted(
+        glob.glob(os.path.join(bundle_root, "failure_bundle_*.tar.gz")),
+        key=os.path.getmtime,
+        reverse=True,
+    )
+    return matches[0] if matches else None
 
 
 def enable_failure_coredumps(base_dir):
@@ -464,6 +484,122 @@ def enable_failure_coredumps(base_dir):
         subprocess.run(["bash", script], cwd=base_dir, env=env, check=False)
     except Exception as exc:
         print(f"[WARN] enable_failure_coredumps failed: {exc}")
+
+
+def add_allure_failure_bundle(run_key, base_dir, item=None, archive_path=None):
+    """Copy failure bundle into allure-results and attach to the matching case."""
+    item = item or run_key.split("__", 1)[0]
+    bundle_root = os.path.join(base_dir, "failure_bundles")
+    if not archive_path or not os.path.isfile(archive_path):
+        latest_path = os.path.join(bundle_root, "latest_bundle_path.txt")
+        try:
+            with open(latest_path, "r", encoding="utf-8") as handle:
+                archive_path = handle.read().strip()
+        except OSError:
+            archive_path = None
+    if not archive_path or not os.path.isfile(archive_path):
+        matches = sorted(
+            glob.glob(os.path.join(bundle_root, "failure_bundle_*.tar.gz")),
+            key=os.path.getmtime,
+            reverse=True,
+        )
+        archive_path = matches[0] if matches else None
+    if not archive_path:
+        print(f"[WARN] No failure_bundle archive to attach for {run_key}")
+        return
+
+    allure_dir = os.path.join(base_dir, ALLURE_DIR)
+    os.makedirs(allure_dir, exist_ok=True)
+
+    archive_name = "failure_bundle_{}.tar.gz".format(run_key)
+    dest_archive = os.path.join(allure_dir, archive_name)
+    shutil.copy2(archive_path, dest_archive)
+
+    # Also land a copy at workspace root for Jenkins archiveArtifacts / SCP.
+    root_copy = os.path.join(base_dir, archive_name)
+    try:
+        shutil.copy2(archive_path, root_copy)
+    except OSError as exc:
+        print(f"[WARN] Failed to copy failure bundle to workspace root: {exc}")
+
+    summary_src = os.path.join(bundle_root, "latest_bundle_summary.txt")
+    summary_name = "failure_gcore_summary_{}.txt".format(run_key)
+    dest_summary = os.path.join(allure_dir, summary_name)
+    if os.path.isfile(summary_src):
+        shutil.copy2(summary_src, dest_summary)
+    else:
+        with open(dest_summary, "w", encoding="utf-8") as handle:
+            handle.write(
+                "failure bundle: {}\n"
+                "NOTE: summary missing; unpack the tar.gz for cores/gcore_errors.txt\n".format(
+                    archive_name
+                )
+            )
+
+    attached_tar = _attach_named_file_to_allure(
+        item,
+        base_dir,
+        archive_name,
+        display_name="failure_gcore_bundle_{}".format(run_key),
+        mime="application/gzip",
+        run_key=run_key,
+    )
+    _attach_named_file_to_allure(
+        item,
+        base_dir,
+        summary_name,
+        display_name="failure_gcore_summary_{}".format(run_key),
+        mime="text/plain",
+        run_key=run_key,
+    )
+    if attached_tar:
+        print(f"[FAILURE_BUNDLE] attached to Allure for {run_key}")
+    else:
+        print(f"[FAILURE_BUNDLE] queued Allure attachment for {run_key}")
+
+
+def _attach_named_file_to_allure(item, base_dir, source_name, display_name, mime, run_key=None):
+    allure_dir = os.path.join(base_dir, ALLURE_DIR)
+    attachment = {
+        "name": display_name,
+        "source": source_name,
+        "type": mime,
+    }
+    for name in os.listdir(allure_dir):
+        if not name.endswith("-result.json"):
+            continue
+        path = os.path.join(allure_dir, name)
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                result = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not result_matches_item(result, item, run_key=run_key):
+            continue
+        attachments = result.setdefault("attachments", [])
+        updated = False
+        for existing in attachments:
+            if existing.get("source") == source_name:
+                existing["name"] = display_name
+                existing["type"] = mime
+                updated = True
+                break
+        if not updated:
+            attachments.append(attachment)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(result, handle, ensure_ascii=False)
+        return True
+
+    sidecar = os.path.join(allure_dir, "monitor_attachments.json")
+    try:
+        with open(sidecar, "r", encoding="utf-8") as handle:
+            pending = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        pending = []
+    pending.append({"item": item, "attachment": attachment, "run_key": run_key})
+    with open(sidecar, "w", encoding="utf-8") as handle:
+        json.dump(pending, handle, ensure_ascii=False)
+    return False
 
 
 def collect_case_outputs(case_dir, repo_root, run_key):
@@ -819,7 +955,15 @@ def main(argv=None):
                 print(f"[WARN] Failed to collect outputs for {item}: {exc}")
             if exit_code != 0:
                 # Capture while fio/dpraid may still be alive, before fail-fast exit.
-                collect_failure_bundle(base_dir, run_key, reason=f"item_failure:{exit_code}")
+                archive = collect_failure_bundle(
+                    base_dir, run_key, reason=f"item_failure:{exit_code}"
+                )
+                try:
+                    add_allure_failure_bundle(
+                        run_key, base_dir, item=item, archive_path=archive
+                    )
+                except Exception as exc:
+                    print(f"[WARN] Failed to attach failure bundle to Allure for {run_key}: {exc}")
             executed_run_keys.append(run_key)
             exit_codes.append(exit_code)
             # Merge after every item so idle/external kills still keep completed reports.

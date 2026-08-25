@@ -38,6 +38,7 @@ def test_collect_script_contains_gcore_and_bundle_paths():
     assert "fio" in source and "dpraid" in source
     assert "failure_bundle_" in source
     assert "draid.ko" in source
+    assert "latest_bundle_summary.txt" in source
     assert "exit 0" in source
 
 
@@ -57,9 +58,12 @@ def test_wiring_references_failure_bundle():
 
     assert "collect_failure_bundle" in nvme
     assert "collect_failure_bundle.sh" in nvme
+    assert "add_allure_failure_bundle" in nvme
+    assert "failure_gcore_summary_" in nvme
     assert "collect_failure_bundle.sh" in remote
     assert "failure_bundle_*.tar.gz" in remote
     assert "failure_bundle_*.tar.gz" in jenkins
+    assert "allure-results/failure_bundle_*.tar.gz" in jenkins
     assert "enable_failure_coredumps.sh" in prepare
     assert "gdb" in install
     assert "enable_failure_coredumps.sh" in install
@@ -149,3 +153,49 @@ exit 0
     assert cores, "expected gcore output under cores/"
     assert cores[0].read_text(encoding="utf-8").startswith("FAKECORE")
     assert (work / "draid.ko").is_file()
+
+
+def test_add_allure_failure_bundle_attaches_tar_and_summary(tmp_path):
+    import json
+    import sys
+
+    sys.path.insert(0, str(REPO_ROOT))
+    import nvme_raid_test as runner
+
+    base = tmp_path / "ws"
+    allure_dir = base / "allure-results"
+    allure_dir.mkdir(parents=True)
+    bundles = base / "failure_bundles"
+    bundles.mkdir()
+    archive = bundles / "failure_bundle_10.0.0.8_basic_io_1.tar.gz"
+    archive.write_bytes(b"fake-tar")
+    (bundles / "latest_bundle_path.txt").write_text(str(archive), encoding="utf-8")
+    (bundles / "latest_bundle_summary.txt").write_text(
+        "no live fio\n", encoding="utf-8"
+    )
+    result_path = allure_dir / "abc-result.json"
+    result_path.write_text(
+        json.dumps(
+            {
+                "name": "Test_CI_basic_IO",
+                "fullName": "test_items.test_ci_basic_io.Test_CI_basic_IO",
+                "status": "failed",
+                "labels": [{"name": "run_key", "value": "basic_io"}],
+                "attachments": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    runner.add_allure_failure_bundle(
+        "basic_io", str(base), item="basic_io", archive_path=str(archive)
+    )
+
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+    names = {item["name"] for item in result["attachments"]}
+    assert "failure_gcore_bundle_basic_io" in names
+    assert "failure_gcore_summary_basic_io" in names
+    assert (allure_dir / "failure_bundle_basic_io.tar.gz").is_file()
+    assert (allure_dir / "failure_gcore_summary_basic_io.txt").read_text(
+        encoding="utf-8"
+    ).startswith("no live fio")
