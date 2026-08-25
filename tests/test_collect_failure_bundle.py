@@ -36,9 +36,14 @@ def test_collect_script_contains_gcore_and_bundle_paths():
     assert "gcore" in source
     assert 'pgrep -x "${name}"' in source
     assert "fio" in source and "dpraid" in source
+    assert "draid_kthreads" in source
+    assert "is_kernel_thread" in source
+    assert "draid_diag" in source
+    assert "debugfs" in source
     assert "failure_bundle_" in source
     assert "draid.ko" in source
     assert "latest_bundle_summary.txt" in source
+    assert "enable_failure_coredumps.sh" in source
     assert "exit 0" in source
 
 
@@ -47,6 +52,8 @@ def test_enable_script_sets_ulimit_and_core_pattern():
     assert "ulimit -c unlimited" in source
     assert "kernel.core_pattern" in source
     assert "failure_bundles/cores" in source
+    assert "ptrace_scope" in source
+    assert "yama" in source
 
 
 def test_wiring_references_failure_bundle():
