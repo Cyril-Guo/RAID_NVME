@@ -76,6 +76,13 @@ fi
 # Keep the monitor pattern out of this SSH cmdline; salvage script uses a self-safe pkill pattern.
 eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && python3 ci/salvage_junit_reports.py --stop-monitor --output report.xml\"" || true
 
+if [ "${test_rc}" != "0" ]; then
+    echo "[${NODE_IP}] collect failure gcore/diagnostic bundle on DUT"
+    eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x ci/collect_failure_bundle.sh ci/enable_failure_coredumps.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} RUN_KEY=remote_runner BUNDLE_REASON=remote_test_rc_${test_rc} ci/enable_failure_coredumps.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} RUN_KEY=remote_runner BUNDLE_REASON=remote_test_rc_${test_rc} ci/collect_failure_bundle.sh\"" || true
+    mkdir -p .
+    eval "${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/failure_bundles/failure_bundle_*.tar.gz ." || true
+fi
+
 echo "[${NODE_IP}] copy back reports"
 mkdir -p allure-results
 rm -rf "${tmp_results}"

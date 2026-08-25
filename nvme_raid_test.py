@@ -429,6 +429,43 @@ def discover_junit_run_keys(directory="."):
     return found
 
 
+def collect_failure_bundle(base_dir, run_key, reason="item_failure"):
+    """Best-effort gcore + diagnostic tar on the DUT; never raises."""
+    script = os.path.join(base_dir, "ci", "collect_failure_bundle.sh")
+    if not os.path.isfile(script):
+        print(f"[WARN] Missing failure bundle script: {script}")
+        return
+    env = os.environ.copy()
+    env["REMOTE_DIR"] = base_dir
+    env["NODE_IP"] = env.get("NODE_IP") or env.get("TARGET_IP") or "local"
+    env["RUN_KEY"] = str(run_key)
+    env["BUNDLE_REASON"] = str(reason)
+    try:
+        print(f"[FAILURE_BUNDLE] collecting gcore/diagnostics for {run_key}")
+        subprocess.run(
+            ["bash", script],
+            cwd=base_dir,
+            env=env,
+            check=False,
+        )
+    except Exception as exc:
+        print(f"[WARN] Failure bundle collection failed for {run_key}: {exc}")
+
+
+def enable_failure_coredumps(base_dir):
+    """Best-effort ulimit/core_pattern setup before the run plan."""
+    script = os.path.join(base_dir, "ci", "enable_failure_coredumps.sh")
+    if not os.path.isfile(script):
+        return
+    env = os.environ.copy()
+    env["REMOTE_DIR"] = base_dir
+    env.setdefault("NODE_IP", env.get("TARGET_IP") or "local")
+    try:
+        subprocess.run(["bash", script], cwd=base_dir, env=env, check=False)
+    except Exception as exc:
+        print(f"[WARN] enable_failure_coredumps failed: {exc}")
+
+
 def collect_case_outputs(case_dir, repo_root, run_key):
     """Copy per-case junit/allure artifacts back to the build root for Jenkins collect."""
     src_report = os.path.join(case_dir, f"report_{run_key}.xml")
@@ -738,6 +775,8 @@ def main(argv=None):
     print(f"Selected test items: {run_order}")
     print(f"Discovered test items: {list(test_items.keys())}")
 
+    enable_failure_coredumps(base_dir)
+
     exit_codes = []
     executed_run_keys = []
     junit_final = os.path.join(base_dir, JUNIT_FINAL)
@@ -778,6 +817,9 @@ def main(argv=None):
                 collect_case_outputs(case_dir, base_dir, run_key)
             except Exception as exc:
                 print(f"[WARN] Failed to collect outputs for {item}: {exc}")
+            if exit_code != 0:
+                # Capture while fio/dpraid may still be alive, before fail-fast exit.
+                collect_failure_bundle(base_dir, run_key, reason=f"item_failure:{exit_code}")
             executed_run_keys.append(run_key)
             exit_codes.append(exit_code)
             # Merge after every item so idle/external kills still keep completed reports.

@@ -40,8 +40,8 @@ APT_NATIVE_ARCH
 }
 
 python3 -c "import pytest" >/dev/null 2>&1 || need_test_deps=1
-# fio stack + draid build toolchain + portable-check (rg).
-for tool in fio nvme lspci findmnt lsblk rg make gcc insmod modinfo; do
+# fio stack + draid build toolchain + portable-check (rg) + gcore (gdb).
+for tool in fio nvme lspci findmnt lsblk rg make gcc insmod modinfo gcore; do
     command -v "$tool" >/dev/null 2>&1 || need_test_deps=1
 done
 [ -e "${KERNEL_BUILD_DIR}" ] || need_test_deps=1
@@ -65,22 +65,22 @@ if [ "$need_test_deps" = "1" ]; then
             sysstat gawk nmap bc psmisc numactl lsscsi unzip \
             xfsprogs parted make gcc g++ \
             build-essential "linux-headers-$(uname -r)" kmod \
-            ripgrep
+            ripgrep gdb
     elif command -v dnf >/dev/null 2>&1; then
         dnf install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
             smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
             xfsprogs parted make gcc gcc-c++ \
-            kernel-devel kmod ripgrep
+            kernel-devel kmod ripgrep gdb
     elif command -v yum >/dev/null 2>&1; then
         yum install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
             smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
             xfsprogs parted make gcc gcc-c++ \
-            kernel-devel kmod ripgrep
+            kernel-devel kmod ripgrep gdb
     elif command -v zypper >/dev/null 2>&1; then
         zypper install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
             smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
             xfsprogs parted make gcc gcc-c++ \
-            kernel-devel kmod ripgrep
+            kernel-devel kmod ripgrep gdb
     fi
 fi
 
@@ -114,4 +114,17 @@ fi
 if [ -n "$missing_tools" ]; then
     echo "Missing required test/driver-build tools after auto install:${missing_tools}" >&2
     exit 1
+fi
+
+# gdb/gcore is required for failure bundles but should not hard-fail older images
+# until packages are refreshed; warn only.
+if ! command -v gcore >/dev/null 2>&1; then
+    echo "WARN: gcore missing after dependency install; failure gcore dumps will be skipped" >&2
+fi
+
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+if [ -f "${SCRIPT_DIR}/enable_failure_coredumps.sh" ]; then
+    chmod +x "${SCRIPT_DIR}/enable_failure_coredumps.sh" 2>/dev/null || true
+    NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
+        "${SCRIPT_DIR}/enable_failure_coredumps.sh" || true
 fi

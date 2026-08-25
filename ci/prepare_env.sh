@@ -125,4 +125,8 @@ echo "[${NODE_IP}] (5/5) clear leftover VD/PD"
 chmod +x "${SCRIPT_DIR}/restore_physical_raid_state.sh"
 NODE_IP="${NODE_IP}" "${SCRIPT_DIR}/restore_physical_raid_state.sh"
 
+echo "[${NODE_IP}] enable unlimited cores + core_pattern for failure gcore bundles"
+chmod +x "${SCRIPT_DIR}/enable_failure_coredumps.sh" 2>/dev/null || true
+NODE_IP="${NODE_IP}" REMOTE_DIR="${REMOTE_DIR}" "${SCRIPT_DIR}/enable_failure_coredumps.sh" || true
+
 echo "[${NODE_IP}] ===== prepare_env done ====="

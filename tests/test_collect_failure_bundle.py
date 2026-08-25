@@ -1,0 +1,151 @@
+import os
+import shutil
+import stat
+import subprocess
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+COLLECT_SCRIPT = REPO_ROOT / "ci" / "collect_failure_bundle.sh"
+ENABLE_SCRIPT = REPO_ROOT / "ci" / "enable_failure_coredumps.sh"
+
+
+def _bash():
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash is required to exercise collect_failure_bundle.sh")
+    return bash
+
+
+def _write_executable(path: Path, content: str):
+    path.write_text(content.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
+def _bash_path(path: Path) -> str:
+    """Convert a Windows path to a Git-Bash-friendly POSIX path when needed."""
+    text = str(path.resolve()).replace("\\", "/")
+    if len(text) >= 2 and text[1] == ":":
+        return f"/{text[0].lower()}{text[2:]}"
+    return text
+
+
+def test_collect_script_contains_gcore_and_bundle_paths():
+    source = COLLECT_SCRIPT.read_text(encoding="utf-8")
+    assert "gcore" in source
+    assert 'pgrep -x "${name}"' in source
+    assert "fio" in source and "dpraid" in source
+    assert "failure_bundle_" in source
+    assert "draid.ko" in source
+    assert "exit 0" in source
+
+
+def test_enable_script_sets_ulimit_and_core_pattern():
+    source = ENABLE_SCRIPT.read_text(encoding="utf-8")
+    assert "ulimit -c unlimited" in source
+    assert "kernel.core_pattern" in source
+    assert "failure_bundles/cores" in source
+
+
+def test_wiring_references_failure_bundle():
+    nvme = (REPO_ROOT / "nvme_raid_test.py").read_text(encoding="utf-8")
+    remote = (REPO_ROOT / "ci" / "run_remote_test_and_collect.sh").read_text(encoding="utf-8")
+    jenkins = (REPO_ROOT / "Jenkinsfile").read_text(encoding="utf-8")
+    prepare = (REPO_ROOT / "ci" / "prepare_env.sh").read_text(encoding="utf-8")
+    install = (REPO_ROOT / "ci" / "install_test_dependencies.sh").read_text(encoding="utf-8")
+
+    assert "collect_failure_bundle" in nvme
+    assert "collect_failure_bundle.sh" in nvme
+    assert "collect_failure_bundle.sh" in remote
+    assert "failure_bundle_*.tar.gz" in remote
+    assert "failure_bundle_*.tar.gz" in jenkins
+    assert "enable_failure_coredumps.sh" in prepare
+    assert "gdb" in install
+    assert "enable_failure_coredumps.sh" in install
+
+
+def test_collect_failure_bundle_smoke_with_fake_gcore(tmp_path):
+    bash = _bash()
+    remote_dir = tmp_path / "remote"
+    remote_dir.mkdir()
+    (remote_dir / "kernel_driver" / "drivers" / "draid").mkdir(parents=True)
+    (remote_dir / "kernel_driver" / "drivers" / "draid" / "draid.ko").write_bytes(b"ko")
+    (remote_dir / "IO_Stress" / "log" / "TestErrorLog").mkdir(parents=True)
+    (remote_dir / "IO_Stress" / "log" / "TestErrorLog" / "err.log").write_text("boom\n", encoding="utf-8")
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _write_executable(
+        bin_dir / "pgrep",
+        """#!/usr/bin/env bash
+if [ "$1" = "-x" ] && [ "$2" = "fio" ]; then
+  printf '4242\\n'
+  exit 0
+fi
+exit 1
+""",
+    )
+    _write_executable(
+        bin_dir / "gcore",
+        """#!/usr/bin/env bash
+# gcore -o cores/core.fio <pid>
+out="$2"
+pid="$3"
+printf 'FAKECORE\\n' >"${out}.${pid}"
+""",
+    )
+    _write_executable(
+        bin_dir / "fio",
+        """#!/usr/bin/env bash
+if [ "$1" = "--version" ]; then
+  echo 'fio-fake'
+  exit 0
+fi
+exit 0
+""",
+    )
+
+    env = os.environ.copy()
+    env["PATH"] = f"{_bash_path(bin_dir)}{os.pathsep}{env.get('PATH', '')}"
+    env["NODE_IP"] = "10.0.0.8"
+    env["REMOTE_DIR"] = _bash_path(remote_dir)
+    env["RUN_KEY"] = "smoke_mix"
+    env["BUNDLE_REASON"] = "unit_test"
+
+    result = subprocess.run(
+        [bash, str(COLLECT_SCRIPT).replace("\\", "/")],
+        cwd=str(REPO_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    bundles = list((remote_dir / "failure_bundles").glob("failure_bundle_*.tar.gz"))
+    assert bundles, result.stdout + result.stderr
+    latest = (remote_dir / "failure_bundles" / "latest_bundle_path.txt").read_text(encoding="utf-8").strip()
+    assert latest.endswith(".tar.gz")
+    assert "gcore fio pid=4242" in result.stdout or "gcore fio pid=4242" in result.stderr
+
+    # Unpack and confirm core + README landed.
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+    unpack = subprocess.run(
+        [
+            bash,
+            "-lc",
+            f"tar -xzf '{_bash_path(bundles[0])}' -C '{_bash_path(extract_dir)}'",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert unpack.returncode == 0, unpack.stderr + unpack.stdout
+    work = next(extract_dir.iterdir())
+    assert (work / "README.txt").is_file()
+    cores = list((work / "cores").glob("core.fio.*"))
+    assert cores, "expected gcore output under cores/"
+    assert cores[0].read_text(encoding="utf-8").startswith("FAKECORE")
+    assert (work / "draid.ko").is_file()
