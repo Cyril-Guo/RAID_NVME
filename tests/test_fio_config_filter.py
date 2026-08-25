@@ -62,8 +62,9 @@ def test_fio_runs_under_watchdog_timeout():
     assert "MIX_FAIL_ON_ANY=yes, fail" in source
     assert "MIX_FAIL_ON_ANY=no, continue" in source
     assert "IOPS=0 is not a failure" in source
-    assert "partial disk failure recorded" in source
-    assert "at least one disk had IO, continue" in source
+    assert "any disk IO error fails (non-MIX)" in source
+    assert "partial disk failure recorded" not in source
+    assert "at least one disk had IO, continue" not in source
     assert "all disks failed for config" in source
     assert source.count("run_fio_with_watchdog") >= 6
     assert 'watch_interval_seconds="${FIO_WATCH_INTERVAL_SECONDS:-1}"' in source

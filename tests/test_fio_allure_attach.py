@@ -16,7 +16,7 @@ def test_extract_fio_job_summary_lists_all_running_jobs_first():
             "[FIO] finish model=randrw (#1) rc=0 elapsed=36s",
             "Job 2/2800 is Running..",
             "[FIO] finish model=randrw (#2) rc=4 elapsed=30s",
-            "[FIO] partial disk failure recorded; at least one disk had IO, continue",
+            "[FIO] fail on disk dp0-vd2; any disk IO error fails (non-MIX)",
             "Job 2800/2800 is Running..",
             "[FIO] finish model=randrw (#2800) rc=0 elapsed=31s",
         ]
@@ -28,7 +28,7 @@ def test_extract_fio_job_summary_lists_all_running_jobs_first():
     assert "Job 1/2800 is Running.." in jobs_section
     assert "Job 2/2800 is Running.." in jobs_section
     assert "Job 2800/2800 is Running.." in jobs_section
-    assert "partial disk failure recorded" in summary
+    assert "any disk IO error fails" in summary
     assert jobs_section.find("Job 1/2800") < jobs_section.find("Job 2800/2800")
 
 

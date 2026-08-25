@@ -1213,12 +1213,8 @@ run_fio_with_watchdog()
         return "$fio_rc"
     fi
     if [[ $fio_rc -ne 0 ]]; then
-        if [[ "$mix_io" != "YES" ]] && fio_output_has_successful_io "$output_file"; then
-            echo "$(date '+%F %T') [FIO] partial disk failure recorded, model=${model_label} config=${config_name} rc=${fio_rc} elapsed=${elapsed}s(${elapsed_hms}); at least one disk had IO, continue" | tee -a "$output_file" "$Result_Dir/result.log"
-            append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
-            FIO_LAST_RC=0
-            return 0
-        fi
+        # Non-MIX: any FIO/disk IO error fails the stage immediately.
+        # MIX soft-continue is handled separately via MIX_FAIL_ON_ANY in run_mix paths.
         echo "FIO command failed, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file" "$Result_Dir/result.log"
         append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
     fi
@@ -1297,11 +1293,11 @@ do
       local fio_rc=$?
       if [[ $fio_rc -ne 0 ]]; then
           echo "FIO command failed on disk ${str1}, model=${FIO_LAST_MODEL:-unknown}, config=${FIO_LAST_CONFIG:-$(basename "$configuration")}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, planned_runtime=${FIO_LAST_PLANNED_RUNTIME:-?}s, rc=${fio_rc}" | tee -a $Result_Dir/result.log
-          echo "$(date '+%F %T') [FIO] skip failed disk ${str1}; continue if any other disk still succeeds" | tee -a $Result_Dir/result.log
+          echo "$(date '+%F %T') [FIO] fail on disk ${str1}; any disk IO error fails (non-MIX)" | tee -a $Result_Dir/result.log
           sed -i '$d' $configuration
           sed -i '$d' $configuration
           sed -i '$d' $configuration
-          continue
+          return "$fio_rc"
       fi
       single_disk_ok=1
 

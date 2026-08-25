@@ -86,10 +86,9 @@ def test_collect_failure_lines_records_machinecheck_unless_ignored():
     assert mix_failures(sample, ignore_machinecheck=True) == fio_only
 
 
-def test_collect_failure_lines_ignores_partial_disk_fio_errors_when_script_ok():
+def test_collect_failure_lines_ignores_soft_mix_fio_errors_when_script_ok():
     sample = """
     [FIO] finish model=randwrite bs=4k qd=64 runtime=30s (#1) config=1-randwrite-4k-64-30.log rc=4 elapsed=30s(30s) planned_runtime=30s
-    [FIO] partial disk failure recorded, model=randwrite bs=4k qd=64 runtime=30s (#1) config=1-randwrite-4k-64-30.log rc=4 elapsed=30s(30s); at least one disk had IO, continue
     ----- FIO error detail begin (log=1.txt model=randwrite rc=4) -----
     fio: io_u error on file /dev/dp0-vd2: Input/output error
     err=5/file:io_u.c:1845, func=io_u error, error=Input/output error

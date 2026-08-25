@@ -7,6 +7,7 @@ _ERROR_MARKERS = (
     "FIO stage abort",
     "idle watchdog timeout",
     "all disks failed",
+    "any disk IO error fails",
     "at least one disk had IO",
 )
 TEXT_PREVIEW_LIMIT = 1024 * 1024

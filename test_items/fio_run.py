@@ -60,8 +60,9 @@ _FIO_JOB_ERROR_MARKERS = (
 )
 
 # Hard stops must fail the case even when the shell wrongly returns 0
-# (e.g. fio_cycle historically swallowed run_fio.sh rc). Soft/partial IO
-# noise may still be ignored when ignore_fio_job_errors=True.
+# (e.g. fio_cycle historically swallowed run_fio.sh rc). MIX soft IO noise may
+# still be ignored when ignore_fio_job_errors=True (MIX_FAIL_ON_ANY=no).
+# Non-MIX stages fail the shell on any disk IO error.
 _HARD_FIO_FAILURE_MARKERS = (
     "FIO stage failed",
     "FIO stage abort",

@@ -44,6 +44,7 @@ basic_io 1
 # MIX_FAIL_ON_ANY（仅 mix）：IOPS 跌 0 不算失败
 #   no  = FIO/盘错误只记录，测试继续
 #   yes = 任何 FIO 报错或非 0 退出都算测试失败
+# 非 mix（lawdisk/filesystem/basic_io 等）：任意盘 IO error 即失败
 # ============================================================
 
 [reboot]
