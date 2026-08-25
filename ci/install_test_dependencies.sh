@@ -19,24 +19,14 @@ APT::Architectures { "amd64"; };
 APT_NATIVE_ARCH
         return 0
     fi
+}
 
-    case "${architecture}" in
-        arm64|armhf) ;;
-        *) return 0 ;;
-    esac
-
-    for source_file in \
-        /etc/apt/sources.list \
-        /etc/apt/sources.list.d/*.list \
-        /etc/apt/sources.list.d/*.sources; do
-        [ -f "${source_file}" ] || continue
-        if grep -qE 'mirrors\.aliyun\.com/ubuntu([ /]|$)' "${source_file}"; then
-            echo "Fix ARM Ubuntu mirror in ${source_file}: /ubuntu -> /ubuntu-ports"
-            sed -i -E \
-                's#(mirrors\.aliyun\.com)/ubuntu([ /]|$)#\1/ubuntu-ports\2#g' \
-                "${source_file}"
-        fi
-    done
+ensure_ubuntu_china_mirrors() {
+    SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+    if [ -f "${SCRIPT_DIR}/ensure_ubuntu_china_mirrors.sh" ]; then
+        chmod +x "${SCRIPT_DIR}/ensure_ubuntu_china_mirrors.sh" 2>/dev/null || true
+        NODE_IP="${NODE_IP:-unknown}" bash "${SCRIPT_DIR}/ensure_ubuntu_china_mirrors.sh" || true
+    fi
 }
 
 python3 -c "import pytest" >/dev/null 2>&1 || need_test_deps=1
@@ -49,6 +39,7 @@ done
 if [ "$need_test_deps" = "1" ]; then
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
+        ensure_ubuntu_china_mirrors
         fix_ubuntu_package_architectures
         apt_retry() {
             for attempt in 1 2 3; do

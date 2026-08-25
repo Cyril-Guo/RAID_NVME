@@ -223,6 +223,7 @@ def test_physical_host_installs_full_test_tool_set():
 
     assert "need_test_deps=0" in source
     assert "fix_ubuntu_package_architectures" in source
+    assert "ensure_ubuntu_china_mirrors" in source
     assert "dpkg --print-architecture" in source
     assert 'if [ "${architecture}" = "amd64" ]; then' in source
     assert "99raid-nvme-native-architecture" in source
@@ -231,8 +232,9 @@ def test_physical_host_installs_full_test_tool_set():
     assert "dpkg --remove-architecture" not in source
     assert "keep registered foreign architectures unchanged" in source
     assert "arm64|armhf" in source
-    assert "mirrors\\.aliyun\\.com/ubuntu" in source
+    assert "mirrors.aliyun.com" in source
     assert "ubuntu-ports" in source
+    assert "archive\\.ubuntu\\.com" in source or "archive.ubuntu.com" in source
     assert "apt_retry apt-get -o DPkg::Lock::Timeout=600 update" in source
     assert "fio nvme-cli pciutils util-linux smartmontools sdparm" in source
     assert "sysstat gawk nmap bc psmisc numactl lsscsi unzip" in source
@@ -242,7 +244,7 @@ def test_physical_host_installs_full_test_tool_set():
     assert "kmod" in source
     assert "ripgrep" in source
     assert "python3-pip python3-pytest python-is-python3" in source
-    assert "for tool in fio nvme lspci findmnt lsblk rg make gcc insmod modinfo; do" in source
+    assert "for tool in fio nvme lspci findmnt lsblk rg make gcc insmod modinfo gcore; do" in source
     assert "Missing required test/driver-build tools after auto install" in source
 
 

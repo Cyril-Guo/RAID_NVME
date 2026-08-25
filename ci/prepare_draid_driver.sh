@@ -168,6 +168,10 @@ done
 if [ "${need_driver_deps}" = "1" ]; then
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
+        if [ -f "${REMOTE_DIR}/ci/ensure_ubuntu_china_mirrors.sh" ]; then
+            chmod +x "${REMOTE_DIR}/ci/ensure_ubuntu_china_mirrors.sh" 2>/dev/null || true
+            NODE_IP="${NODE_IP:-unknown}" bash "${REMOTE_DIR}/ci/ensure_ubuntu_china_mirrors.sh" || true
+        fi
         apt_retry() {
             for attempt in 1 2 3; do
                 "$@" && return 0

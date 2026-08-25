@@ -58,6 +58,8 @@ install_draid_build_deps() {
     echo "[${NODE_IP}] install draid build deps (make/gcc/headers/kmod/ripgrep)"
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
+        chmod +x "${SCRIPT_DIR}/ensure_ubuntu_china_mirrors.sh" 2>/dev/null || true
+        NODE_IP="${NODE_IP}" bash "${SCRIPT_DIR}/ensure_ubuntu_china_mirrors.sh" || true
         apt_retry() {
             for attempt in 1 2 3; do
                 "$@" && return 0
