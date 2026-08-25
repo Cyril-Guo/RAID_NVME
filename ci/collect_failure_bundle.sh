@@ -76,16 +76,24 @@ cd "${WORK_DIR}" || exit 0
 
 is_kernel_thread() {
     local pid="$1"
-    # Only classify when /proc/<pid> exists. Missing proc means "already gone"
-    # or non-Linux test hosts — let the caller decide whether to try gcore.
+    local ppid=""
+    local comm=""
+    # Only classify when /proc/<pid> exists.
     [ -d "/proc/${pid}" ] || return 1
-    # No userspace exe => kernel thread.
-    if [ ! -e "/proc/${pid}/exe" ]; then
+    comm=$(tr -d '\0' <"/proc/${pid}/comm" 2>/dev/null || true)
+    ppid=$(awk '/^PPid:/{print $2}' "/proc/${pid}/status" 2>/dev/null || true)
+    # Real kernel threads: PPID=2 (kthreadd) and/or bracket-style names like draid-wq.
+    if [ "${ppid}" = "2" ]; then
         return 0
     fi
-    if ! readlink "/proc/${pid}/exe" >/dev/null 2>&1; then
-        return 0
-    fi
+    case "${comm}" in
+        draid-wq|draid_io_retry|draid-reset-wq|draid-delete-wq|draid*)
+            # draid worker names without userspace exe.
+            if [ ! -e "/proc/${pid}/exe" ] || ! readlink "/proc/${pid}/exe" >/dev/null 2>&1; then
+                return 0
+            fi
+            ;;
+    esac
     return 1
 }
 
@@ -148,6 +156,9 @@ run_gcore() {
         fi
         if [ ! -d "/proc/${pid}" ]; then
             echo "${name} pid=${pid} has no /proc entry; still attempting gcore" >>gcore_errors.txt
+        elif [ ! -e "/proc/${pid}/exe" ] || ! readlink "/proc/${pid}/exe" >/dev/null 2>&1; then
+            # Dying/zombie userspace process: exe often disappears before /proc goes away.
+            echo "${name} pid=${pid} userspace but exe gone (likely exiting); still attempting gcore" >>gcore_errors.txt
         fi
         echo "${name} ${pid}" >>gcore_pids.txt
         copy_binary_for_pid "${pid}" "${name}"
