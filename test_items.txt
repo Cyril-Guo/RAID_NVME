@@ -26,13 +26,13 @@
 # ============================================================
 
 # === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
-env_prepare 0
+# env_prepare 0
 # reboot 1
 # dc 2
 # lawdisk 2 5
 # filesystem 4
-# mix 2
-basic_io 1
+mix 2
+# basic_io 1
 # basic_rebuild_io 4
 # random_io 5
 # === END SELECTION ===
