@@ -4,8 +4,27 @@
 # kernel_driver portable-check (scripts/check_portable_sources.sh).
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 need_test_deps=0
 KERNEL_BUILD_DIR="/lib/modules/$(uname -r)/build"
+
+enable_failure_coredumps_early() {
+    if [ -f "${SCRIPT_DIR}/enable_failure_coredumps.sh" ]; then
+        echo "Enable DUT userspace coredumps (limits/sysctl/ptrace/core_pattern)"
+        chmod +x "${SCRIPT_DIR}/enable_failure_coredumps.sh" 2>/dev/null || true
+        NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
+            "${SCRIPT_DIR}/enable_failure_coredumps.sh" || true
+    fi
+    if [ -f "${SCRIPT_DIR}/enable_failure_kdump.sh" ]; then
+        echo "Enable DUT kdump (crashkernel / vmcore path)"
+        chmod +x "${SCRIPT_DIR}/enable_failure_kdump.sh" 2>/dev/null || true
+        NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
+            "${SCRIPT_DIR}/enable_failure_kdump.sh" || true
+    fi
+}
+
+# Always arm coredumps + kdump during dependency/env prepare, even if packages are already installed.
+enable_failure_coredumps_early
 
 fix_ubuntu_package_architectures() {
     command -v dpkg >/dev/null 2>&1 || return 0
@@ -56,22 +75,22 @@ if [ "$need_test_deps" = "1" ]; then
             sysstat gawk nmap bc psmisc numactl lsscsi unzip \
             xfsprogs parted make gcc g++ \
             build-essential "linux-headers-$(uname -r)" kmod \
-            ripgrep gdb
+            ripgrep gdb kdump-tools kexec-tools makedumpfile
     elif command -v dnf >/dev/null 2>&1; then
         dnf install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
             smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
             xfsprogs parted make gcc gcc-c++ \
-            kernel-devel kmod ripgrep gdb
+            kernel-devel kmod ripgrep gdb kexec-tools makedumpfile
     elif command -v yum >/dev/null 2>&1; then
         yum install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
             smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
             xfsprogs parted make gcc gcc-c++ \
-            kernel-devel kmod ripgrep gdb
+            kernel-devel kmod ripgrep gdb kexec-tools makedumpfile
     elif command -v zypper >/dev/null 2>&1; then
         zypper install -y python3-pip python3-pytest fio nvme-cli pciutils util-linux \
             smartmontools sdparm sysstat gawk nmap bc psmisc numactl lsscsi unzip \
             xfsprogs parted make gcc gcc-c++ \
-            kernel-devel kmod ripgrep gdb
+            kernel-devel kmod ripgrep gdb kexec-tools makedumpfile
     fi
 fi
 
@@ -113,9 +132,5 @@ if ! command -v gcore >/dev/null 2>&1; then
     echo "WARN: gcore missing after dependency install; failure gcore dumps will be skipped" >&2
 fi
 
-SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-if [ -f "${SCRIPT_DIR}/enable_failure_coredumps.sh" ]; then
-    chmod +x "${SCRIPT_DIR}/enable_failure_coredumps.sh" 2>/dev/null || true
-    NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
-        "${SCRIPT_DIR}/enable_failure_coredumps.sh" || true
-fi
+# Re-apply after package install (gdb may have just landed; sysctl may have been reset).
+enable_failure_coredumps_early

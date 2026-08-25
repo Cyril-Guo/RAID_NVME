@@ -40,6 +40,7 @@ def test_collect_script_contains_gcore_and_bundle_paths():
     assert "is_kernel_thread" in source
     assert "draid_diag" in source
     assert "debugfs" in source
+    assert "snapshot_kdump_artifacts" in source
     assert "failure_bundle_" in source
     assert "draid.ko" in source
     assert "latest_bundle_summary.txt" in source
@@ -54,6 +55,11 @@ def test_enable_script_sets_ulimit_and_core_pattern():
     assert "failure_bundles/cores" in source
     assert "ptrace_scope" in source
     assert "yama" in source
+    assert "limits.d" in source
+    assert "sysctl.d" in source
+    assert "99-raid-nvme-coredump" in source
+    assert "profile.d" in source
+    assert "apport" in source
 
 
 def test_wiring_references_failure_bundle():
@@ -72,6 +78,8 @@ def test_wiring_references_failure_bundle():
     assert "failure_bundle_*.tar.gz" in jenkins
     assert "allure-results/failure_bundle_*.tar.gz" in jenkins
     assert "enable_failure_coredumps.sh" in prepare
+    assert "enable_failure_coredumps_early" in install
+    assert "enable_failure_kdump.sh" in install
     assert "gdb" in install
     assert "enable_failure_coredumps.sh" in install
 

@@ -66,7 +66,7 @@ cd "${WORK_DIR}" || exit 0
     echo "NOTE: [draid-*] / [draid_io_retry] etc. are kernel threads (PPID=2)."
     echo "      gcore cannot dump them; see draid_kthreads/ for stacks/status."
     echo "      Point-in-time driver state: draid_diag/ (dpraid show*, sysfs/debugfs)."
-    echo "      Full kernel memory needs kdump/vmcore (out of this bundle)."
+    echo "      Kernel panic dumps (kdump vmcore): see kdump/ (paths/status; files stay on DUT if huge)."
     echo
     echo "Also see: dmesg.txt, dpraid_*.txt, versions.txt, draid.ko, logs/"
 } >README.txt
@@ -375,6 +375,58 @@ snapshot_draid_driver_state() {
 
 snapshot_draid_driver_state
 
+snapshot_kdump_artifacts() {
+    local out="kdump"
+    mkdir -p "${out}"
+    local kdump_dir="${REMOTE_DIR}/failure_bundles/kdump"
+    {
+        echo "=== kdump status ==="
+        cat "${REMOTE_DIR}/failure_bundles/kdump_status.txt" 2>/dev/null || echo "(no kdump_status.txt)"
+        echo
+        echo "=== cmdline ==="
+        cat /proc/cmdline 2>/dev/null || true
+        echo
+        echo "=== kexec_crash_size ==="
+        cat /sys/kernel/kexec_crash_size 2>/dev/null || echo n/a
+        echo
+        echo "=== reboot required flag ==="
+        cat "${REMOTE_DIR}/failure_bundles/kdump_reboot_required.txt" 2>/dev/null || echo "(none)"
+        echo
+        echo "=== /var/crash listing ==="
+        ls -lah /var/crash 2>/dev/null || true
+        echo
+        echo "=== ${kdump_dir} listing ==="
+        ls -lah "${kdump_dir}" 2>/dev/null || true
+        echo
+        echo "NOTE: vmcore files are often tens~hundreds of GB; not copied into this tar by default."
+        echo "Copy manually from DUT paths above when needed for crash analysis."
+    } >"${out}/status.txt"
+
+    # Copy only small sidecar files (logs/README), never multi-GB vmcore unless explicitly enabled.
+    find /var/crash "${kdump_dir}" -maxdepth 3 -type f \( \
+        -name '*.txt' -o -name '*.log' -o -name 'README*' -o -name 'dmesg*' \
+        \) -size -20M 2>/dev/null | head -n 40 | while read -r f; do
+        cp -f "$f" "${out}/$(basename "$f").${RANDOM}" 2>/dev/null || true
+    done
+
+    if [ "${KDUMP_COPY_VMCORE:-0}" = "1" ]; then
+        find /var/crash "${kdump_dir}" -maxdepth 3 -type f \( \
+            -name 'vmcore*' -o -name 'dump.*' -o -name '*.vmcore' \
+            \) 2>/dev/null | head -n 3 | while read -r f; do
+            size=$(wc -c <"$f" 2>/dev/null || echo 0)
+            # Soft cap 8GiB even when explicitly requested.
+            if [ "${size}" -le $((8 * 1024 * 1024 * 1024)) ] 2>/dev/null; then
+                log "copying kdump artifact ${f} (${size} bytes)"
+                cp -f "$f" "${out}/$(basename "$f")" 2>>gcore_errors.txt || true
+            else
+                echo "skip oversized vmcore ${f} size=${size}" >>gcore_errors.txt
+            fi
+        done
+    fi
+}
+
+snapshot_kdump_artifacts
+
 # Existing cores under workspace / cwd patterns.
 find "${REMOTE_DIR}" /tmp /var/lib/systemd/coredump -maxdepth 3 \
     \( -name 'core' -o -name 'core.*' -o -name 'core-*' \) \
@@ -468,6 +520,7 @@ fi
     fi
     echo "NOTE: [draid-*] kernel threads are snapshotted under draid_kthreads/ (stack/status)."
     echo "NOTE: point-in-time driver state under draid_diag/ (dpraid/sysfs/debugfs; not full RAM)."
+    echo "NOTE: kdump status under kdump/; large vmcore stays on DUT unless KDUMP_COPY_VMCORE=1."
     echo "Bundle still includes dmesg, dpraid show, binaries, logs for triage."
 } >"${BUNDLE_ROOT}/latest_bundle_summary.txt"
 

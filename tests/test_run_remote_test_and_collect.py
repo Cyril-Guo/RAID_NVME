@@ -7,4 +7,7 @@ def test_remote_test_no_longer_gates_on_allow_destructive_fio():
 
     assert "ALLOW_DESTRUCTIVE_FIO" not in source
     assert "ALLOW_DESTRUCTIVE_FIO" not in jenkinsfile
-    assert "TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} sudo -E python3 nvme_raid_test.py" in source
+    assert "enable_failure_coredumps.sh" in source
+    assert "ulimit -c unlimited" in source
+    assert "python3 nvme_raid_test.py" in source
+    assert "TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES}" in source
