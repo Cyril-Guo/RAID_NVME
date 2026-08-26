@@ -215,6 +215,9 @@ def test_automatic_mr_signature_only_tracks_code_sha():
     assert 'git checkout --detach \'${mrSha}\'' in source
     assert "sh \"git -C kernel_driver checkout --detach '${mrSha}'\"" not in source
     assert "No kernel_driver MR event, so skip smoke tests." in source
+    # Always re-check raid_cli remote HEAD before smoke tests (not only on missing cache).
+    assert "always pull latest raid_cli/dpraid before tests" in source
+    assert "already at latest HEAD" in source
     # raid_cli-only updates must mark NOT_BUILT, not leave a failed/aborted result.
     assert source.count("currentBuild.result = 'NOT_BUILT'") >= 3
 

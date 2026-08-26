@@ -654,7 +654,8 @@ pipeline {
                                 echo "raid_cli checkout path: ${raidCliWorkDir}"
                                 echo "dpraid artifact path: ${raidCliDpraidPath}"
                             } else {
-                                echo "raid_cli(${env.RAID_CLI_BRANCH}) has no new commit: ${raidCliCommit}"
+                                echo "raid_cli(${env.RAID_CLI_BRANCH}) already at latest HEAD: ${raidCliCommit} (${raidCliFullCommit})"
+                                echo "Reuse cached dpraid artifact: ${raidCliDpraidPath}"
                             }
 
                             return needsRaidCliUpdate
@@ -666,13 +667,6 @@ pipeline {
                             shouldRunTests = true
                             useQemuVmTarget = params.SIMULATE_AUTO_MR_TRIGGER
                             automaticMrTriggered = params.SIMULATE_AUTO_MR_TRIGGER
-                            def raidCliBootstrapMissing = sh(
-                                script: "test -d '${raidCliWorkDir}/.git' && test -x '${raidCliDpraidPath}'; echo \$?",
-                                returnStdout: true
-                            ).trim() != '0'
-                            if (raidCliBootstrapMissing) {
-                                hasRaidCliUpdate = syncRaidCli('initial bootstrap is missing')
-                            }
 
                             if (manualMrIid) {
                                 if (manualKernelDriverRef) {
@@ -903,6 +897,12 @@ PY
                             currentBuild.result = 'NOT_BUILT'
                             echo 'Automatic MR trigger is disabled. Use manual build with MANUAL_MR_IID or MANUAL_KERNEL_DRIVER_REF.'
                             return
+                        }
+
+                        // Always fetch/build latest raid_cli → dpraid before any smoke run.
+                        // (Previously manual builds only synced when the cached artifact was missing.)
+                        if (shouldRunTests) {
+                            hasRaidCliUpdate = syncRaidCli('always pull latest raid_cli/dpraid before tests') || hasRaidCliUpdate
                         }
 
                         def mrSha = mrProps.MR_SHA ?: ''
