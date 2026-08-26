@@ -551,6 +551,8 @@ def test_power_cycle_uses_pci_remove_and_rescan_on_qemu_and_physical(monkeypatch
         normalized = str(self).replace("\\", "/")
         if normalized.endswith("/sys/bus/pci/devices/0000:01:00.0/remove"):
             return True
+        if normalized.endswith("/dev/nvme0n1"):
+            return True
         return original_exists(self)
 
     monkeypatch.delenv("QEMU_VM_TARGET", raising=False)
@@ -563,6 +565,7 @@ def test_power_cycle_uses_pci_remove_and_rescan_on_qemu_and_physical(monkeypatch
     assert (["sleep", "1"], False) in calls
     assert ("echo 1 > /sys/bus/pci/rescan", True) in calls
     assert (["sleep", "2"], False) in calls
+    assert (["nvme", "format", "-f", "/dev/nvme0n1"], False) in calls
     assert not any("/sys/bus/pci/slots/" in str(cmd) for cmd, _ in calls)
 
     calls.clear()
@@ -570,6 +573,7 @@ def test_power_cycle_uses_pci_remove_and_rescan_on_qemu_and_physical(monkeypatch
     basic_io_common.power_cycle_one_disk_per_group([[disk]], CommandLog())
     assert ("echo 1 > /sys/bus/pci/devices/0000:01:00.0/remove", True) in calls
     assert ("echo 1 > /sys/bus/pci/rescan", True) in calls
+    assert (["nvme", "format", "-f", "/dev/nvme0n1"], False) in calls
 
 
 def test_power_cycle_skips_excluded_nvme_models(monkeypatch):

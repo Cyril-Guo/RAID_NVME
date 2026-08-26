@@ -769,11 +769,20 @@ def slot_from_bdf(bdf, log):
     return match.group(1)
 
 
-def drop_pci_disk(bdf, log, remove_settle_seconds=1, rescan_settle_seconds=2):
-    """Simulate disk drop via PCI hot-remove, then rescan to bring the device back.
+def drop_pci_disk(
+    bdf,
+    log,
+    remove_settle_seconds=1,
+    rescan_settle_seconds=2,
+    namespace=None,
+    format_settle_seconds=2,
+):
+    """Simulate disk drop via PCI hot-remove, then rescan and wipe before re-add.
 
-    Uses /sys/bus/pci/devices/<bdf>/remove + pci rescan on both QEMU and physical hosts.
-    Slot power sysfs (/sys/bus/pci/slots/*/power) is platform-specific and often not writable.
+    Sequence:
+      1) echo 1 > /sys/bus/pci/devices/<bdf>/remove   (trigger degrade)
+      2) pci rescan                                   (device node comes back)
+      3) nvme format -f /dev/<namespace>              (clear stale data before Add)
     """
     remove_path = f"/sys/bus/pci/devices/{bdf}/remove"
     if not Path(remove_path).exists():
@@ -782,6 +791,33 @@ def drop_pci_disk(bdf, log, remove_settle_seconds=1, rescan_settle_seconds=2):
     run_cmd(["sleep", str(remove_settle_seconds)], log, check=True)
     run_cmd("echo 1 > /sys/bus/pci/rescan", log, check=True, shell=True)
     run_cmd(["sleep", str(rescan_settle_seconds)], log, check=True)
+    if namespace:
+        format_nvme_before_readd(namespace, log, settle_seconds=format_settle_seconds)
+
+
+def format_nvme_before_readd(namespace, log, settle_seconds=2, wait_seconds=30):
+    """Wipe the rescanned NVMe namespace before RAID/controller re-adds it."""
+    name = Path(namespace).name
+    if not re.fullmatch(r"nvme\d+n\d+", name):
+        raise AssertionError(f"Invalid NVMe namespace for format before re-add: {namespace}")
+    dev = f"/dev/{name}"
+    wait_for_block_device(dev, log, timeout_seconds=wait_seconds)
+    log.write(f"nvme format before re-add: {dev}")
+    run_cmd(["nvme", "format", "-f", dev], log, check=True)
+    run_cmd(["sleep", str(settle_seconds)], log, check=True)
+    log.write(f"nvme format done: {dev}")
+
+
+def wait_for_block_device(dev, log, timeout_seconds=30, poll_seconds=1):
+    deadline = timeout_seconds
+    elapsed = 0
+    while elapsed <= deadline:
+        if Path(dev).exists():
+            log.write(f"block device ready: {dev} (waited {elapsed}s)")
+            return
+        run_cmd(["sleep", str(poll_seconds)], log, check=True)
+        elapsed += poll_seconds
+    raise AssertionError(f"Timed out waiting for {dev} after PCI rescan ({timeout_seconds}s)")
 
 
 def degrade_non_raid0_groups(group_specs, log):
@@ -811,9 +847,12 @@ def power_cycle_one_disk_per_group(groups, log):
             )
         selected.append(rng.choice(candidates))
     for disk in selected:
-        log.write(f"PCI drop/rescan {disk.namespace} BDF {disk.bdf}")
-        drop_pci_disk(disk.bdf, log)
-        log.write(f"PCI drop/rescan done for {disk.namespace} BDF {disk.bdf}")
+        log.write(
+            f"PCI drop/rescan/format {disk.namespace} BDF {disk.bdf} "
+            f"(nvme format before re-add)"
+        )
+        drop_pci_disk(disk.bdf, log, namespace=disk.namespace)
+        log.write(f"PCI drop/rescan/format done for {disk.namespace} BDF {disk.bdf}")
 
 
 def verify_all_vds_degraded(log, expected=8):
