@@ -218,6 +218,10 @@ def test_automatic_mr_signature_only_tracks_code_sha():
     # Always re-check raid_cli remote HEAD before smoke tests (not only on missing cache).
     assert "always pull latest raid_cli/dpraid before tests" in source
     assert "already at latest HEAD" in source
+    # Build parameter selects raid_cli / dpraid branch (default hostraid_cli).
+    assert "name: 'RAID_CLI_BRANCH'" in source
+    assert "params.RAID_CLI_BRANCH?.trim() ?: 'hostraid_cli'" in source
+    assert "RAID_CLI_BRANCH is not a safe branch name" in source
     # raid_cli-only updates must mark NOT_BUILT, not leave a failed/aborted result.
     assert source.count("currentBuild.result = 'NOT_BUILT'") >= 3
 

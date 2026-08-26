@@ -541,6 +541,12 @@ pipeline {
             description: 'Manual build: kernel_driver branch to test. Empty means main; ignored when MANUAL_MR_IID is set.'
         )
         string(
+            name: 'RAID_CLI_BRANCH',
+            defaultValue: 'hostraid_cli',
+            trim: true,
+            description: 'raid_cli / dpraid 拉取分支（general_tools/raid_cli）。默认 hostraid_cli；可填其他分支名以编译并安装对应 dpraid。'
+        )
+        string(
             name: 'TARGET_PASSWORD',
             defaultValue: '123456',
             trim: true,
@@ -572,7 +578,7 @@ pipeline {
         KERNEL_DRIVER_GITLAB_PROJECT = 'raid_max%2Fkernel_driver'
         KERNEL_DRIVER_GITLAB_TOKEN_CRED = 'kernel_driver_gitlab_token'
         RAID_CLI_REPO = 'git@192.168.21.185:general_tools/raid_cli.git'
-        RAID_CLI_BRANCH = 'hostraid_cli'
+        RAID_CLI_BRANCH = "${params.RAID_CLI_BRANCH?.trim() ?: 'hostraid_cli'}"
         RAID_CLI_CRED = 'kernel_driver_ssh'
     }
 
@@ -602,10 +608,16 @@ pipeline {
                         def hasNewOpenMrEvent = false
                         def hasRaidCliUpdate = false
                         def syncRaidCli = { String reason ->
-                            echo "Check raid_cli(${env.RAID_CLI_BRANCH}) updates: ${reason}."
+                            def raidCliBranch = (env.RAID_CLI_BRANCH ?: '').trim()
+                            if (!(raidCliBranch ==~ '[A-Za-z0-9][A-Za-z0-9._/-]*') ||
+                                raidCliBranch.contains('..') ||
+                                raidCliBranch.endsWith('/')) {
+                                error "RAID_CLI_BRANCH is not a safe branch name: ${raidCliBranch}"
+                            }
+                            echo "Check raid_cli(${raidCliBranch}) updates: ${reason}."
                             checkout scm: [
                                 $class: 'GitSCM',
-                                branches: [[name: "*/${env.RAID_CLI_BRANCH}"]],
+                                branches: [[name: "*/${raidCliBranch}"]],
                                 userRemoteConfigs: [[
                                     url: env.RAID_CLI_REPO,
                                     credentialsId: env.RAID_CLI_CRED
@@ -649,12 +661,12 @@ pipeline {
                                 test -x ./dpraid
                                 printf '%s\\n' '${raidCliFullCommit}' > '${raidCliMarkerPath}'
                                 """
-                                currentBuild.description = "raid_cli ${raidCliCommit}"
-                                echo "raid_cli(${env.RAID_CLI_BRANCH}) updated and built on Jenkins server: ${previousRaidCliCommit ?: 'none'} -> ${raidCliFullCommit}"
+                                currentBuild.description = "raid_cli(${raidCliBranch}) ${raidCliCommit}"
+                                echo "raid_cli(${raidCliBranch}) updated and built on Jenkins server: ${previousRaidCliCommit ?: 'none'} -> ${raidCliFullCommit}"
                                 echo "raid_cli checkout path: ${raidCliWorkDir}"
                                 echo "dpraid artifact path: ${raidCliDpraidPath}"
                             } else {
-                                echo "raid_cli(${env.RAID_CLI_BRANCH}) already at latest HEAD: ${raidCliCommit} (${raidCliFullCommit})"
+                                echo "raid_cli(${raidCliBranch}) already at latest HEAD: ${raidCliCommit} (${raidCliFullCommit})"
                                 echo "Reuse cached dpraid artifact: ${raidCliDpraidPath}"
                             }
 
