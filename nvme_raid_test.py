@@ -455,21 +455,82 @@ def collect_failure_bundle(base_dir, run_key, reason="item_failure"):
         print(f"[WARN] Failure bundle collection failed for {run_key}: {exc}")
         return None
 
-    bundle_root = os.path.join(base_dir, "failure_bundles")
-    latest_path = os.path.join(bundle_root, "latest_bundle_path.txt")
+    return _read_latest_bundle_path(base_dir)
+
+
+def _safe_bundle_token(value):
+    text = str(value or "unknown")
+    return re.sub(r"[^A-Za-z0-9._-]", "_", text)
+
+
+def _read_path_file(path):
     try:
-        with open(latest_path, "r", encoding="utf-8") as handle:
-            archive = handle.read().strip()
-        if archive and os.path.isfile(archive):
-            return archive
+        with open(path, "r", encoding="utf-8") as handle:
+            value = handle.read().strip()
+        if value and os.path.isfile(value):
+            return value
     except OSError:
         pass
+    return None
+
+
+def _read_latest_bundle_path(base_dir):
+    bundle_root = os.path.join(base_dir, "failure_bundles")
+    latest = _read_path_file(os.path.join(bundle_root, "latest_bundle_path.txt"))
+    if latest:
+        return latest
     matches = sorted(
         glob.glob(os.path.join(bundle_root, "failure_bundle_*.tar.gz")),
         key=os.path.getmtime,
         reverse=True,
     )
     return matches[0] if matches else None
+
+
+def find_live_failure_bundle(base_dir, run_key, wait_seconds=120):
+    """Return archive from an in-FIO EIO live collect for this run_key, if any.
+
+    Waits briefly for a background live collect that is still pending.
+    """
+    bundle_root = os.path.join(base_dir, "failure_bundles")
+    safe_key = _safe_bundle_token(run_key)
+    live_path_file = os.path.join(bundle_root, f"live_bundle_{safe_key}.txt")
+    pending_file = os.path.join(bundle_root, f"live_collect_pending_{safe_key}.txt")
+    preferred_file = os.path.join(bundle_root, "preferred_live_bundle_path.txt")
+
+    deadline = time.time() + max(0, int(wait_seconds))
+    while True:
+        live = _read_path_file(live_path_file)
+        if live:
+            return live
+        preferred = _read_path_file(preferred_file)
+        if preferred and f"_{safe_key}_" in os.path.basename(preferred):
+            return preferred
+        if not os.path.isfile(pending_file):
+            break
+        if time.time() >= deadline:
+            print(
+                f"[FAILURE_BUNDLE] timed out waiting for live collect "
+                f"({pending_file})"
+            )
+            break
+        time.sleep(2)
+
+    return _read_path_file(live_path_file)
+
+
+def resolve_failure_bundle_for_item(base_dir, run_key, exit_code):
+    """Prefer live EIO bundle; only re-collect when no live archive exists."""
+    live = find_live_failure_bundle(base_dir, run_key)
+    if live:
+        print(
+            f"[FAILURE_BUNDLE] preferring live EIO bundle for {run_key}: "
+            f"{os.path.basename(live)} (skip item_failure re-collect)"
+        )
+        return live
+    return collect_failure_bundle(
+        base_dir, run_key, reason=f"item_failure:{exit_code}"
+    )
 
 
 def enable_failure_coredumps(base_dir):
@@ -506,12 +567,12 @@ def add_allure_failure_bundle(run_key, base_dir, item=None, archive_path=None):
     item = item or run_key.split("__", 1)[0]
     bundle_root = os.path.join(base_dir, "failure_bundles")
     if not archive_path or not os.path.isfile(archive_path):
-        latest_path = os.path.join(bundle_root, "latest_bundle_path.txt")
-        try:
-            with open(latest_path, "r", encoding="utf-8") as handle:
-                archive_path = handle.read().strip()
-        except OSError:
-            archive_path = None
+        # Prefer live EIO capture over whatever latest_bundle_path points to.
+        archive_path = find_live_failure_bundle(base_dir, run_key, wait_seconds=0)
+    if not archive_path or not os.path.isfile(archive_path):
+        archive_path = _read_path_file(
+            os.path.join(bundle_root, "latest_bundle_path.txt")
+        )
     if not archive_path or not os.path.isfile(archive_path):
         matches = sorted(
             glob.glob(os.path.join(bundle_root, "failure_bundle_*.tar.gz")),
@@ -970,9 +1031,9 @@ def main(argv=None):
             except Exception as exc:
                 print(f"[WARN] Failed to collect outputs for {item}: {exc}")
             if exit_code != 0:
-                # Capture while fio/dpraid may still be alive, before fail-fast exit.
-                archive = collect_failure_bundle(
-                    base_dir, run_key, reason=f"item_failure:{exit_code}"
+                # Prefer live EIO bundle captured while fio was still running.
+                archive = resolve_failure_bundle_for_item(
+                    base_dir, run_key, exit_code
                 )
                 try:
                     add_allure_failure_bundle(

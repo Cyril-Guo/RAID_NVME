@@ -32,6 +32,8 @@ _FIO_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Guard so we only fire one live failure-bundle per FIO watchdog session.
 FIO_EIO_BUNDLE_TRIGGERED="${FIO_EIO_BUNDLE_TRIGGERED:-0}"
+# Background collect by default so watchdog idle timer is not blocked by gcore/tar.
+FIO_LIVE_BUNDLE_BG="${FIO_LIVE_BUNDLE_BG:-1}"
 
 # Walk up from known roots looking for ci/collect_failure_bundle.sh.
 find_raid_nvme_repo_root() {
@@ -66,11 +68,19 @@ fio_log_has_eio() {
         "${log_file}" 2>/dev/null
 }
 
+_fio_safe_token() {
+    # Keep in sync with collect_failure_bundle.sh SAFE_KEY sanitization.
+    printf '%s' "${1:-unknown}" | tr -c 'A-Za-z0-9._-' '_'
+}
+
 # Best-effort immediate failure bundle while FIO may still be alive after EIO.
+# Default: spawn in background so the FIO idle watchdog keeps ticking.
 trigger_live_failure_bundle() {
     local reason="${1:-fio_eio_live}"
-    local repo_root script run_key
-    local node_ip="${NODE_IP:-${TARGET_IP:-unknown}}"
+    local repo_root script run_key remote_dir node_ip
+    local safe_key log_file pending_file bg_mode collect_pid
+
+    node_ip="${NODE_IP:-${TARGET_IP:-unknown}}"
 
     if [ "${FIO_EIO_BUNDLE_TRIGGERED}" = "1" ] && [ "${FIO_FORCE_BUNDLE:-0}" != "1" ]; then
         echo "$(date '+%F %T') [FIO] live failure bundle already triggered; skip (${reason})" \
@@ -85,19 +95,59 @@ trigger_live_failure_bundle() {
     }
     script="${repo_root}/ci/collect_failure_bundle.sh"
     run_key="${RAID_NVME_RUN_KEY:-${FIO_LAST_CONFIG:-fio_live}}"
+    remote_dir="${REMOTE_DIR:-${repo_root}}"
+    safe_key=$(_fio_safe_token "${run_key}")
+    mkdir -p "${remote_dir}/failure_bundles" 2>/dev/null || true
+    log_file="${remote_dir}/failure_bundles/live_bundle_${safe_key}.log"
+    pending_file="${remote_dir}/failure_bundles/live_collect_pending_${safe_key}.txt"
     FIO_EIO_BUNDLE_TRIGGERED=1
+    bg_mode="${FIO_LIVE_BUNDLE_BG:-1}"
 
-    echo "$(date '+%F %T') [FIO] triggering IMMEDIATE failure bundle reason=${reason} repo=${repo_root}" \
+    {
+        echo "started=$(date -Is 2>/dev/null || date)"
+        echo "reason=${reason}"
+        echo "run_key=${run_key}"
+        echo "repo_root=${repo_root}"
+        echo "remote_dir=${remote_dir}"
+        echo "bg=${bg_mode}"
+    } >"${pending_file}" 2>/dev/null || true
+
+    echo "$(date '+%F %T') [FIO] triggering IMMEDIATE failure bundle reason=${reason} repo=${repo_root} bg=${bg_mode} log=${log_file}" \
         | tee -a "${Result_Dir:-/tmp}/result.log" 2>/dev/null || true
 
-    (
-        cd "${repo_root}" || exit 0
-        NODE_IP="${node_ip}" \
-        REMOTE_DIR="${REMOTE_DIR:-${repo_root}}" \
-        RUN_KEY="${run_key}" \
-        BUNDLE_REASON="${reason}" \
-        bash "${script}"
-    ) >/dev/null 2>&1 || true
+    if [ "${bg_mode}" = "1" ]; then
+        (
+            cd "${repo_root}" || exit 0
+            {
+                echo "=== live collect start $(date -Is 2>/dev/null || date) reason=${reason} ==="
+                NODE_IP="${node_ip}" \
+                REMOTE_DIR="${remote_dir}" \
+                RUN_KEY="${run_key}" \
+                BUNDLE_REASON="${reason}" \
+                bash "${script}"
+                echo "=== live collect end rc=$? $(date -Is 2>/dev/null || date) ==="
+            } >>"${log_file}" 2>&1
+            rm -f "${pending_file}" 2>/dev/null || true
+        ) &
+        collect_pid=$!
+        echo "pid=${collect_pid}" >>"${pending_file}" 2>/dev/null || true
+        echo "$(date '+%F %T') [FIO] live failure bundle spawned pid=${collect_pid}" \
+            | tee -a "${Result_Dir:-/tmp}/result.log" 2>/dev/null || true
+    else
+        (
+            cd "${repo_root}" || exit 0
+            {
+                echo "=== live collect start $(date -Is 2>/dev/null || date) reason=${reason} ==="
+                NODE_IP="${node_ip}" \
+                REMOTE_DIR="${remote_dir}" \
+                RUN_KEY="${run_key}" \
+                BUNDLE_REASON="${reason}" \
+                bash "${script}"
+                echo "=== live collect end rc=$? $(date -Is 2>/dev/null || date) ==="
+            } >>"${log_file}" 2>&1
+        ) || true
+        rm -f "${pending_file}" 2>/dev/null || true
+    fi
 }
 
 collect_log()
@@ -1246,6 +1296,8 @@ run_fio_with_watchdog()
                 echo "$(date '+%F %T') [FIO] EIO detected while fio still running (pid=${fio_pid}); collecting live failure bundle" \
                     | tee -a "$output_file" "$Result_Dir/result.log"
                 trigger_live_failure_bundle "fio_eio_live:${config_name}"
+                # Do not let collect/gcore duration look like FIO idle.
+                last_progress_ts=$(date +%s)
             fi
         fi
         if [[ $((now_ts - last_io_check_ts)) -ge $io_check_interval_seconds ]]; then
@@ -1260,6 +1312,7 @@ run_fio_with_watchdog()
                 echo "$(date '+%F %T') [FIO] EIO detected (periodic scan) while fio pid=${fio_pid}; collecting live failure bundle" \
                     | tee -a "$output_file" "$Result_Dir/result.log"
                 trigger_live_failure_bundle "fio_eio_live:${config_name}"
+                last_progress_ts=$(date +%s)
             fi
         fi
         if [[ $((now_ts - last_progress_ts)) -ge $idle_timeout_seconds ]]; then

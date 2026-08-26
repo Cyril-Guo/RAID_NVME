@@ -235,50 +235,36 @@ snapshot_draid_kernel_threads() {
     done < <(ps -eo pid=,comm= 2>/dev/null | awk 'tolower($0) ~ /draid/ {print $1, $2}')
 }
 
-# Capture kworker stacks that actually mention draid/RAID/NVMe/bio work.
-# Named [draid-*] threads alone often idle while real IO sits on kworker/*.
+# Capture kworker stacks related to draid/RAID1 first; only then fill remaining
+# slots with broader NVMe/block symbols (avoid drowning signal in noise).
 snapshot_related_kworker_stacks() {
     local out="kworker_stacks"
     local max_match="${KWORKER_STACK_MAX:-80}"
+    local primary_max="${KWORKER_STACK_PRIMARY_MAX:-${max_match}}"
     local matched=0
+    local primary_matched=0
     local scanned=0
     local pid comm stack_file stack_txt wchan haystack
 
     mkdir -p "${out}"
     : >"${out}/matched.txt"
+    : >"${out}/matched_primary.txt"
+    : >"${out}/matched_secondary.txt"
     {
         echo "=== kworker overview (ps) ==="
         ps -eo pid,ppid,stat,wchan:32,comm 2>/dev/null | grep -E '\[kworker|kworker/' || true
         echo
-        echo "Filter: stack/wchan/cmdline mentions draid|dpraid|raid1|nvme|bio_worker|blk_mq"
-        echo "max_match=${max_match}"
+        echo "Primary filter: draid|dpraid|raid1|raid_1"
+        echo "Secondary filter (fill remaining slots): nvme|bio_worker|blk_mq|submit_bio|md_raid"
+        echo "max_match=${max_match} primary_max=${primary_max}"
     } >"${out}/overview.txt"
 
-    for pid in /proc/[0-9]*; do
-        [ -d "${pid}" ] || continue
-        pid=${pid#/proc/}
-        comm=$(tr -d '\0' <"/proc/${pid}/comm" 2>/dev/null || true)
-        case "${comm}" in
-            kworker*|kblockd*|ksoftirqd*|migration*|rcu_*|irq/*) ;;
-            *) continue ;;
-        esac
-        scanned=$((scanned + 1))
-        stack_file="/proc/${pid}/stack"
-        stack_txt=$(cat "${stack_file}" 2>/dev/null || true)
-        # Also check wchan for short hints when stack is empty/permission denied.
-        wchan=$(cat "/proc/${pid}/wchan" 2>/dev/null || true)
-        haystack="${stack_txt}
-${wchan}
-${comm}"
-        if ! printf '%s\n' "${haystack}" | grep -Eiq \
-            'draid|dpraid|raid1|raid_1|nvme|bio_worker|blk_mq|submit_bio|md_raid|draid_'; then
-            continue
-        fi
-        matched=$((matched + 1))
+    _kworker_save_one() {
+        local tier_name="$1"
         mkdir -p "${out}/pid_${pid}"
         printf '%s\n' "${comm}" >"${out}/pid_${pid}/comm.txt"
         {
-            echo "pid=${pid} comm=${comm}"
+            echo "pid=${pid} comm=${comm} tier=${tier_name}"
             echo "=== status (selected) ==="
             awk '/^(Name|State|PPid|Pid|Threads|voluntary|nonvoluntary|Cpus_allowed):/' \
                 "/proc/${pid}/status" 2>/dev/null || true
@@ -296,22 +282,83 @@ ${comm}"
             echo "=== sched ==="
             cat "/proc/${pid}/sched" 2>/dev/null | head -n 40 || true
         } >"${out}/pid_${pid}/snapshot.txt" 2>/dev/null || true
-        echo "kworker pid=${pid} comm=${comm}" >>"${out}/matched.txt"
-        if [ "${matched}" -ge "${max_match}" ]; then
+        echo "kworker pid=${pid} comm=${comm} tier=${tier_name}" >>"${out}/matched.txt"
+        echo "kworker pid=${pid} comm=${comm}" >>"${out}/matched_${tier_name}.txt"
+    }
+
+    # Pass 1: primary (draid/RAID1).
+    for pid in /proc/[0-9]*; do
+        [ -d "${pid}" ] || continue
+        pid=${pid#/proc/}
+        comm=$(tr -d '\0' <"/proc/${pid}/comm" 2>/dev/null || true)
+        case "${comm}" in
+            kworker*|kblockd*|ksoftirqd*|migration*|rcu_*|irq/*) ;;
+            *) continue ;;
+        esac
+        scanned=$((scanned + 1))
+        stack_file="/proc/${pid}/stack"
+        stack_txt=$(cat "${stack_file}" 2>/dev/null || true)
+        wchan=$(cat "/proc/${pid}/wchan" 2>/dev/null || true)
+        haystack="${stack_txt}
+${wchan}
+${comm}"
+        if ! printf '%s\n' "${haystack}" | grep -Eiq 'draid|dpraid|raid1|raid_1'; then
+            continue
+        fi
+        primary_matched=$((primary_matched + 1))
+        matched=$((matched + 1))
+        _kworker_save_one primary
+        if [ "${primary_matched}" -ge "${primary_max}" ] || [ "${matched}" -ge "${max_match}" ]; then
             break
         fi
     done
 
+    # Pass 2: secondary fill only if primary left room.
+    if [ "${matched}" -lt "${max_match}" ]; then
+        for pid in /proc/[0-9]*; do
+            [ -d "${pid}" ] || continue
+            pid=${pid#/proc/}
+            [ -d "${out}/pid_${pid}" ] && continue
+            comm=$(tr -d '\0' <"/proc/${pid}/comm" 2>/dev/null || true)
+            case "${comm}" in
+                kworker*|kblockd*|ksoftirqd*|migration*|rcu_*|irq/*) ;;
+                *) continue ;;
+            esac
+            stack_txt=$(cat "/proc/${pid}/stack" 2>/dev/null || true)
+            wchan=$(cat "/proc/${pid}/wchan" 2>/dev/null || true)
+            haystack="${stack_txt}
+${wchan}
+${comm}"
+            # Skip if already primary-worthy (should have been caught in pass 1).
+            if printf '%s\n' "${haystack}" | grep -Eiq 'draid|dpraid|raid1|raid_1'; then
+                continue
+            fi
+            if ! printf '%s\n' "${haystack}" | grep -Eiq \
+                'nvme|bio_worker|blk_mq|submit_bio|md_raid'; then
+                continue
+            fi
+            matched=$((matched + 1))
+            _kworker_save_one secondary
+            if [ "${matched}" -ge "${max_match}" ]; then
+                break
+            fi
+        done
+    fi
+
     {
         echo "scanned_kworkerish=${scanned}"
-        echo "matched=${matched}"
+        echo "matched_total=${matched}"
+        echo "matched_primary=${primary_matched}"
+        echo "matched_secondary=$((matched - primary_matched))"
         echo "collected_at=$(date -Is 2>/dev/null || date)"
         echo
-        echo "=== matched list ==="
-        cat "${out}/matched.txt" 2>/dev/null || true
+        echo "=== matched primary ==="
+        cat "${out}/matched_primary.txt" 2>/dev/null || true
+        echo
+        echo "=== matched secondary ==="
+        cat "${out}/matched_secondary.txt" 2>/dev/null || true
     } >"${out}/INDEX.txt"
 
-    # Extra: dump any /sys/kernel/debug/workqueue related listing if present.
     if [ -d /sys/kernel/debug/workqueue ]; then
         ls -la /sys/kernel/debug/workqueue >"${out}/workqueue_debug_listing.txt" 2>/dev/null || true
         find /sys/kernel/debug/workqueue -maxdepth 3 \( -iname '*draid*' -o -iname '*raid*' \) \
@@ -609,6 +656,20 @@ base=$(basename "${WORK_DIR}")
 if tar -C "${parent}" -czf "${ARCHIVE}" "${base}" 2>>gcore_errors.txt; then
     log "failure bundle ready: ${ARCHIVE}"
     printf '%s\n' "${ARCHIVE}" >"${BUNDLE_ROOT}/latest_bundle_path.txt"
+    # Prefer live EIO captures over later item_failure re-collects for Allure.
+    case "${BUNDLE_REASON}" in
+        fio_eio_live*|fio_eio_exit*)
+            printf '%s\n' "${ARCHIVE}" >"${BUNDLE_ROOT}/preferred_live_bundle_path.txt"
+            printf '%s\n' "${ARCHIVE}" >"${BUNDLE_ROOT}/live_bundle_${SAFE_KEY}.txt"
+            {
+                echo "ARCHIVE=${ARCHIVE}"
+                echo "RUN_KEY=${RUN_KEY}"
+                echo "REASON=${BUNDLE_REASON}"
+                echo "TIME=$(date -Is 2>/dev/null || date)"
+            } >"${BUNDLE_ROOT}/live_bundle_${SAFE_KEY}.meta.txt"
+            log "recorded preferred live bundle for RUN_KEY=${RUN_KEY}"
+            ;;
+    esac
 else
     log "WARN: failed to create ${ARCHIVE}"
 fi
