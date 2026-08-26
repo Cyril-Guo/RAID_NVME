@@ -486,6 +486,21 @@ def enable_failure_coredumps(base_dir):
         print(f"[WARN] enable_failure_coredumps failed: {exc}")
 
 
+def enable_draid_pending_debug(base_dir):
+    """Best-effort RAID1 pending debug knobs before the run plan."""
+    script = os.path.join(base_dir, "ci", "enable_draid_pending_debug.sh")
+    if not os.path.isfile(script):
+        return
+    env = os.environ.copy()
+    env["REMOTE_DIR"] = base_dir
+    env.setdefault("NODE_IP", env.get("TARGET_IP") or "local")
+    try:
+        print("[DRAID_DEBUG] enabling RAID1 pending debug knobs (best-effort)")
+        subprocess.run(["bash", script], cwd=base_dir, env=env, check=False)
+    except Exception as exc:
+        print(f"[WARN] enable_draid_pending_debug failed: {exc}")
+
+
 def add_allure_failure_bundle(run_key, base_dir, item=None, archive_path=None):
     """Copy failure bundle into allure-results and attach to the matching case."""
     item = item or run_key.split("__", 1)[0]
@@ -912,6 +927,7 @@ def main(argv=None):
     print(f"Discovered test items: {list(test_items.keys())}")
 
     enable_failure_coredumps(base_dir)
+    enable_draid_pending_debug(base_dir)
 
     exit_codes = []
     executed_run_keys = []

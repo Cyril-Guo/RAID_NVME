@@ -30,6 +30,75 @@ _FIO_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${_FIO_LIB_DIR}/fio_powercycle.sh"
 . "${_FIO_LIB_DIR}/fio_verify.sh"
 
+# Guard so we only fire one live failure-bundle per FIO watchdog session.
+FIO_EIO_BUNDLE_TRIGGERED="${FIO_EIO_BUNDLE_TRIGGERED:-0}"
+
+# Walk up from known roots looking for ci/collect_failure_bundle.sh.
+find_raid_nvme_repo_root() {
+    local base d i
+    for base in \
+        "${REMOTE_DIR:-}" \
+        "${RAID_NVME_CASE_ROOT:-}" \
+        "${RAID_NVME_REPO_ROOT:-}" \
+        "${Cur_Dir:-}" \
+        "${_FIO_LIB_DIR}/../.." \
+        "$(pwd)"
+    do
+        [ -n "${base}" ] || continue
+        d=$(cd "${base}" 2>/dev/null && pwd) || continue
+        for i in 1 2 3 4 5 6; do
+            if [ -f "${d}/ci/collect_failure_bundle.sh" ]; then
+                printf '%s\n' "${d}"
+                return 0
+            fi
+            [ "${d}" = "/" ] && break
+            d=$(dirname "${d}")
+        done
+    done
+    return 1
+}
+
+fio_log_has_eio() {
+    local log_file="$1"
+    [ -n "${log_file}" ] && [ -f "${log_file}" ] || return 1
+    grep -Eq \
+        'Input/output error|I/O error|error=Input/output error|err=[[:space:]]*5([^0-9]|$)|errno=5([^0-9]|$)|EIO' \
+        "${log_file}" 2>/dev/null
+}
+
+# Best-effort immediate failure bundle while FIO may still be alive after EIO.
+trigger_live_failure_bundle() {
+    local reason="${1:-fio_eio_live}"
+    local repo_root script run_key
+    local node_ip="${NODE_IP:-${TARGET_IP:-unknown}}"
+
+    if [ "${FIO_EIO_BUNDLE_TRIGGERED}" = "1" ] && [ "${FIO_FORCE_BUNDLE:-0}" != "1" ]; then
+        echo "$(date '+%F %T') [FIO] live failure bundle already triggered; skip (${reason})" \
+            | tee -a "${Result_Dir:-/tmp}/result.log" 2>/dev/null || true
+        return 0
+    fi
+
+    repo_root=$(find_raid_nvme_repo_root) || {
+        echo "$(date '+%F %T') [FIO] WARN: cannot locate ci/collect_failure_bundle.sh; skip live bundle" \
+            | tee -a "${Result_Dir:-/tmp}/result.log" 2>/dev/null || true
+        return 0
+    }
+    script="${repo_root}/ci/collect_failure_bundle.sh"
+    run_key="${RAID_NVME_RUN_KEY:-${FIO_LAST_CONFIG:-fio_live}}"
+    FIO_EIO_BUNDLE_TRIGGERED=1
+
+    echo "$(date '+%F %T') [FIO] triggering IMMEDIATE failure bundle reason=${reason} repo=${repo_root}" \
+        | tee -a "${Result_Dir:-/tmp}/result.log" 2>/dev/null || true
+
+    (
+        cd "${repo_root}" || exit 0
+        NODE_IP="${node_ip}" \
+        REMOTE_DIR="${REMOTE_DIR:-${repo_root}}" \
+        RUN_KEY="${run_key}" \
+        BUNDLE_REASON="${reason}" \
+        bash "${script}"
+    ) >/dev/null 2>&1 || true
+}
 
 collect_log()
 {
@@ -1145,6 +1214,8 @@ run_fio_with_watchdog()
     local idle_timed_out=0
     local start_ts end_ts elapsed
     local model_label planned_runtime elapsed_hms config_name
+    # Reset per-invocation so each FIO job can fire once on first EIO.
+    FIO_EIO_BUNDLE_TRIGGERED=0
     shift 2
 
     idle_timeout_seconds=$(fio_idle_timeout_seconds)
@@ -1170,6 +1241,12 @@ run_fio_with_watchdog()
         if [[ "$current_output_size" != "$last_output_size" ]]; then
             last_progress_ts=$now_ts
             last_output_size=$current_output_size
+            # While FIO is still alive: if log already shows EIO, collect immediately.
+            if [[ "${FIO_EIO_BUNDLE_TRIGGERED}" != "1" ]] && fio_log_has_eio "$output_file"; then
+                echo "$(date '+%F %T') [FIO] EIO detected while fio still running (pid=${fio_pid}); collecting live failure bundle" \
+                    | tee -a "$output_file" "$Result_Dir/result.log"
+                trigger_live_failure_bundle "fio_eio_live:${config_name}"
+            fi
         fi
         if [[ $((now_ts - last_io_check_ts)) -ge $io_check_interval_seconds ]]; then
             last_io_check_ts=$now_ts
@@ -1177,6 +1254,12 @@ run_fio_with_watchdog()
             if [[ -n "$current_io_signature" && "$current_io_signature" != "$last_io_signature" ]]; then
                 last_progress_ts=$now_ts
                 last_io_signature=$current_io_signature
+            fi
+            # Periodic EIO scan even if output size is steady (rare for fio error lines).
+            if [[ "${FIO_EIO_BUNDLE_TRIGGERED}" != "1" ]] && fio_log_has_eio "$output_file"; then
+                echo "$(date '+%F %T') [FIO] EIO detected (periodic scan) while fio pid=${fio_pid}; collecting live failure bundle" \
+                    | tee -a "$output_file" "$Result_Dir/result.log"
+                trigger_live_failure_bundle "fio_eio_live:${config_name}"
             fi
         fi
         if [[ $((now_ts - last_progress_ts)) -ge $idle_timeout_seconds ]]; then
@@ -1210,6 +1293,9 @@ run_fio_with_watchdog()
     if [[ $fio_rc -eq 124 ]]; then
         echo "FIO command failed, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file" "$Result_Dir/result.log"
         append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
+        if fio_log_has_eio "$output_file"; then
+            trigger_live_failure_bundle "fio_eio_exit:${config_name}"
+        fi
         return "$fio_rc"
     fi
     if [[ $fio_rc -ne 0 ]]; then
@@ -1217,6 +1303,10 @@ run_fio_with_watchdog()
         # MIX soft-continue is handled separately via MIX_FAIL_ON_ANY in run_mix paths.
         echo "FIO command failed, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file" "$Result_Dir/result.log"
         append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
+        # If EIO and we missed the live window, collect ASAP after exit.
+        if fio_log_has_eio "$output_file"; then
+            trigger_live_failure_bundle "fio_eio_exit:${config_name}"
+        fi
     fi
     return $fio_rc
 }

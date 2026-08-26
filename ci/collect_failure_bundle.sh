@@ -42,8 +42,16 @@ if [ -f "${SCRIPT_DIR}/enable_failure_coredumps.sh" ]; then
         bash "${SCRIPT_DIR}/enable_failure_coredumps.sh" >/dev/null 2>&1 || true
 fi
 
+# Turn on RAID1 pending debug knobs early so dumps below see enabled state.
+if [ -f "${SCRIPT_DIR}/enable_draid_pending_debug.sh" ]; then
+    chmod +x "${SCRIPT_DIR}/enable_draid_pending_debug.sh" 2>/dev/null || true
+    NODE_IP="${NODE_IP}" REMOTE_DIR="${REMOTE_DIR}" \
+        bash "${SCRIPT_DIR}/enable_draid_pending_debug.sh" >/dev/null 2>&1 || true
+fi
+
 mkdir -p "${WORK_DIR}/cores" "${WORK_DIR}/cores/existing" "${WORK_DIR}/binaries" \
-    "${WORK_DIR}/logs" "${WORK_DIR}/draid_kthreads" "${CORE_PATTERN_DIR}"
+    "${WORK_DIR}/logs" "${WORK_DIR}/draid_kthreads" "${WORK_DIR}/kworker_stacks" \
+    "${CORE_PATTERN_DIR}"
 cd "${WORK_DIR}" || exit 0
 
 {
@@ -65,7 +73,9 @@ cd "${WORK_DIR}" || exit 0
     echo
     echo "NOTE: [draid-*] / [draid_io_retry] etc. are kernel threads (PPID=2)."
     echo "      gcore cannot dump them; see draid_kthreads/ for stacks/status."
+    echo "      Real work often runs on kworker/* — see kworker_stacks/ (filtered by stack)."
     echo "      Point-in-time driver state: draid_diag/ (dpraid show*, sysfs/debugfs)."
+    echo "      RAID1 pending debug: enabled via ci/enable_draid_pending_debug.sh when possible."
     echo "      Kernel panic dumps (kdump vmcore): see kdump/ (paths/status; files stay on DUT if huge)."
     echo
     echo "Also see: dmesg.txt, dpraid_*.txt, versions.txt, draid.ko, logs/"
@@ -225,9 +235,99 @@ snapshot_draid_kernel_threads() {
     done < <(ps -eo pid=,comm= 2>/dev/null | awk 'tolower($0) ~ /draid/ {print $1, $2}')
 }
 
+# Capture kworker stacks that actually mention draid/RAID/NVMe/bio work.
+# Named [draid-*] threads alone often idle while real IO sits on kworker/*.
+snapshot_related_kworker_stacks() {
+    local out="kworker_stacks"
+    local max_match="${KWORKER_STACK_MAX:-80}"
+    local matched=0
+    local scanned=0
+    local pid comm stack_file stack_txt wchan haystack
+
+    mkdir -p "${out}"
+    : >"${out}/matched.txt"
+    {
+        echo "=== kworker overview (ps) ==="
+        ps -eo pid,ppid,stat,wchan:32,comm 2>/dev/null | grep -E '\[kworker|kworker/' || true
+        echo
+        echo "Filter: stack/wchan/cmdline mentions draid|dpraid|raid1|nvme|bio_worker|blk_mq"
+        echo "max_match=${max_match}"
+    } >"${out}/overview.txt"
+
+    for pid in /proc/[0-9]*; do
+        [ -d "${pid}" ] || continue
+        pid=${pid#/proc/}
+        comm=$(tr -d '\0' <"/proc/${pid}/comm" 2>/dev/null || true)
+        case "${comm}" in
+            kworker*|kblockd*|ksoftirqd*|migration*|rcu_*|irq/*) ;;
+            *) continue ;;
+        esac
+        scanned=$((scanned + 1))
+        stack_file="/proc/${pid}/stack"
+        stack_txt=$(cat "${stack_file}" 2>/dev/null || true)
+        # Also check wchan for short hints when stack is empty/permission denied.
+        wchan=$(cat "/proc/${pid}/wchan" 2>/dev/null || true)
+        haystack="${stack_txt}
+${wchan}
+${comm}"
+        if ! printf '%s\n' "${haystack}" | grep -Eiq \
+            'draid|dpraid|raid1|raid_1|nvme|bio_worker|blk_mq|submit_bio|md_raid|draid_'; then
+            continue
+        fi
+        matched=$((matched + 1))
+        mkdir -p "${out}/pid_${pid}"
+        printf '%s\n' "${comm}" >"${out}/pid_${pid}/comm.txt"
+        {
+            echo "pid=${pid} comm=${comm}"
+            echo "=== status (selected) ==="
+            awk '/^(Name|State|PPid|Pid|Threads|voluntary|nonvoluntary|Cpus_allowed):/' \
+                "/proc/${pid}/status" 2>/dev/null || true
+            echo
+            echo "=== wchan ==="
+            echo "${wchan}"
+            echo
+            echo "=== stack ==="
+            if [ -n "${stack_txt}" ]; then
+                printf '%s\n' "${stack_txt}"
+            else
+                echo "(empty or unreadable /proc/${pid}/stack)"
+            fi
+            echo
+            echo "=== sched ==="
+            cat "/proc/${pid}/sched" 2>/dev/null | head -n 40 || true
+        } >"${out}/pid_${pid}/snapshot.txt" 2>/dev/null || true
+        echo "kworker pid=${pid} comm=${comm}" >>"${out}/matched.txt"
+        if [ "${matched}" -ge "${max_match}" ]; then
+            break
+        fi
+    done
+
+    {
+        echo "scanned_kworkerish=${scanned}"
+        echo "matched=${matched}"
+        echo "collected_at=$(date -Is 2>/dev/null || date)"
+        echo
+        echo "=== matched list ==="
+        cat "${out}/matched.txt" 2>/dev/null || true
+    } >"${out}/INDEX.txt"
+
+    # Extra: dump any /sys/kernel/debug/workqueue related listing if present.
+    if [ -d /sys/kernel/debug/workqueue ]; then
+        ls -la /sys/kernel/debug/workqueue >"${out}/workqueue_debug_listing.txt" 2>/dev/null || true
+        find /sys/kernel/debug/workqueue -maxdepth 3 \( -iname '*draid*' -o -iname '*raid*' \) \
+            -type f 2>/dev/null | head -n 40 | while read -r f; do
+            size=$(wc -c <"$f" 2>/dev/null || echo 999999)
+            if [ "${size}" -le 1048576 ] 2>/dev/null; then
+                cp -f "$f" "${out}/wq_$(basename "$f").txt" 2>/dev/null || true
+            fi
+        done
+    fi
+}
+
 run_gcore fio
 run_gcore dpraid
 snapshot_draid_kernel_threads
+snapshot_related_kworker_stacks
 
 # Prefer PATH binaries when no process binary was copied.
 if [ ! -e binaries/fio ] && command -v fio >/dev/null 2>&1; then
@@ -300,11 +400,28 @@ snapshot_draid_driver_state() {
         safe_run "${out}/dpraid/v${vid}_show_all.txt" dpraid "/c0/v${vid}" show all
     done
 
-    # Module parameters / holders.
+    # Module parameters / holders (after enable_draid_pending_debug when possible).
     if [ -d /sys/module/draid ]; then
         cp -a /sys/module/draid/parameters "${out}/sysfs/module_parameters" 2>/dev/null || true
         ls -la /sys/module/draid >"${out}/sysfs/module_listing.txt" 2>/dev/null || true
         cat /sys/module/draid/refcnt >"${out}/sysfs/refcnt.txt" 2>/dev/null || true
+        {
+            echo "=== pending/raid1-related module parameters ==="
+            for f in /sys/module/draid/parameters/*; do
+                [ -e "$f" ] || continue
+                name=$(basename "$f")
+                case "${name}" in
+                    *pending*|*raid1*|*debug*|*dbg*)
+                        printf '%s=%s\n' "${name}" "$(cat "$f" 2>/dev/null || echo '?')"
+                        ;;
+                esac
+            done
+        } >"${out}/sysfs/pending_debug_params.txt" 2>/dev/null || true
+    fi
+    # Copy enable script log if present.
+    if [ -f "${REMOTE_DIR}/failure_bundles/draid_pending_debug.txt" ]; then
+        cp -f "${REMOTE_DIR}/failure_bundles/draid_pending_debug.txt" \
+            "${out}/pending_debug_enable_log.txt" 2>/dev/null || true
     fi
 
     # Discover draid-related sysfs nodes (depth-limited).
@@ -482,6 +599,8 @@ meta_file=meta.txt
     cat gcore_pids.txt 2>/dev/null || true
     echo "DRAID_KERNEL_THREADS:"
     cat draid_kthreads/kernel_threads.txt 2>/dev/null || true
+    echo "KWORKER_MATCHED:"
+    cat kworker_stacks/matched.txt 2>/dev/null || true
 } >"${meta_file}"
 
 # Pack from parent so archive contains a single top-level directory.
@@ -511,15 +630,21 @@ fi
     echo "=== draid kernel threads (not gcore-able) ==="
     cat draid_kthreads/kernel_threads.txt 2>/dev/null || echo "(none)"
     echo
+    echo "=== related kworker stacks ==="
+    cat kworker_stacks/matched.txt 2>/dev/null || echo "(none)"
+    echo
     echo "=== gcore_errors ==="
     cat gcore_errors.txt 2>/dev/null || echo "(none)"
     echo
     if [ ! -s gcore_pids.txt ]; then
         echo "NOTE: no live userspace fio/dpraid when gcore ran."
         echo "FIO stage abort / keyword failures usually exit first, so userspace core is empty."
+        echo "Prefer BUNDLE_REASON=fio_eio_live (triggered while FIO still running on EIO)."
     fi
     echo "NOTE: [draid-*] kernel threads are snapshotted under draid_kthreads/ (stack/status)."
+    echo "NOTE: related kworker stacks under kworker_stacks/ (filtered by draid/nvme/bio symbols)."
     echo "NOTE: point-in-time driver state under draid_diag/ (dpraid/sysfs/debugfs; not full RAM)."
+    echo "NOTE: RAID1 pending debug attempted via enable_draid_pending_debug.sh."
     echo "NOTE: kdump status under kdump/; large vmcore stays on DUT unless KDUMP_COPY_VMCORE=1."
     echo "Bundle still includes dmesg, dpraid show, binaries, logs for triage."
 } >"${BUNDLE_ROOT}/latest_bundle_summary.txt"

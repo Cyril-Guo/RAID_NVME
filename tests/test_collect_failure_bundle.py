@@ -41,11 +41,31 @@ def test_collect_script_contains_gcore_and_bundle_paths():
     assert "draid_diag" in source
     assert "debugfs" in source
     assert "snapshot_kdump_artifacts" in source
+    assert "snapshot_related_kworker_stacks" in source
+    assert "kworker_stacks" in source
+    assert "enable_draid_pending_debug.sh" in source
     assert "failure_bundle_" in source
     assert "draid.ko" in source
     assert "latest_bundle_summary.txt" in source
     assert "enable_failure_coredumps.sh" in source
     assert "exit 0" in source
+
+
+def test_enable_draid_pending_debug_script_probes_module_params():
+    pending = REPO_ROOT / "ci" / "enable_draid_pending_debug.sh"
+    source = pending.read_text(encoding="utf-8")
+    assert "raid1_pending_debug" in source
+    assert "/sys/module/draid/parameters" in source
+    assert "dynamic_debug" in source
+    assert "exit 0" in source
+
+
+def test_fio_triggers_live_bundle_on_eio():
+    fio = (REPO_ROOT / "IO_Stress" / "lib" / "fio.sh").read_text(encoding="utf-8")
+    assert "trigger_live_failure_bundle" in fio
+    assert "fio_log_has_eio" in fio
+    assert "fio_eio_live" in fio
+    assert "collect_failure_bundle.sh" in fio
 
 
 def test_enable_script_sets_ulimit_and_core_pattern():
@@ -73,13 +93,17 @@ def test_wiring_references_failure_bundle():
     assert "collect_failure_bundle.sh" in nvme
     assert "add_allure_failure_bundle" in nvme
     assert "failure_gcore_summary_" in nvme
+    assert "enable_draid_pending_debug" in nvme
     assert "collect_failure_bundle.sh" in remote
+    assert "enable_draid_pending_debug.sh" in remote
     assert "failure_bundle_*.tar.gz" in remote
     assert "failure_bundle_*.tar.gz" in jenkins
     assert "allure-results/failure_bundle_*.tar.gz" in jenkins
     assert "enable_failure_coredumps.sh" in prepare
+    assert "enable_draid_pending_debug.sh" in prepare
     assert "enable_failure_coredumps_early" in install
     assert "enable_failure_kdump.sh" in install
+    assert "enable_draid_pending_debug.sh" in install
     assert "gdb" in install
     assert "enable_failure_coredumps.sh" in install
 

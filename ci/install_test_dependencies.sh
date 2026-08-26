@@ -21,6 +21,12 @@ enable_failure_coredumps_early() {
         NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
             "${SCRIPT_DIR}/enable_failure_kdump.sh" || true
     fi
+    if [ -f "${SCRIPT_DIR}/enable_draid_pending_debug.sh" ]; then
+        echo "Enable draid RAID1 pending debug knobs (best-effort)"
+        chmod +x "${SCRIPT_DIR}/enable_draid_pending_debug.sh" 2>/dev/null || true
+        NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
+            "${SCRIPT_DIR}/enable_draid_pending_debug.sh" || true
+    fi
 }
 
 # Always arm coredumps + kdump during dependency/env prepare, even if packages are already installed.

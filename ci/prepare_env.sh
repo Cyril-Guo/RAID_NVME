@@ -20,9 +20,11 @@ echo "[${NODE_IP}] ===== prepare_env start ====="
 echo "[${NODE_IP}] REMOTE_DIR=${REMOTE_DIR}"
 
 echo "[${NODE_IP}] enable DUT coredumps (ulimit/core_pattern/ptrace) + kdump before prepare"
-chmod +x "${SCRIPT_DIR}/enable_failure_coredumps.sh" "${SCRIPT_DIR}/enable_failure_kdump.sh" 2>/dev/null || true
+chmod +x "${SCRIPT_DIR}/enable_failure_coredumps.sh" "${SCRIPT_DIR}/enable_failure_kdump.sh" \
+    "${SCRIPT_DIR}/enable_draid_pending_debug.sh" 2>/dev/null || true
 NODE_IP="${NODE_IP}" REMOTE_DIR="${REMOTE_DIR}" "${SCRIPT_DIR}/enable_failure_coredumps.sh" || true
 NODE_IP="${NODE_IP}" REMOTE_DIR="${REMOTE_DIR}" "${SCRIPT_DIR}/enable_failure_kdump.sh" || true
+NODE_IP="${NODE_IP}" REMOTE_DIR="${REMOTE_DIR}" "${SCRIPT_DIR}/enable_draid_pending_debug.sh" || true
 
 echo "[${NODE_IP}] (1/5) stop QEMU if running, unload draid, return devices to physical host"
 chmod +x "${SCRIPT_DIR}/reclaim_physical_host.sh" 2>/dev/null || true
@@ -132,9 +134,11 @@ echo "[${NODE_IP}] (5/5) clear leftover VD/PD"
 chmod +x "${SCRIPT_DIR}/restore_physical_raid_state.sh"
 NODE_IP="${NODE_IP}" "${SCRIPT_DIR}/restore_physical_raid_state.sh"
 
-echo "[${NODE_IP}] enable unlimited cores + core_pattern + kdump for failure bundles"
-chmod +x "${SCRIPT_DIR}/enable_failure_coredumps.sh" "${SCRIPT_DIR}/enable_failure_kdump.sh" 2>/dev/null || true
+echo "[${NODE_IP}] enable unlimited cores + core_pattern + kdump + RAID1 pending debug for failure bundles"
+chmod +x "${SCRIPT_DIR}/enable_failure_coredumps.sh" "${SCRIPT_DIR}/enable_failure_kdump.sh" \
+    "${SCRIPT_DIR}/enable_draid_pending_debug.sh" 2>/dev/null || true
 NODE_IP="${NODE_IP}" REMOTE_DIR="${REMOTE_DIR}" "${SCRIPT_DIR}/enable_failure_coredumps.sh" || true
 NODE_IP="${NODE_IP}" REMOTE_DIR="${REMOTE_DIR}" "${SCRIPT_DIR}/enable_failure_kdump.sh" || true
+NODE_IP="${NODE_IP}" REMOTE_DIR="${REMOTE_DIR}" "${SCRIPT_DIR}/enable_draid_pending_debug.sh" || true
 
 echo "[${NODE_IP}] ===== prepare_env done ====="
