@@ -2,15 +2,16 @@
 set -euo pipefail
 
 # Find dirty CSD flash disks from lsblk (8P/9P SIZE) and/or nvme list
-# (PB-scale total capacity such as 9.01 PB). Map namespaces to NVMe
-# controllers, then non-interactively clear CSD flash via flash-clear.sh,
-# which also runs Cache clear (admin-passthru opcode 0xD8).
+# (PB-scale total capacity such as 9.01 PB). Map namespaces to draid accel
+# character devices under /dev (e.g. draid_dbg_accel0), then clear CSD flash
+# via flash-clear.sh, which also runs Cache clear (admin-passthru opcode 0xD8).
 
 NODE_IP=${NODE_IP:-unknown}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 FLASH_CLEAR_SCRIPT=${FLASH_CLEAR_SCRIPT:-"${SCRIPT_DIR}/flash-clear.sh"}
 LSBLK_BIN=${LSBLK_BIN:-lsblk}
 NVME_BIN=${NVME_BIN:-nvme}
+DRAID_ACCEL_DEV_PREFIX=${DRAID_ACCEL_DEV_PREFIX:-draid_dbg_accel}
 
 is_dirty_csd_size() {
     # Dirty CSD flash commonly appears as 8P/9P in lsblk (nvme list may show ~9 PB).
@@ -28,24 +29,29 @@ is_dirty_csd_size() {
     return 1
 }
 
-namespace_to_controller() {
+namespace_to_draid_device() {
     local name="$1"
     name="${name#/dev/}"
-    if [[ "$name" =~ ^(nvme[0-9]+)n[0-9]+$ ]]; then
-        printf '%s\n' "/dev/${BASH_REMATCH[1]}"
+    if [[ "$name" =~ ^${DRAID_ACCEL_DEV_PREFIX}[0-9]+$ ]]; then
+        printf '%s\n' "/dev/${name}"
         return 0
     fi
-    if [[ "$name" =~ ^nvme[0-9]+$ ]]; then
-        printf '%s\n' "/dev/${name}"
+    if [[ "$name" =~ ^(nvme[0-9]+)n[0-9]+$ ]]; then
+        local idx="${BASH_REMATCH[1]#nvme}"
+        printf '/dev/%s%s\n' "${DRAID_ACCEL_DEV_PREFIX}" "${idx}"
+        return 0
+    fi
+    if [[ "$name" =~ ^nvme([0-9]+)$ ]]; then
+        printf '/dev/%s%s\n' "${DRAID_ACCEL_DEV_PREFIX}" "${BASH_REMATCH[1]}"
         return 0
     fi
     return 1
 }
 
-controller_seen() {
+device_seen() {
     local needle="$1"
     local item
-    for item in "${CONTROLLERS[@]:-}"; do
+    for item in "${DRAID_DEVICES[@]:-}"; do
         if [ "$item" = "$needle" ]; then
             return 0
         fi
@@ -53,20 +59,20 @@ controller_seen() {
     return 1
 }
 
-add_controller() {
+add_draid_device() {
     local name="$1"
     local size="$2"
     local source="$3"
-    local ctrl
-    if ! ctrl="$(namespace_to_controller "$name")"; then
-        echo "[${NODE_IP}] skip non-nvme dirty-CSD disk from ${source}: ${name} (${size})"
+    local dev
+    if ! dev="$(namespace_to_draid_device "$name")"; then
+        echo "[${NODE_IP}] skip non-draid-mappable dirty-CSD disk from ${source}: ${name} (${size})"
         return 0
     fi
-    if controller_seen "$ctrl"; then
+    if device_seen "$dev"; then
         return 0
     fi
-    echo "[${NODE_IP}] found dirty-CSD via ${source}: ${name} size=${size} -> ${ctrl}"
-    CONTROLLERS+=("$ctrl")
+    echo "[${NODE_IP}] found dirty-CSD via ${source}: ${name} size=${size} -> ${dev}"
+    DRAID_DEVICES+=("$dev")
 }
 
 discover_dirty_from_lsblk() {
@@ -75,7 +81,7 @@ discover_dirty_from_lsblk() {
         [ -n "${name:-}" ] || continue
         [ "${type:-}" = "disk" ] || continue
         is_dirty_csd_size "${size:-}" || continue
-        add_controller "$name" "$size" "lsblk"
+        add_draid_device "$name" "$size" "lsblk"
     done < <("${LSBLK_BIN}" -dn -o NAME,SIZE,TYPE 2>/dev/null || true)
 }
 
@@ -89,13 +95,13 @@ discover_dirty_from_nvme_list() {
             size="${BASH_REMATCH[2]}"
             unit="${BASH_REMATCH[4]}"
             is_dirty_csd_size "${size}${unit}" || continue
-            add_controller "$node" "${size}${unit}" "nvme-list"
+            add_draid_device "$node" "${size}${unit}" "nvme-list"
         fi
     done < <("${NVME_BIN}" list 2>/dev/null || true)
 }
 
-discover_dirty_csd_controllers() {
-    CONTROLLERS=()
+discover_dirty_draid_devices() {
+    DRAID_DEVICES=()
     echo "[${NODE_IP}] scan lsblk for dirty CSD flash disks (8P/9P)"
     "${LSBLK_BIN}" -dn -o NAME,SIZE,TYPE 2>/dev/null | sed "s/^/[${NODE_IP}] lsblk: /" || true
     discover_dirty_from_lsblk
@@ -105,14 +111,14 @@ discover_dirty_csd_controllers() {
     discover_dirty_from_nvme_list
 }
 
-discover_dirty_csd_controllers
+discover_dirty_draid_devices
 
-if [ "${#CONTROLLERS[@]}" -eq 0 ]; then
+if [ "${#DRAID_DEVICES[@]}" -eq 0 ]; then
     echo "[${NODE_IP}] no dirty-CSD disks found via lsblk or nvme list; skip CSD flash clear"
     exit 0
 fi
 
-echo "[${NODE_IP}] dirty-CSD disks mapped to controllers: ${CONTROLLERS[*]}"
+echo "[${NODE_IP}] dirty-CSD disks mapped to draid accel devices: ${DRAID_DEVICES[*]}"
 
 if [ ! -x "${FLASH_CLEAR_SCRIPT}" ] && [ -f "${FLASH_CLEAR_SCRIPT}" ]; then
     chmod +x "${FLASH_CLEAR_SCRIPT}" || true
@@ -127,6 +133,15 @@ if ! command -v "${NVME_BIN}" >/dev/null 2>&1 && [ ! -x "${NVME_BIN}" ]; then
     exit 1
 fi
 
+if [ "${DRAID_SKIP_DEVICE_CHECK:-0}" != "1" ]; then
+    for dev in "${DRAID_DEVICES[@]}"; do
+        if [ ! -c "$dev" ]; then
+            echo "[${NODE_IP}] ERROR: draid accel device missing: ${dev} (load draid.ko with ACCEL_CDEV=y first)" >&2
+            exit 1
+        fi
+    done
+fi
+
 # flash-clear.sh prompts for CLEAR; feed it automatically for CI.
-printf 'CLEAR\n' | "${FLASH_CLEAR_SCRIPT}" "${CONTROLLERS[@]}"
-echo "[${NODE_IP}] CSD flash clear finished for: ${CONTROLLERS[*]}"
+printf 'CLEAR\n' | "${FLASH_CLEAR_SCRIPT}" "${DRAID_DEVICES[@]}"
+echo "[${NODE_IP}] CSD flash clear finished for: ${DRAID_DEVICES[*]}"

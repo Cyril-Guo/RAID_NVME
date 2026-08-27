@@ -27,6 +27,7 @@ def _run_clear(tmp_path, env_extra):
     env = os.environ.copy()
     env["PATH"] = f"{tmp_path}{os.pathsep}{env.get('PATH', '')}"
     env["NODE_IP"] = "192.168.22.134"
+    env["DRAID_SKIP_DEVICE_CHECK"] = "1"
     env.update(env_extra)
     return subprocess.run(
         [bash, str(CLEAR_SCRIPT).replace("\\", "/")],
@@ -80,7 +81,7 @@ exit 0
 
     assert result.returncode == 0, result.stderr + result.stdout
     assert "confirm=CLEAR" in result.stdout
-    assert "devices=/dev/nvme0 /dev/nvme1" in result.stdout
+    assert "devices=/dev/draid_dbg_accel0 /dev/draid_dbg_accel1" in result.stdout
     assert "no dirty-CSD" not in result.stdout
 
 
@@ -108,7 +109,7 @@ printf 'devices=%s\\n' "$*"
     )
 
     assert result.returncode == 0, result.stderr + result.stdout
-    assert "devices=/dev/nvme3" in result.stdout
+    assert "devices=/dev/draid_dbg_accel3" in result.stdout
     assert "size=9.01P" in result.stdout
 
 
@@ -159,7 +160,7 @@ printf 'devices=%s\\n' "$*"
 
     assert result.returncode == 0, result.stderr + result.stdout
     assert "confirm=CLEAR" in result.stdout
-    assert "devices=/dev/nvme5 /dev/nvme6" in result.stdout
+    assert "devices=/dev/draid_dbg_accel5 /dev/draid_dbg_accel6" in result.stdout
     assert "via nvme-list" in result.stdout
 
 

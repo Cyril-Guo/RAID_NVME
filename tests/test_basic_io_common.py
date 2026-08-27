@@ -467,7 +467,7 @@ def test_clear_csd_flash_and_cache_only_runs_dirty_csd_helper(monkeypatch):
     assert "flash-clear.sh" not in " ".join(cmd if isinstance(cmd, list) else [cmd])
 
 
-def test_release_and_clear_csd_unloads_before_clear_and_reloads_after(monkeypatch):
+def test_release_and_clear_csd_loads_draid_then_clears_without_unload(monkeypatch):
     calls = []
     disks = [NvmeDisk(namespace="nvme2n1", controller="nvme2", size_gb=Decimal("1000"))]
     draid_loaded = {"value": True}
@@ -496,14 +496,18 @@ def test_release_and_clear_csd_unloads_before_clear_and_reloads_after(monkeypatc
 
     basic_io_common.release_and_clear_csd(disks, CommandLog())
 
-    rmmod_idx = calls.index(["rmmod", "draid"])
+    assert ["rmmod", "draid"] not in calls
     clear_idx = next(
         i
         for i, cmd in enumerate(calls)
         if isinstance(cmd, list) and len(cmd) >= 2 and "clear_8p_csd_flash.sh" in str(cmd[1])
     )
-    insmod_idx = next(i for i, cmd in enumerate(calls) if isinstance(cmd, list) and cmd and cmd[0] == "insmod")
-    assert rmmod_idx < clear_idx < insmod_idx
+    grep_idx = next(
+        i
+        for i, cmd in enumerate(calls)
+        if isinstance(cmd, str) and "grep -q '^draid ' /proc/modules" in cmd
+    )
+    assert grep_idx < clear_idx
     assert draid_loaded["value"] is True
 
 

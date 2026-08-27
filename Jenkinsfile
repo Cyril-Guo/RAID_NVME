@@ -211,25 +211,6 @@ ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
         error "[${ip}] QEMU pre-test cleanup failed with exit code ${qemuPreCleanStatus}"
     }
 
-    // Dirty CSD flash (8P/9P) is visible on the physical host after reclaim,
-    // before devices are passed through to QEMU.
-    // Use hostSshCmd/hostScpCmd directly (do not store sshpass -p '...' in a
-    // bash variable and expand it — the quotes become part of the password).
-    echo "[${ip}] clear dirty CSD flash on physical host before QEMU start"
-    def flashClearSsh = hostSshCmd(ip)
-    def flashClearScp = hostScpCmd()
-    runTimedEnvironmentStep(ip, 'clear dirty CSD flash on physical host before QEMU start', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
-set -o pipefail
-{
-echo "[${ip}] clear dirty CSD flash on physical host before QEMU start"
-remote_clear_dir="/tmp/jenkins_nvme_${env.BUILD_NUMBER}_flash_clear"
-${flashClearSsh} "rm -rf \${remote_clear_dir} && mkdir -p \${remote_clear_dir}"
-chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh
-${flashClearScp} ci/clear_8p_csd_flash.sh ci/flash-clear.sh ${env.TARGET_USER}@${ip}:\${remote_clear_dir}/
-${flashClearSsh} "cd \${remote_clear_dir} && chmod +x clear_8p_csd_flash.sh flash-clear.sh && NODE_IP=${ip} ./clear_8p_csd_flash.sh"
-} 2>&1 | tee -a ${envPrepareLog}
-""")
-
     echo "[${ip}] start QEMU VM for automatic MR test"
     def qemuStatus = 0
     try {
@@ -324,17 +305,6 @@ ci/deploy_workspace.sh
 } 2>&1 | tee -a ${envPrepareLog}
 """)
 
-    if (!qemuVmForNode) {
-        echo "[${ip}] clear dirty CSD flash before loading draid"
-        runTimedEnvironmentStep(ip, 'clear dirty CSD flash before loading draid', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
-set -o pipefail
-{
-echo "[${ip}] clear dirty CSD flash before loading draid"
-${targetSsh} 'cd ${remoteDir} && chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh && NODE_IP=${ip} ci/clear_8p_csd_flash.sh'
-} 2>&1 | tee -a ${envPrepareLog}
-""")
-    }
-
     echo "[${ip}] install latest dpraid"
     runTimedEnvironmentStep(ip, 'install latest dpraid', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -o pipefail
@@ -370,6 +340,15 @@ QEMU_VM_SSH_PORT='${env.QEMU_VM_SSH_PORT}' \
 QEMU_VM_SCP_PORT='${env.QEMU_VM_SCP_PORT}' \
 QEMU_KERNEL_BUILD_DIR='${env.QEMU_KERNEL_BUILD_DIR}' \
 ci/prepare_draid_driver.sh
+} 2>&1 | tee -a ${envPrepareLog}
+""")
+
+    echo "[${ip}] clear dirty CSD flash via draid accel devices"
+    runTimedEnvironmentStep(ip, 'clear dirty CSD flash via draid accel devices', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
+set -o pipefail
+{
+echo "[${ip}] clear dirty CSD flash via draid accel devices"
+${targetSsh} 'cd ${remoteDir} && chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh && NODE_IP=${ip} ci/clear_8p_csd_flash.sh'
 } 2>&1 | tee -a ${envPrepareLog}
 """)
 

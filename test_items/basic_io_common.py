@@ -474,31 +474,41 @@ def load_draid_module(log):
     log.write("draid module loaded")
 
 
+def ensure_draid_module_loaded(log):
+    """Load draid if needed so /dev/draid_dbg_accel* nodes exist for CSD clear."""
+    for candidate in draid_module_candidates(log):
+        loaded = run_cmd(f"grep -q '^{candidate} ' /proc/modules", log, check=False, shell=True)
+        if loaded.returncode == 0:
+            log.write(f"draid module already loaded: {candidate}")
+            return
+    load_draid_module(log)
+
+
 def clear_csd_flash_and_cache(disks, log):
     """Clear only dirty CSD flash+cache before rebuilding VDs.
 
     Uses clear_8p_csd_flash.sh: detect dirty CSD via lsblk (8P/9P) or nvme list
-    (PB-scale such as 9.01 PB). Healthy TB-scale data drives are never cleared.
+    (PB-scale such as 9.01 PB), then clear via /dev/draid_dbg_accel* devices.
+    Healthy TB-scale data drives are never cleared.
     If no dirty CSD is present the helper exits 0 and this is a no-op.
-    Caller must unload draid first so controllers are released.
+    Caller must ensure draid is loaded with ACCEL_CDEV=y first.
     """
     del disks  # discovery is done inside clear_8p_csd_flash.sh
     script = clear_8p_script_path()
     if not script.is_file():
         raise AssertionError(f"clear_8p script not found: {script}")
     log.write(
-        "Clear dirty CSD flash+cache only (lsblk 8P/9P or nvme-list PB-scale); "
-        "skip healthy data drives"
+        "Clear dirty CSD flash+cache via draid accel devices "
+        "(lsblk 8P/9P or nvme-list PB-scale); skip healthy data drives"
     )
     run_cmd(["bash", str(script)], log, check=True)
     log.write("Dirty CSD flash+cache clear finished (or skipped: none dirty)")
 
 
 def release_and_clear_csd(disks, log):
-    """Unload draid, clear dirty CSD flash+cache if any, then reload draid."""
-    unload_draid_module(log)
+    """Ensure draid is loaded, then clear dirty CSD flash+cache via draid accel devices."""
+    ensure_draid_module_loaded(log)
     clear_csd_flash_and_cache(disks, log)
-    load_draid_module(log)
 
 
 def add_physical_disks(disks, log):
