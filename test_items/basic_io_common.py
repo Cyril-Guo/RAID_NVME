@@ -491,7 +491,7 @@ def clear_csd_flash_and_cache(disks, log, force=False):
     env = os.environ.copy()
     if force:
         env["FORCE_CLEAR_ALL"] = "1"
-        log.write("Force clear ALL draid accel devices (per-case CSD flash+cache refresh)")
+        log.write("Force clear ALL draid accel devices (CSD flash+cache refresh)")
     else:
         log.write(
             "Clear dirty CSD flash+cache on ALL draid accel devices "
@@ -502,18 +502,20 @@ def clear_csd_flash_and_cache(disks, log, force=False):
 
 
 def release_and_clear_csd(disks, log):
-    """Per-case CSD refresh around force-clear of all accel devices.
+    """Force-clear all accel devices with a surrounding draid reload.
 
     Sequence:
       1) rmmod draid
       2) insmod draid.ko          (recreate /dev/draid_dbg_accel*)
       3) FORCE_CLEAR_ALL clear
       4) rmmod draid
-      5) insmod draid.ko          (reload for the following test case)
+      5) insmod draid.ko          (reload afterwards)
     Module stays loaded afterwards.
+
+    CI env_prepare uses prepare_env.sh (dirty-check clear) instead of this helper.
     """
     log.write(
-        "Per-case CSD refresh: rmmod -> insmod -> clear all /dev/draid_dbg_accel* "
+        "CSD refresh: rmmod -> insmod -> clear all /dev/draid_dbg_accel* "
         "-> rmmod -> insmod"
     )
     unload_draid_module(log)
@@ -521,6 +523,24 @@ def release_and_clear_csd(disks, log):
     clear_csd_flash_and_cache(disks, log, force=True)
     unload_draid_module(log)
     load_draid_module(log)
+
+
+def run_env_prepare(log):
+    """DUT environment prepare used by the env_prepare test case.
+
+    Runs ci/prepare_env.sh: reclaim host, install dpraid, rebuild/reload draid,
+    clear dirty CSD flash via accel devices, then clear leftover VD/PD.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    script = repo_root / "ci" / "prepare_env.sh"
+    if not script.is_file():
+        raise AssertionError(f"Missing prepare script: {script}")
+
+    env = os.environ.copy()
+    env.setdefault("REMOTE_DIR", str(repo_root))
+    env.setdefault("NODE_IP", env.get("NODE_IP", "local"))
+    log.write("phase: env_prepare (dpraid / draid reload / CSD clear / VD-PD clear)")
+    run_cmd(["bash", str(script)], log, check=True, shell=False, env=env)
 
 
 def add_physical_disks(disks, log):

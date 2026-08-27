@@ -32,8 +32,6 @@ CASES_DIR = "cases"
 RUN_KEY_ENV = "RAID_NVME_RUN_KEY"
 RUN_ORDER_ENV = "RAID_NVME_RUN_ORDER"
 ITEM_ENV = "RAID_NVME_ITEM"
-# CI 06/07 only: force-clear CSD flash via draid accel before the case.
-CSD_CLEAR_ITEMS = frozenset({"basic_io", "basic_rebuild_io"})
 _NODE_IP_REPORT_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 
 _CI_NAME_RE = re.compile(r"^test_ci_\d+_(.+)\.py$", re.IGNORECASE)
@@ -733,19 +731,6 @@ def run_single_item(
             continue
         os.environ[key] = value
         print(f"  [CONFIG] {key}={value}")
-
-    # Only CI 06/07 (basic_io, basic_rebuild_io):
-    # rmmod -> insmod -> force clear all accel -> rmmod -> insmod.
-    if item in CSD_CLEAR_ITEMS:
-        previous_clear = os.getcwd()
-        try:
-            os.chdir(work_dir)
-            from test_items.basic_io_common import CommandLog, release_and_clear_csd
-
-            print(f"[ITEM] per-case CSD refresh before {item}")
-            release_and_clear_csd([], CommandLog())
-        finally:
-            os.chdir(previous_clear)
 
     pytest_args = ["-v", "-s", "--tb=short"]
     if importlib.util.find_spec("allure_pytest") is not None:

@@ -8,7 +8,7 @@ def test_env_prepare():
     allure.dynamic.description(
         "Physical DUT environment prepare (CI physical parity): "
         "stop QEMU if running, unload draid, return vfio devices to host, "
-        "install dpraid, rebuild/reload draid, restore VD/PD."
+        "install dpraid, rebuild/reload draid, clear dirty CSD flash, restore VD/PD."
     )
 
     log = CommandLog()

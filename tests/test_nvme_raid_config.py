@@ -299,7 +299,6 @@ IGNORE_ERROR = no
 
 def test_run_single_item_omits_allure_args_without_plugin(monkeypatch, tmp_path):
     captured = {}
-    clear_calls = []
 
     def fake_pytest_main(args):
         captured["args"] = args
@@ -307,23 +306,18 @@ def test_run_single_item_omits_allure_args_without_plugin(monkeypatch, tmp_path)
 
     monkeypatch.setattr(nvme_raid_test.importlib.util, "find_spec", lambda name: None)
     monkeypatch.setattr(nvme_raid_test.pytest, "main", fake_pytest_main)
-    monkeypatch.setattr(
-        "test_items.basic_io_common.release_and_clear_csd",
-        lambda disks, log: clear_calls.append(True),
-    )
 
     assert nvme_raid_test.run_single_item(
         "lawdisk", {}, clean_allure=True, work_dir=str(tmp_path)
     ) == 0
 
     args = captured["args"]
-    assert clear_calls == []
     assert "--clean-alluredir" not in args
     assert not any(arg.startswith("--alluredir=") for arg in args)
     assert "--junitxml=report_lawdisk.xml" in args
 
 
-def test_run_single_item_clears_csd_only_for_basic_io_cases(monkeypatch, tmp_path):
+def test_run_single_item_does_not_clear_csd(monkeypatch, tmp_path):
     clear_calls = []
 
     monkeypatch.setattr(nvme_raid_test.importlib.util, "find_spec", lambda name: None)
@@ -339,17 +333,7 @@ def test_run_single_item_clears_csd_only_for_basic_io_cases(monkeypatch, tmp_pat
         "env_prepare": "test_items/test_ci_00_env_prepare.py",
     }
 
-    for item in ("basic_io", "basic_rebuild_io"):
-        clear_calls.clear()
-        assert (
-            nvme_raid_test.run_single_item(
-                item, {}, clean_allure=False, work_dir=str(tmp_path), test_items=catalog
-            )
-            == 0
-        )
-        assert clear_calls == [True], item
-
-    for item in ("random_io", "env_prepare"):
+    for item in ("basic_io", "basic_rebuild_io", "random_io", "env_prepare"):
         clear_calls.clear()
         assert (
             nvme_raid_test.run_single_item(
@@ -372,10 +356,6 @@ def test_run_single_item_uses_run_key_for_junit_and_env(monkeypatch, tmp_path):
 
     monkeypatch.setattr(nvme_raid_test.importlib.util, "find_spec", lambda name: None)
     monkeypatch.setattr(nvme_raid_test.pytest, "main", fake_pytest_main)
-    monkeypatch.setattr(
-        "test_items.basic_io_common.release_and_clear_csd",
-        lambda disks, log: None,
-    )
 
     assert nvme_raid_test.run_single_item(
         "lawdisk",
