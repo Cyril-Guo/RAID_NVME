@@ -73,6 +73,8 @@ def _run_clear(tmp_path, env_extra):
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
 
@@ -186,3 +188,67 @@ exit 1
 
     assert result.returncode != 0
     assert "no controllers parsed from dpraid show" in result.stderr
+
+
+def test_clear_retries_when_flash_clear_hits_workspace_write_error(tmp_path):
+    fake_dpraid = tmp_path / "dpraid"
+    attempt_file = tmp_path / "attempts.txt"
+    _write_executable(
+        fake_dpraid,
+        f"""#!/usr/bin/env bash
+set -eu
+attempt_file="{attempt_file.as_posix()}"
+if [ "${{1:-}}" = "show" ]; then
+  cat <<'EOF'
+{SHOW_HEADER}
+{SHOW_C0}
+EOF
+  exit 0
+fi
+if [ "${{2:-}}" = "flash-clear" ]; then
+  n=0
+  if [ -f "$attempt_file" ]; then
+    n="$(tr -cd '0-9' <"$attempt_file" || true)"
+  fi
+  n=$((${{n:-0}} + 1))
+  printf '%s\\n' "$n" >"$attempt_file"
+  if [ "$n" -eq 1 ]; then
+    echo "Could not open file for writing: /root/.dpraid/jobs/job-1/task-0/results/out: No such file or directory" >&2
+    exit 1
+  fi
+  echo "flash-clear ${{1}} retry ok"
+  exit 0
+fi
+echo "unexpected: $*" >&2
+exit 1
+""",
+    )
+
+    result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
+
+    out = (result.stdout or "") + (result.stderr or "")
+    assert result.returncode == 0, out
+    assert "hit dpraid workspace write error" in out
+    assert "[OK] /c0 flash-clear --with-cache --force succeeded" in out
+    assert attempt_file.read_text(encoding="utf-8").strip() == "2"
+
+
+def test_clear_logs_home_and_prepares_jobs_even_if_env_home_is_workspace(tmp_path):
+    fake_dpraid = tmp_path / "dpraid"
+    _write_executable(fake_dpraid, _fake_dpraid([SHOW_HEADER, SHOW_C0]))
+    workspace_home = tmp_path / "jenkins_workspace_home"
+    workspace_home.mkdir()
+
+    result = _run_clear(
+        tmp_path,
+        {
+            "DPRAID_BIN": str(fake_dpraid).replace("\\", "/"),
+            "HOME": str(workspace_home).replace("\\", "/"),
+        },
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "DPRAID_HOME=" in result.stdout
+    assert (tmp_path / "dpraid_home" / "jobs").is_dir()
+    # Explicit DPRAID_HOME must win over a Jenkins-style HOME override.
+    assert not (workspace_home / ".dpraid").exists()
