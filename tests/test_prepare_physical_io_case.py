@@ -5,9 +5,9 @@ def test_prepare_env_script_covers_smoke_physical_steps():
     source = Path("ci/prepare_env.sh").read_text(encoding="utf-8")
 
     assert "reclaim_physical_host.sh" in source
-    assert "clear_8p_csd_flash.sh" in source
-    assert "flash-clear.sh" in source
-    assert "skip dirty CSD flash clear" not in source
+    assert "clear_8p_csd_flash.sh" not in source
+    assert "flash-clear.sh" not in source
+    assert "clear dirty CSD flash" not in source
     assert "artifacts/dpraid" in source
     assert "rmmod" in source
     assert "insmod" in source
@@ -18,11 +18,9 @@ def test_prepare_env_script_covers_smoke_physical_steps():
     assert "install_draid_build_deps" in source
     assert "ripgrep" in source
     assert "make -j 8 ACCEL_CDEV=y" in source
-    assert "has_draid_nvme_driver_bound" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
-    assert "DAPU_CSD_LSPCI_MATCH" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
-    # reclaim -> dpraid -> draid load -> CSD clear via draid accel devices
-    assert source.index("reclaim_physical_host.sh") < source.index("clear_8p_csd_flash.sh")
-    assert source.index("insmod ./draid.ko") < source.index("clear_8p_csd_flash.sh")
+    # reclaim -> dpraid -> draid load -> restore VD/PD (CSD clear is per-case only)
+    assert source.index("reclaim_physical_host.sh") < source.index("insmod ./draid.ko")
+    assert source.index("insmod ./draid.ko") < source.index("restore_physical_raid_state.sh")
     assert source.index("install_draid_build_deps") < source.index("make -j 8 ACCEL_CDEV=y")
 
 
