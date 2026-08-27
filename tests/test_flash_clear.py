@@ -26,10 +26,9 @@ def test_flash_clear_defaults_to_draid_accel_device():
     assert "/dev/draid_dbg_accel" in text
 
 
-def test_clear_8p_doc_mentions_cache_clear():
-    text = FLASH_CLEAR_SCRIPT.read_text(encoding="utf-8")
-    assert "0xD8" in text
-    assert "Cache clear" in text
+def test_clear_8p_uses_dpraid_flash_clear():
     clear_text = CLEAR_8P_SCRIPT.read_text(encoding="utf-8")
-    assert "draid-nvme" in clear_text
-    assert "lspci" in clear_text
+    assert "dpraid show" in clear_text
+    assert "flash-clear --with-cache --force" in clear_text
+    assert "lspci" not in clear_text
+    assert "draid_dbg_accel" not in clear_text

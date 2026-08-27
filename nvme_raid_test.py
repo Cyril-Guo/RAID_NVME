@@ -177,7 +177,7 @@ def run_single_item(item, params, clean_allure, work_dir=None):
         os.environ[key] = value
         print(f"  [CONFIG] {key}={value}")
 
-    # Every case: rmmod -> insmod -> force clear all accel -> rmmod -> insmod.
+    # Every case: rmmod -> insmod -> dpraid flash-clear --with-cache --force -> rmmod -> insmod.
     previous = os.getcwd()
     try:
         os.chdir(work_dir)

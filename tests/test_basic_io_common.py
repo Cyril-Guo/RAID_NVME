@@ -432,7 +432,7 @@ DG/VD  State  Consist TYPE
     assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=512", "drives=7-14"] in calls
 
 
-def test_clear_csd_flash_and_cache_only_runs_dirty_csd_helper(monkeypatch):
+def test_clear_csd_flash_and_cache_runs_dpraid_clear_script(monkeypatch):
     calls = []
     disks = [
         NvmeDisk(namespace="nvme0n1", controller="nvme0", size_gb=Decimal("6400")),
@@ -456,11 +456,9 @@ def test_clear_csd_flash_and_cache_only_runs_dirty_csd_helper(monkeypatch):
     assert shell is False
     assert cmd[0] == "bash"
     assert "clear_8p_csd_flash.sh" in cmd[1]
-    assert env is None or env.get("FORCE_CLEAR_ALL") != "1"
-    assert "flash-clear.sh" not in " ".join(cmd if isinstance(cmd, list) else [cmd])
 
 
-def test_release_and_clear_csd_rmmod_insmod_then_force_clears(monkeypatch):
+def test_release_and_clear_csd_rmmod_insmod_then_dpraid_flash_clear(monkeypatch):
     calls = []
     disks = [NvmeDisk(namespace="nvme2n1", controller="nvme2", size_gb=Decimal("1000"))]
     draid_loaded = {"value": True}
@@ -495,7 +493,7 @@ def test_release_and_clear_csd_rmmod_insmod_then_force_clears(monkeypatch):
     ]
     clear_idx = next(
         i
-        for i, (cmd, env) in enumerate(calls)
+        for i, (cmd, _) in enumerate(calls)
         if isinstance(cmd, list)
         and len(cmd) >= 2
         and "clear_8p_csd_flash.sh" in str(cmd[1])
@@ -503,7 +501,6 @@ def test_release_and_clear_csd_rmmod_insmod_then_force_clears(monkeypatch):
     assert len(rmmod_idxs) >= 2
     assert len(insmod_idxs) >= 2
     assert rmmod_idxs[0] < insmod_idxs[0] < clear_idx < rmmod_idxs[1] < insmod_idxs[1]
-    assert calls[clear_idx][1]["FORCE_CLEAR_ALL"] == "1"
     assert draid_loaded["value"] is True
 
 

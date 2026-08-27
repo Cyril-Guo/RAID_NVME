@@ -394,31 +394,12 @@ def delete_existing_pds(log):
         run_cmd(["dpraid", f"/c0/eall/{slot}", "delete"], log, check=False)
 
 
-def flash_clear_script_path():
-    return Path(__file__).resolve().parents[1] / "ci" / "flash-clear.sh"
-
-
 def clear_8p_script_path():
     return Path(__file__).resolve().parents[1] / "ci" / "clear_8p_csd_flash.sh"
 
 
 def draid_ko_path():
     return Path(__file__).resolve().parents[1] / "kernel_driver" / "drivers" / "draid" / "draid.ko"
-
-
-def nvme_controller_paths(disks):
-    controllers = []
-    seen = set()
-    for disk in disks:
-        controller = (disk.controller or "").strip()
-        if not controller:
-            continue
-        path = f"/dev/{controller}"
-        if path in seen:
-            continue
-        seen.add(path)
-        controllers.append(path)
-    return controllers
 
 
 def draid_module_candidates(log):
@@ -436,8 +417,8 @@ def draid_module_candidates(log):
 
 
 def unload_draid_module(log):
-    """Unload draid so NVMe controllers are released before CSD flash/cache clear."""
-    log.write("Unload draid module before CSD flash/cache clear")
+    """Unload draid before/after CSD flash/cache clear."""
+    log.write("Unload draid module")
     for candidate in draid_module_candidates(log):
         loaded = run_cmd(f"grep -q '^{candidate} ' /proc/modules", log, check=False, shell=True)
         if loaded.returncode != 0:
@@ -453,7 +434,7 @@ def unload_draid_module(log):
 
 
 def load_draid_module(log):
-    """Reload draid after CSD flash/cache clear so subsequent add disk/VD can proceed."""
+    """Reload draid so subsequent add disk/VD (and flash-clear) can proceed."""
     ko = draid_ko_path()
     if not ko.is_file():
         raise AssertionError(f"draid.ko not found: {ko}")
@@ -476,45 +457,37 @@ def load_draid_module(log):
 
 
 def clear_csd_flash_and_cache(disks, log, force=False):
-    """Clear CSD flash+cache via /dev/draid_dbg_accel* before rebuilding VDs.
+    """Clear CSD flash+cache via dpraid flash-clear on each controller.
 
-    Uses clear_8p_csd_flash.sh. By default only clears when lspci shows DAPU
-    Device 50d1 without "Kernel driver in use: draid-nvme". With force=True,
-    always clears ALL /dev/draid_dbg_accel* (used for per-case refresh after
-    rmmod/insmod, when devices are already rebound).
-    Caller must ensure draid is loaded with ACCEL_CDEV=y first.
+    Runs ci/clear_8p_csd_flash.sh: `dpraid show` then
+    `dpraid /cX flash-clear --with-cache --force` for every controller.
+    Caller must ensure draid is loaded first.
     """
-    del disks  # discovery is done inside clear_8p_csd_flash.sh
+    del disks, force  # controller discovery is inside clear_8p_csd_flash.sh
     script = clear_8p_script_path()
     if not script.is_file():
         raise AssertionError(f"clear_8p script not found: {script}")
-    env = os.environ.copy()
-    if force:
-        env["FORCE_CLEAR_ALL"] = "1"
-        log.write("Force clear ALL draid accel devices (per-case CSD flash+cache refresh)")
-    else:
-        log.write(
-            "Clear dirty CSD flash+cache on ALL draid accel devices "
-            "(lspci DAPU Device 50d1 without draid-nvme driver)"
-        )
-    run_cmd(["bash", str(script)], log, check=True, env=env)
-    log.write("CSD flash+cache clear finished (or skipped: none dirty)")
+    log.write(
+        "Clear CSD flash+cache: dpraid show -> flash-clear --with-cache --force per controller"
+    )
+    run_cmd(["bash", str(script)], log, check=True)
+    log.write("CSD flash+cache clear finished")
 
 
 def release_and_clear_csd(disks, log):
-    """Per-case CSD refresh around force-clear of all accel devices.
+    """Per-case CSD refresh with surrounding draid reload.
 
     Sequence:
       1) rmmod draid
-      2) insmod draid.ko          (recreate /dev/draid_dbg_accel*)
-      3) FORCE_CLEAR_ALL clear
+      2) insmod draid.ko
+      3) dpraid show -> flash-clear --with-cache --force per controller
       4) rmmod draid
       5) insmod draid.ko          (reload for the following test case)
     Module stays loaded afterwards.
     """
     log.write(
-        "Per-case CSD refresh: rmmod -> insmod -> clear all /dev/draid_dbg_accel* "
-        "-> rmmod -> insmod"
+        "Per-case CSD refresh: rmmod -> insmod -> dpraid flash-clear "
+        "--with-cache --force -> rmmod -> insmod"
     )
     unload_draid_module(log)
     load_draid_module(log)

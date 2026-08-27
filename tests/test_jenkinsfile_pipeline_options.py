@@ -132,9 +132,9 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
     ]:
         assert f"runTimedEnvironmentStep(ip, '{label}'" in source
     assert "clear dirty CSD flash via draid accel devices" not in source
-    assert "printf 'CLEAR\\n'" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
-    assert "has_draid_nvme_driver_bound" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
-    assert "DAPU_CSD_LSPCI_MATCH" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
+    clear_script = Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
+    assert "dpraid show" in clear_script
+    assert "flash-clear --with-cache --force" in clear_script
     assert "CONTROL_STEP_TIMEOUT_MINUTES=${CONTROL_STEP_TIMEOUT_MINUTES:-15}" in source
     assert "run_control_step()" in source
     assert 'timeout --kill-after=60s "${CONTROL_STEP_TIMEOUT_MINUTES}m" env' in source
