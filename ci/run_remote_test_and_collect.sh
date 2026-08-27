@@ -76,7 +76,7 @@ fi
 
 # Best-effort remote cleanup/report salvage after kill or normal exit.
 # Keep the monitor pattern out of this SSH cmdline; salvage script uses a self-safe pkill pattern.
-eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && python3 ci/salvage_junit_reports.py --stop-monitor --output report.xml\"" || true
+eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && PYTHONPATH=${REMOTE_DIR} python3 ci/salvage_junit_reports.py --stop-monitor --output report.xml\"" || true
 
 echo "[${NODE_IP}] copy back reports"
 mkdir -p allure-results
@@ -97,7 +97,7 @@ if [ ! -f "${report_file}" ]; then
     for item in ${item_list}; do
         eval "${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report_${item}.xml ${item_dir}/" 2>/dev/null || true
     done
-    python3 ci/salvage_junit_reports.py --from-dir "${item_dir}" --output "${report_file}" || true
+    PYTHONPATH=. python3 ci/salvage_junit_reports.py --from-dir "${item_dir}" --output "${report_file}" || true
     rm -rf "${item_dir}"
 fi
 

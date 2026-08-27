@@ -6,6 +6,27 @@ import nvme_raid_test
 from nvme_raid_test import parse_items_file
 
 
+def test_parse_items_file_rejects_tsd_encrypted_blob(tmp_path):
+    config = tmp_path / "test_items.txt"
+    # Real failure mode on DUT: Windows TSD ciphertext committed into git.
+    config.write_bytes(b"%TSD-Header-###%\x1c\xba" + b"\x00" * 32)
+
+    with pytest.raises(SystemExit) as exc:
+        parse_items_file(config)
+
+    assert exc.value.code == 2
+
+
+def test_parse_items_file_accepts_gb18030(tmp_path):
+    config = tmp_path / "test_items.txt"
+    text = "# 注释\n[selection]\nlawdisk = yes\n"
+    config.write_bytes(text.encode("gb18030"))
+
+    selected, _params = parse_items_file(config)
+
+    assert selected == ["lawdisk"]
+
+
 def test_repository_test_items_file_is_valid():
     config = Path(__file__).resolve().parents[1] / "test_items.txt"
 

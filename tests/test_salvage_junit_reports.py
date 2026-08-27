@@ -23,6 +23,11 @@ def test_merge_from_directory_writes_node_report(tmp_path):
     assert "test_lawdiskstress" in output.read_text(encoding="utf-8")
 
 
+def test_salvage_script_adds_repo_root_to_sys_path():
+    source = Path("ci/salvage_junit_reports.py").read_text(encoding="utf-8")
+    assert "sys.path.insert(0, str(_REPO_ROOT))" in source
+
+
 def test_monitor_pkill_pattern_does_not_embed_plain_path():
     assert salvage_junit_reports.MONITOR_PKILL_PATTERN == "[S]tress_Monitor/main.py"
     source = Path("ci/salvage_junit_reports.py").read_text(encoding="utf-8")

@@ -42,6 +42,27 @@ JUNIT_FINAL = "report.xml"
 CASES_DIR = "cases"
 
 
+def _decode_items_file_bytes(raw, path):
+    """Decode test_items.txt bytes with clear errors for corrupt/encrypted blobs."""
+    if raw.startswith(b"%TSD-Header-###%"):
+        print(
+            f"[ERROR] {path} is encrypted/corrupt (TSD header). "
+            "Git stored ciphertext from a Windows file-encryption agent; "
+            "re-commit plaintext test_items.txt (hash-object --stdin) and redeploy."
+        )
+        sys.exit(2)
+    for encoding in ("utf-8-sig", "utf-8", "gb18030"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    print(
+        f"[ERROR] {path} is not valid utf-8/gb18030 "
+        f"(first_bytes={raw[:24]!r}). Fix file encoding and redeploy."
+    )
+    sys.exit(2)
+
+
 def parse_items_file(path):
     selected = []
     params_map = {}
@@ -52,29 +73,30 @@ def parse_items_file(path):
         print(f"[ERROR] Missing config file: {path}")
         sys.exit(2)
 
-    with open(path, "r", encoding="utf-8") as handle:
-        for raw in handle:
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.startswith("[") and line.endswith("]"):
-                current = line[1:-1].strip().lower()
-                if current != "selection":
-                    params_map.setdefault(current, {})
-                continue
-            if "=" not in line or current is None:
-                continue
+    raw = open(path, "rb").read()
+    text = _decode_items_file_bytes(raw, path)
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            current = line[1:-1].strip().lower()
+            if current != "selection":
+                params_map.setdefault(current, {})
+            continue
+        if "=" not in line or current is None:
+            continue
 
-            key, value = [part.strip() for part in line.split("=", 1)]
-            enabled = value.lower() in ("yes", "y", "true", "1", "on")
-            if current == "selection":
-                if enabled:
-                    selection_items.append(key.strip().lower())
-            elif key.lower() == "enable":
-                if value.lower() == "yes":
-                    selected.append(current)
-            else:
-                params_map[current][key] = value
+        key, value = [part.strip() for part in line.split("=", 1)]
+        enabled = value.lower() in ("yes", "y", "true", "1", "on")
+        if current == "selection":
+            if enabled:
+                selection_items.append(key.strip().lower())
+        elif key.lower() == "enable":
+            if value.lower() == "yes":
+                selected.append(current)
+        else:
+            params_map[current][key] = value
 
     if selection_items:
         selected = selection_items
