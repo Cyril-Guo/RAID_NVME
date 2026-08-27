@@ -183,8 +183,10 @@ def run_single_item(item, params, clean_allure, work_dir=None):
         os.chdir(work_dir)
         from test_items.basic_io_common import CommandLog, release_and_clear_csd
 
-        print(f"[ITEM] per-case CSD refresh before {item}")
+        print(f"[ITEM] ===== CSD refresh before case: {item} =====")
+        print("[ITEM] steps: 1 rmmod | 2 insmod | 3 flash-clear | 4 rmmod | 5 insmod")
         release_and_clear_csd([], CommandLog())
+        print(f"[ITEM] ===== CSD refresh before {item}: OK =====")
     finally:
         os.chdir(previous)
 

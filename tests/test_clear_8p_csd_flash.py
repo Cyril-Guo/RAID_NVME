@@ -9,6 +9,19 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLEAR_SCRIPT = REPO_ROOT / "ci" / "clear_8p_csd_flash.sh"
 
+SHOW_HEADER = (
+    "ID CONTROLLER MODEL              SERIAL NUMBER         "
+    "NUMA STAT     FW_VER  DRIVER_VER"
+)
+SHOW_C0 = (
+    "0  DAPUSTOR DPFP62AA0R1G00105G0B0 SN-825F661183A26F54  "
+    "0    Optimal  FH00310 2.8.1"
+)
+SHOW_C1 = (
+    "1  DAPUSTOR DPFP62AA0R1G00105G0B0 SN-FCD5391A0A17187F  "
+    "0    Optimal  FH00310 2.8.1"
+)
+
 
 def _bash():
     bash = shutil.which("bash")
@@ -61,25 +74,45 @@ def test_clear_runs_flash_clear_on_single_controller(tmp_path):
     fake_dpraid = tmp_path / "dpraid"
     _write_executable(
         fake_dpraid,
-        _fake_dpraid(["0 Online RAID Controller 0"]),
+        _fake_dpraid([SHOW_HEADER, SHOW_C0]),
     )
 
     result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
 
     assert result.returncode == 0, result.stderr + result.stdout
     assert "dpraid show" in result.stdout
-    assert "flash-clear controllers: 0" in result.stdout
-    assert "flash-clear /c0 --with-cache --force" in result.stdout
+    assert "found 1 controller(s): /c0" in result.stdout
+    assert "[OK] /c0 flash-clear --with-cache --force succeeded" in result.stdout
+    assert "flash-clear /c1" not in result.stdout
 
 
 def test_clear_runs_flash_clear_on_two_controllers(tmp_path):
     fake_dpraid = tmp_path / "dpraid"
     _write_executable(
         fake_dpraid,
+        _fake_dpraid([SHOW_HEADER, SHOW_C0, SHOW_C1]),
+    )
+
+    result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "found 2 controller(s): /c0 /c1" in result.stdout
+    assert "[OK] /c0 flash-clear --with-cache --force succeeded" in result.stdout
+    assert "[OK] /c1 flash-clear --with-cache --force succeeded" in result.stdout
+
+
+def test_clear_ignores_numeric_rows_outside_controller_table(tmp_path):
+    fake_dpraid = tmp_path / "dpraid"
+    _write_executable(
+        fake_dpraid,
         _fake_dpraid(
             [
-                "0 Online RAID Controller 0",
-                "1 Online RAID Controller 1",
+                SHOW_HEADER,
+                SHOW_C0,
+                "",
+                "DID STATE SIZE",
+                "0 UnGo 6400GB",
+                "1 UnGo 6400GB",
             ]
         ),
     )
@@ -87,9 +120,8 @@ def test_clear_runs_flash_clear_on_two_controllers(tmp_path):
     result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
 
     assert result.returncode == 0, result.stderr + result.stdout
-    assert "flash-clear controllers: 0 1" in result.stdout
-    assert "flash-clear /c0 --with-cache --force" in result.stdout
-    assert "flash-clear /c1 --with-cache --force" in result.stdout
+    assert "found 1 controller(s): /c0" in result.stdout
+    assert "/c1 flash-clear" not in result.stdout
 
 
 def test_clear_fails_when_dpraid_show_fails(tmp_path):
@@ -124,4 +156,4 @@ exit 1
     result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
 
     assert result.returncode != 0
-    assert "no draid controllers found" in result.stderr
+    assert "no controllers parsed from dpraid show" in result.stderr

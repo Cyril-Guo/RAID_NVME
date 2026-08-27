@@ -418,7 +418,7 @@ def draid_module_candidates(log):
 
 def unload_draid_module(log):
     """Unload draid before/after CSD flash/cache clear."""
-    log.write("Unload draid module")
+    log.write("[CSD] unload draid module")
     for candidate in draid_module_candidates(log):
         loaded = run_cmd(f"grep -q '^{candidate} ' /proc/modules", log, check=False, shell=True)
         if loaded.returncode != 0:
@@ -429,20 +429,23 @@ def unload_draid_module(log):
     for candidate in draid_module_candidates(log):
         still = run_cmd(f"grep -q '^{candidate} ' /proc/modules", log, check=False, shell=True)
         if still.returncode == 0:
-            raise AssertionError(f"draid module still loaded after unload attempt: {candidate}")
-    log.write("draid module unloaded (or was not loaded)")
+            raise AssertionError(
+                f"[CSD] FAIL: draid still loaded after unload attempt: {candidate}"
+            )
+    log.write("[CSD] OK: draid unloaded (or was not loaded)")
 
 
 def load_draid_module(log):
     """Reload draid so subsequent add disk/VD (and flash-clear) can proceed."""
     ko = draid_ko_path()
     if not ko.is_file():
-        raise AssertionError(f"draid.ko not found: {ko}")
-    log.write(f"Load draid module from {ko}")
+        raise AssertionError(f"[CSD] FAIL: draid.ko not found: {ko}")
+    log.write(f"[CSD] load draid module: insmod {ko}")
     run_cmd(["sync"], log, check=False)
     run_cmd("echo 3 > /proc/sys/vm/drop_caches", log, check=False, shell=True)
     result = run_cmd(["insmod", str(ko)], log, check=False)
     if result.returncode != 0:
+        log.write("[CSD] first insmod failed; drop_caches + retry")
         run_cmd(["sync"], log, check=False)
         run_cmd("echo 3 > /proc/sys/vm/drop_caches", log, check=False, shell=True)
         run_cmd(["sleep", "2"], log, check=False)
@@ -452,8 +455,8 @@ def load_draid_module(log):
     if loaded.returncode != 0:
         loaded = run_cmd("grep -q '^draid ' /proc/modules", log, check=False, shell=True)
     if loaded.returncode != 0:
-        raise AssertionError(f"draid module not loaded after insmod: {ko}")
-    log.write("draid module loaded")
+        raise AssertionError(f"[CSD] FAIL: draid not loaded after insmod: {ko}")
+    log.write(f"[CSD] OK: draid loaded ({module_name})")
 
 
 def clear_csd_flash_and_cache(disks, log, force=False):
@@ -466,12 +469,12 @@ def clear_csd_flash_and_cache(disks, log, force=False):
     del disks, force  # controller discovery is inside clear_8p_csd_flash.sh
     script = clear_8p_script_path()
     if not script.is_file():
-        raise AssertionError(f"clear_8p script not found: {script}")
+        raise AssertionError(f"[CSD] FAIL: clear script not found: {script}")
     log.write(
-        "Clear CSD flash+cache: dpraid show -> flash-clear --with-cache --force per controller"
+        "[CSD] run clear script: dpraid show -> flash-clear --with-cache --force per /cX"
     )
     run_cmd(["bash", str(script)], log, check=True)
-    log.write("CSD flash+cache clear finished")
+    log.write("[CSD] OK: flash-clear finished")
 
 
 def release_and_clear_csd(disks, log):
@@ -485,15 +488,38 @@ def release_and_clear_csd(disks, log):
       5) insmod draid.ko          (reload for the following test case)
     Module stays loaded afterwards.
     """
-    log.write(
-        "Per-case CSD refresh: rmmod -> insmod -> dpraid flash-clear "
-        "--with-cache --force -> rmmod -> insmod"
-    )
+    log.write("")
+    log.write("========== Per-case CSD refresh (5 steps) ==========")
+    log.write("  1/5 rmmod draid")
+    log.write("  2/5 insmod draid.ko")
+    log.write("  3/5 dpraid show -> /cX flash-clear --with-cache --force")
+    log.write("  4/5 rmmod draid")
+    log.write("  5/5 insmod draid.ko (leave loaded for next case)")
+    log.write("====================================================")
+
+    log.write("")
+    log.write("----- [CSD step 1/5] rmmod draid -----")
     unload_draid_module(log)
+
+    log.write("")
+    log.write("----- [CSD step 2/5] insmod draid.ko -----")
     load_draid_module(log)
+
+    log.write("")
+    log.write("----- [CSD step 3/5] dpraid flash-clear --with-cache --force -----")
     clear_csd_flash_and_cache(disks, log, force=True)
+
+    log.write("")
+    log.write("----- [CSD step 4/5] rmmod draid -----")
     unload_draid_module(log)
+
+    log.write("")
+    log.write("----- [CSD step 5/5] insmod draid.ko -----")
     load_draid_module(log)
+
+    log.write("")
+    log.write("========== Per-case CSD refresh DONE (OK) ==========")
+    log.write("")
 
 
 def add_physical_disks(disks, log):
