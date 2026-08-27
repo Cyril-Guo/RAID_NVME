@@ -177,6 +177,17 @@ def run_single_item(item, params, clean_allure, work_dir=None):
         os.environ[key] = value
         print(f"  [CONFIG] {key}={value}")
 
+    # Every case: rmmod draid -> insmod -> force clear all /dev/draid_dbg_accel*.
+    previous = os.getcwd()
+    try:
+        os.chdir(work_dir)
+        from test_items.basic_io_common import CommandLog, release_and_clear_csd
+
+        print(f"[ITEM] per-case CSD refresh before {item}")
+        release_and_clear_csd([], CommandLog())
+    finally:
+        os.chdir(previous)
+
     pytest_args = ["-v", "-s", "--tb=short"]
     if importlib.util.find_spec("allure_pytest") is not None:
         pytest_args.append(f"--alluredir={ALLURE_DIR}")

@@ -91,6 +91,10 @@ def test_run_single_item_omits_allure_args_without_plugin(monkeypatch):
 
     monkeypatch.setattr(nvme_raid_test.importlib.util, "find_spec", lambda name: None)
     monkeypatch.setattr(nvme_raid_test.pytest, "main", fake_pytest_main)
+    monkeypatch.setattr(
+        "test_items.basic_io_common.release_and_clear_csd",
+        lambda disks, log: None,
+    )
 
     assert nvme_raid_test.run_single_item("lawdisk", {}, clean_allure=True) == 0
 
@@ -109,6 +113,10 @@ def test_run_single_item_supports_basic_io(monkeypatch):
 
     monkeypatch.setattr(nvme_raid_test.importlib.util, "find_spec", lambda name: None)
     monkeypatch.setattr(nvme_raid_test.pytest, "main", fake_pytest_main)
+    monkeypatch.setattr(
+        "test_items.basic_io_common.release_and_clear_csd",
+        lambda disks, log: None,
+    )
 
     assert nvme_raid_test.run_single_item("basic_io", {"IGNORE_ERROR": "no"}, clean_allure=False) == 0
 

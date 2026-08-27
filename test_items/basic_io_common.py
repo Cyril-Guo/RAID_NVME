@@ -154,7 +154,7 @@ class CommandLog:
         allure.attach("\n".join(self.lines), name=name, attachment_type=allure.attachment_type.TEXT)
 
 
-def run_cmd(cmd, log, check=True, shell=False):
+def run_cmd(cmd, log, check=True, shell=False, env=None):
     display = cmd if isinstance(cmd, str) else " ".join(cmd)
     log.write(f"$ {display}")
     result = subprocess.run(
@@ -163,6 +163,7 @@ def run_cmd(cmd, log, check=True, shell=False):
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        env=env,
     )
     if result.stdout:
         for line in result.stdout.rstrip("\n").splitlines():
@@ -474,42 +475,42 @@ def load_draid_module(log):
     log.write("draid module loaded")
 
 
-def ensure_draid_module_loaded(log):
-    """Load draid if needed so /dev/draid_dbg_accel* nodes exist for CSD clear."""
-    for candidate in draid_module_candidates(log):
-        loaded = run_cmd(f"grep -q '^{candidate} ' /proc/modules", log, check=False, shell=True)
-        if loaded.returncode == 0:
-            log.write(f"draid module already loaded: {candidate}")
-            return
-    load_draid_module(log)
+def clear_csd_flash_and_cache(disks, log, force=False):
+    """Clear CSD flash+cache via /dev/draid_dbg_accel* before rebuilding VDs.
 
-
-def clear_csd_flash_and_cache(disks, log):
-    """Clear only dirty CSD flash+cache before rebuilding VDs.
-
-    Uses clear_8p_csd_flash.sh: detect dirty DAPU CSD (Device 50d1) via lspci
-    when "Kernel driver in use: draid-nvme" is missing, then clear ALL
-    /dev/draid_dbg_accel* devices (no nvmeN index mapping).
-    Healthy TB-scale data drives are never cleared.
-    If no dirty CSD is present the helper exits 0 and this is a no-op.
+    Uses clear_8p_csd_flash.sh. By default only clears when lspci shows DAPU
+    Device 50d1 without "Kernel driver in use: draid-nvme". With force=True,
+    always clears ALL /dev/draid_dbg_accel* (used for per-case refresh after
+    rmmod/insmod, when devices are already rebound).
     Caller must ensure draid is loaded with ACCEL_CDEV=y first.
     """
     del disks  # discovery is done inside clear_8p_csd_flash.sh
     script = clear_8p_script_path()
     if not script.is_file():
         raise AssertionError(f"clear_8p script not found: {script}")
-    log.write(
-        "Clear dirty CSD flash+cache on ALL draid accel devices "
-        "(lspci DAPU Device 50d1 without draid-nvme driver)"
-    )
-    run_cmd(["bash", str(script)], log, check=True)
-    log.write("Dirty CSD flash+cache clear finished (or skipped: none dirty)")
+    env = os.environ.copy()
+    if force:
+        env["FORCE_CLEAR_ALL"] = "1"
+        log.write("Force clear ALL draid accel devices (per-case CSD flash+cache refresh)")
+    else:
+        log.write(
+            "Clear dirty CSD flash+cache on ALL draid accel devices "
+            "(lspci DAPU Device 50d1 without draid-nvme driver)"
+        )
+    run_cmd(["bash", str(script)], log, check=True, env=env)
+    log.write("CSD flash+cache clear finished (or skipped: none dirty)")
 
 
 def release_and_clear_csd(disks, log):
-    """Ensure draid is loaded, then clear dirty CSD flash+cache via draid accel devices."""
-    ensure_draid_module_loaded(log)
-    clear_csd_flash_and_cache(disks, log)
+    """Per-case CSD refresh: rmmod draid -> insmod -> clear all accel devices.
+
+    Accel char nodes only exist while draid is loaded, so clear runs after
+    insmod. Module stays loaded for the following test case work.
+    """
+    log.write("Per-case CSD refresh: rmmod draid -> insmod -> clear all /dev/draid_dbg_accel*")
+    unload_draid_module(log)
+    load_draid_module(log)
+    clear_csd_flash_and_cache(disks, log, force=True)
 
 
 def add_physical_disks(disks, log):
@@ -706,7 +707,6 @@ def prepare_multi_raid_vds(log, logical_block_size=None):
         raise AssertionError(
             f"Need at least {MIN_MULTI_RAID_DISKS} non-system NVMe disks, got {len(nvme_disks)}"
         )
-    release_and_clear_csd(nvme_disks, log)
     add_physical_disks(nvme_disks, log)
     physical_output = show_physical_devices(log)
     disks = []
@@ -749,7 +749,6 @@ def prepare_basic_raid5_vds(log, logical_block_size=None):
         if disk.size_gb > 0:
             query_bdf(disk, log)
     nvme_disks = discover_nvme_data_disks(log, nvme_inventory_disks)
-    release_and_clear_csd(nvme_disks, log)
     add_physical_disks(nvme_disks, log)
     physical_output = show_physical_devices(log)
     disks = []

@@ -404,14 +404,7 @@ DG/VD  State  Consist TYPE
     monkeypatch.setattr(basic_io_common, "show_virtual_devices", lambda log: next(show_virtual_outputs))
     monkeypatch.setattr(basic_io_common, "discover_nvme_data_disks", lambda log, inventory_disks=None: nvme_disks)
 
-    released = []
-
-    def fake_release_and_clear(disks, log):
-        released.append([disk.controller for disk in disks])
-
-    monkeypatch.setattr(basic_io_common, "release_and_clear_csd", fake_release_and_clear)
-
-    def fake_run_cmd(cmd, log, check=True, shell=False):
+    def fake_run_cmd(cmd, log, check=True, shell=False, env=None):
         calls.append(cmd)
 
         class Result:
@@ -431,7 +424,6 @@ DG/VD  State  Consist TYPE
     ] + [["dpraid", f"/c0/eall/s{i}", "delete"] for i in range(15)]
     assert calls[: len(expected_cleanup)] == expected_cleanup
     assert calls[len(expected_cleanup)] == ["nvme", "list"]
-    assert released == [[f"nvme{i}" for i in range(15)]]
     assert ["dpraid", "/c0", "add", "disk", "/dev/nvme0"] in calls
     assert len(disks) == 15
     assert [len(group) for group in groups] == [7, 8]
@@ -447,8 +439,8 @@ def test_clear_csd_flash_and_cache_only_runs_dirty_csd_helper(monkeypatch):
         NvmeDisk(namespace="nvme1n1", controller="nvme1", size_gb=Decimal("6400")),
     ]
 
-    def fake_run_cmd(cmd, log, check=True, shell=False):
-        calls.append((cmd, shell))
+    def fake_run_cmd(cmd, log, check=True, shell=False, env=None):
+        calls.append((cmd, shell, env))
 
         class Result:
             stdout = ""
@@ -460,20 +452,21 @@ def test_clear_csd_flash_and_cache_only_runs_dirty_csd_helper(monkeypatch):
     basic_io_common.clear_csd_flash_and_cache(disks, CommandLog())
 
     assert len(calls) == 1
-    cmd, shell = calls[0]
+    cmd, shell, env = calls[0]
     assert shell is False
     assert cmd[0] == "bash"
     assert "clear_8p_csd_flash.sh" in cmd[1]
+    assert env is None or env.get("FORCE_CLEAR_ALL") != "1"
     assert "flash-clear.sh" not in " ".join(cmd if isinstance(cmd, list) else [cmd])
 
 
-def test_release_and_clear_csd_loads_draid_then_clears_without_unload(monkeypatch):
+def test_release_and_clear_csd_rmmod_insmod_then_force_clears(monkeypatch):
     calls = []
     disks = [NvmeDisk(namespace="nvme2n1", controller="nvme2", size_gb=Decimal("1000"))]
     draid_loaded = {"value": True}
 
-    def fake_run_cmd(cmd, log, check=True, shell=False):
-        calls.append(cmd)
+    def fake_run_cmd(cmd, log, check=True, shell=False, env=None):
+        calls.append((cmd, env))
 
         class Result:
             stdout = ""
@@ -496,18 +489,19 @@ def test_release_and_clear_csd_loads_draid_then_clears_without_unload(monkeypatc
 
     basic_io_common.release_and_clear_csd(disks, CommandLog())
 
-    assert ["rmmod", "draid"] not in calls
+    rmmod_idx = next(i for i, (cmd, _) in enumerate(calls) if cmd == ["rmmod", "draid"])
+    insmod_idx = next(
+        i for i, (cmd, _) in enumerate(calls) if isinstance(cmd, list) and cmd and cmd[0] == "insmod"
+    )
     clear_idx = next(
         i
-        for i, cmd in enumerate(calls)
-        if isinstance(cmd, list) and len(cmd) >= 2 and "clear_8p_csd_flash.sh" in str(cmd[1])
+        for i, (cmd, env) in enumerate(calls)
+        if isinstance(cmd, list)
+        and len(cmd) >= 2
+        and "clear_8p_csd_flash.sh" in str(cmd[1])
     )
-    grep_idx = next(
-        i
-        for i, cmd in enumerate(calls)
-        if isinstance(cmd, str) and "grep -q '^draid ' /proc/modules" in cmd
-    )
-    assert grep_idx < clear_idx
+    assert rmmod_idx < insmod_idx < clear_idx
+    assert calls[clear_idx][1]["FORCE_CLEAR_ALL"] == "1"
     assert draid_loaded["value"] is True
 
 
