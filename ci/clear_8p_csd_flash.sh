@@ -92,7 +92,13 @@ list_all_draid_accel_devices() {
     fi
 }
 
-if ! any_dirty_dapu_csd; then
+need_clear=0
+if [ "${FORCE_CLEAR_ALL:-0}" = "1" ]; then
+    echo "[${NODE_IP}] FORCE_CLEAR_ALL=1: clear all /dev/${DRAID_ACCEL_DEV_PREFIX}* without dirty check"
+    need_clear=1
+elif any_dirty_dapu_csd; then
+    need_clear=1
+else
     echo "[${NODE_IP}] no dirty DAPU CSD devices (all bound to ${DRAID_NVME_DRIVER}); skip CSD flash clear"
     exit 0
 fi
@@ -100,7 +106,11 @@ fi
 list_all_draid_accel_devices
 
 if [ "${#DRAID_DEVICES[@]}" -eq 0 ]; then
-    echo "[${NODE_IP}] ERROR: dirty DAPU CSD found but no /dev/${DRAID_ACCEL_DEV_PREFIX}* devices (load draid.ko with ACCEL_CDEV=y first)" >&2
+    if [ "${FORCE_CLEAR_ALL:-0}" = "1" ]; then
+        echo "[${NODE_IP}] ERROR: FORCE_CLEAR_ALL=1 but no /dev/${DRAID_ACCEL_DEV_PREFIX}* devices (load draid.ko with ACCEL_CDEV=y first)" >&2
+    else
+        echo "[${NODE_IP}] ERROR: dirty DAPU CSD found but no /dev/${DRAID_ACCEL_DEV_PREFIX}* devices (load draid.ko with ACCEL_CDEV=y first)" >&2
+    fi
     exit 1
 fi
 

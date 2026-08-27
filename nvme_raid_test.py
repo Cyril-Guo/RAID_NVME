@@ -732,6 +732,18 @@ def run_single_item(
         os.environ[key] = value
         print(f"  [CONFIG] {key}={value}")
 
+    # Every case except env_prepare: rmmod draid -> insmod -> force clear all accel.
+    if item != "env_prepare":
+        previous_clear = os.getcwd()
+        try:
+            os.chdir(work_dir)
+            from test_items.basic_io_common import CommandLog, release_and_clear_csd
+
+            print(f"[ITEM] per-case CSD refresh before {item}")
+            release_and_clear_csd([], CommandLog())
+        finally:
+            os.chdir(previous_clear)
+
     pytest_args = ["-v", "-s", "--tb=short"]
     if importlib.util.find_spec("allure_pytest") is not None:
         pytest_args.append(f"--alluredir={ALLURE_DIR}")

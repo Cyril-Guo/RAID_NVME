@@ -178,6 +178,41 @@ def test_clear_fails_when_dirty_but_no_accel_devices(tmp_path):
     assert "no /dev/draid_dbg_accel*" in result.stderr
 
 
+def test_clear_force_all_skips_dirty_check(tmp_path):
+    fake_flash_clear = tmp_path / "flash-clear.sh"
+    _write_executable(
+        fake_flash_clear,
+        """#!/usr/bin/env bash
+read -r confirm
+printf 'devices=%s\\n' "$*"
+""",
+    )
+    fake_lspci = tmp_path / "lspci"
+    _write_executable(
+        fake_lspci,
+        _fake_lspci_with_driver(
+            {
+                "0000:95:00.0": "draid-nvme",
+                "0000:96:00.0": "draid-nvme",
+            }
+        ),
+    )
+
+    result = _run_clear(
+        tmp_path,
+        {
+            "LSPCI_BIN": str(fake_lspci).replace("\\", "/"),
+            "FLASH_CLEAR_SCRIPT": str(fake_flash_clear).replace("\\", "/"),
+            "DRAID_ACCEL_DEVICES": "/dev/draid_dbg_accel0 /dev/draid_dbg_accel1",
+            "FORCE_CLEAR_ALL": "1",
+        },
+    )
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "FORCE_CLEAR_ALL=1" in result.stdout
+    assert "devices=/dev/draid_dbg_accel0 /dev/draid_dbg_accel1" in result.stdout
+
+
 def test_clear_skips_when_no_dapu_csd_devices(tmp_path):
     fake_lspci = tmp_path / "lspci"
     _write_executable(
