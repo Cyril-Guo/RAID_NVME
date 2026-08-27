@@ -264,7 +264,7 @@ HOST_EXTRACT
 set -euo pipefail
 command -v make >/dev/null 2>&1 || { echo "make is required on QEMU host for draid build" >&2; exit 1; }
 command -v gcc >/dev/null 2>&1 || { echo "gcc is required on QEMU host for draid build" >&2; exit 1; }
-make -C "${QEMU_KERNEL_BUILD_DIR}" M="${host_build_dir}" modules
+make -C "${QEMU_KERNEL_BUILD_DIR}" M="${host_build_dir}" -j 8 ACCEL_CDEV=y modules
 test -f "${host_build_dir}/draid.ko"
 cp -f "${host_build_dir}/draid.ko" "${host_module}"
 HOST_BUILD
@@ -280,7 +280,7 @@ else
     target_ssh "REMOTE_DIR='${REMOTE_DIR}' bash -s" <<'REMOTE_BUILD'
 set -euo pipefail
 cd "${REMOTE_DIR}/kernel_driver/drivers/draid"
-make
+make -j 8 ACCEL_CDEV=y
 test -f ./draid.ko
 REMOTE_BUILD
     reload_remote_module
