@@ -7,7 +7,8 @@ def test_prepare_env_script_covers_smoke_physical_steps():
     assert "reclaim_physical_host.sh" in source
     assert "clear_8p_csd_flash.sh" in source
     assert "flash-clear.sh" in source
-    assert "clear dirty CSD flash via draid accel devices" in source
+    assert "FORCE_CLEAR_ALL=1" in source
+    assert "SMOKE 5-step" in source
     assert "artifacts/dpraid" in source
     assert "rmmod" in source
     assert "insmod" in source
@@ -18,11 +19,19 @@ def test_prepare_env_script_covers_smoke_physical_steps():
     assert "install_draid_build_deps" in source
     assert "ripgrep" in source
     assert "make -j 8 ACCEL_CDEV=y" in source
-    # reclaim -> dpraid -> draid load -> CSD clear -> restore VD/PD
-    assert source.index("reclaim_physical_host.sh") < source.index("insmod ./draid.ko")
-    assert source.index("insmod ./draid.ko") < source.index("clear_8p_csd_flash.sh")
-    assert source.index("clear_8p_csd_flash.sh") < source.index("restore_physical_raid_state.sh")
+    assert "unload_draid_module" in source
+    assert "load_draid_module" in source
+    # reclaim -> dpraid -> make -> SMOKE 5-step clear -> restore VD/PD
+    assert source.index("reclaim_physical_host.sh") < source.index("make -j 8 ACCEL_CDEV=y")
+    assert source.index("make -j 8 ACCEL_CDEV=y") < source.index("FORCE_CLEAR_ALL=1")
+    assert source.index("FORCE_CLEAR_ALL=1") < source.index("restore_physical_raid_state.sh")
     assert source.index("install_draid_build_deps") < source.index("make -j 8 ACCEL_CDEV=y")
+    # 5-step order inside CSD clear: unload, load, FORCE clear, unload, load
+    clear_section = source[source.index("(4/5)") : source.index("(5/5)")]
+    assert clear_section.index("unload_draid_module") < clear_section.index("load_draid_module")
+    assert clear_section.index("load_draid_module") < clear_section.index("FORCE_CLEAR_ALL=1")
+    assert clear_section.index("FORCE_CLEAR_ALL=1") < clear_section.rindex("unload_draid_module")
+    assert clear_section.rindex("unload_draid_module") < clear_section.rindex("load_draid_module")
 
 
 def test_reclaim_physical_host_stops_qemu_unloads_draid_and_unbinds_vfio():

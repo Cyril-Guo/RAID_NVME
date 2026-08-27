@@ -512,7 +512,7 @@ def release_and_clear_csd(disks, log):
       5) insmod draid.ko          (reload afterwards)
     Module stays loaded afterwards.
 
-    CI env_prepare uses prepare_env.sh (dirty-check clear) instead of this helper.
+    CI env_prepare mirrors this sequence inside prepare_env.sh.
     """
     log.write(
         "CSD refresh: rmmod -> insmod -> clear all /dev/draid_dbg_accel* "
@@ -528,8 +528,9 @@ def release_and_clear_csd(disks, log):
 def run_env_prepare(log):
     """DUT environment prepare used by the env_prepare test case.
 
-    Runs ci/prepare_env.sh: reclaim host, install dpraid, rebuild/reload draid,
-    clear dirty CSD flash via accel devices, then clear leftover VD/PD.
+    Runs ci/prepare_env.sh: reclaim host, install dpraid, rebuild draid,
+    SMOKE-aligned CSD clear (rmmod/insmod/FORCE clear/rmmod/insmod), then
+    clear leftover VD/PD.
     """
     repo_root = Path(__file__).resolve().parents[1]
     script = repo_root / "ci" / "prepare_env.sh"
@@ -539,7 +540,9 @@ def run_env_prepare(log):
     env = os.environ.copy()
     env.setdefault("REMOTE_DIR", str(repo_root))
     env.setdefault("NODE_IP", env.get("NODE_IP", "local"))
-    log.write("phase: env_prepare (dpraid / draid reload / CSD clear / VD-PD clear)")
+    log.write(
+        "phase: env_prepare (dpraid / draid build / SMOKE 5-step CSD clear / VD-PD clear)"
+    )
     run_cmd(["bash", str(script)], log, check=True, shell=False, env=env)
 
 

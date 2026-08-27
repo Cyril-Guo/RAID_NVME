@@ -3,8 +3,8 @@
 # Sequence (physical host):
 #   reclaim host from QEMU (stop VM / unload draid / unbind vfio)
 #   -> install dpraid
-#   -> build/reload draid (ACCEL_CDEV=y exposes /dev/draid_dbg_accel*)
-#   -> clear dirty CSD flash via draid accel devices
+#   -> build draid (ACCEL_CDEV=y exposes /dev/draid_dbg_accel*)
+#   -> CSD flash clear (SMOKE 5-step: rmmod -> insmod -> FORCE clear -> rmmod -> insmod)
 #   -> restore VD/PD
 set -euo pipefail
 
@@ -42,7 +42,7 @@ else
 fi
 /usr/bin/dpraid --help >/dev/null
 
-echo "[${NODE_IP}] (3/5) rebuild and reload draid (rmmod/insmod)"
+echo "[${NODE_IP}] (3/5) rebuild draid.ko (ACCEL_CDEV=y)"
 test -d "${DRAID_DIR}" || {
     echo "[${NODE_IP}] ERROR: draid source dir missing: ${DRAID_DIR}" >&2
     exit 1
@@ -99,12 +99,20 @@ install_draid_build_deps
     cd "${DRAID_DIR}"
     make -j 8 ACCEL_CDEV=y
     test -f ./draid.ko
-    module_name=$(modinfo -F name ./draid.ko 2>/dev/null || true)
-    module_name=${module_name:-draid}
-    echo "[${NODE_IP}] draid.ko module name: ${module_name}"
+)
+
+draid_module_name() {
+    local name
+    name=$(modinfo -F name "${DRAID_DIR}/draid.ko" 2>/dev/null || true)
+    printf '%s\n' "${name:-draid}"
+}
+
+unload_draid_module() {
+    local module_name candidate
+    module_name=$(draid_module_name)
     for candidate in "${module_name}" draid; do
         if [ -n "${candidate}" ] && grep -q "^${candidate} " /proc/modules; then
-            rmmod "${candidate}" || modprobe -r "${candidate}"
+            rmmod "${candidate}" || modprobe -r "${candidate}" || true
         fi
     done
     for candidate in "${module_name}" draid; do
@@ -114,21 +122,39 @@ install_draid_build_deps
             exit 1
         fi
     done
+}
+
+load_draid_module() {
+    local module_name
+    module_name=$(draid_module_name)
+    test -f "${DRAID_DIR}/draid.ko"
     sync || true
     echo 3 >/proc/sys/vm/drop_caches 2>/dev/null || true
-    if ! insmod ./draid.ko; then
-        sync || true
-        echo 3 >/proc/sys/vm/drop_caches 2>/dev/null || true
-        sleep 2
-        insmod ./draid.ko
-    fi
+    (
+        cd "${DRAID_DIR}"
+        if ! insmod ./draid.ko; then
+            sync || true
+            echo 3 >/proc/sys/vm/drop_caches 2>/dev/null || true
+            sleep 2
+            insmod ./draid.ko
+        fi
+    )
     grep -q "^${module_name} " /proc/modules
     echo "[${NODE_IP}] draid module loaded: ${module_name}"
-)
+}
 
-echo "[${NODE_IP}] (4/5) clear dirty CSD flash via draid accel devices"
+echo "[${NODE_IP}] (4/5) CSD flash clear (SMOKE 5-step: rmmod -> insmod -> FORCE clear -> rmmod -> insmod)"
 chmod +x "${SCRIPT_DIR}/clear_8p_csd_flash.sh" "${SCRIPT_DIR}/flash-clear.sh" 2>/dev/null || true
-NODE_IP="${NODE_IP}" "${SCRIPT_DIR}/clear_8p_csd_flash.sh"
+# 1) rmmod
+unload_draid_module
+# 2) insmod (recreate /dev/draid_dbg_accel*)
+load_draid_module
+# 3) FORCE clear all accel devices
+FORCE_CLEAR_ALL=1 NODE_IP="${NODE_IP}" "${SCRIPT_DIR}/clear_8p_csd_flash.sh"
+# 4) rmmod
+unload_draid_module
+# 5) insmod (leave loaded for following cases)
+load_draid_module
 
 echo "[${NODE_IP}] (5/5) clear leftover VD/PD"
 chmod +x "${SCRIPT_DIR}/restore_physical_raid_state.sh"
