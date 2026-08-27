@@ -17,9 +17,12 @@ def test_prepare_env_script_covers_smoke_physical_steps():
     assert "build-essential" in source
     assert "install_draid_build_deps" in source
     assert "ripgrep" in source
-    # reclaim must happen before CSD flash clear
+    assert "make -j 8 ACCEL_CDEV=y" in source
+    assert "namespace_to_draid_device" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
+    # reclaim -> dpraid -> draid load -> CSD clear via draid accel devices
     assert source.index("reclaim_physical_host.sh") < source.index("clear_8p_csd_flash.sh")
-    assert source.index("install_draid_build_deps") < source.index("\n    make\n")
+    assert source.index("insmod ./draid.ko") < source.index("clear_8p_csd_flash.sh")
+    assert source.index("install_draid_build_deps") < source.index("make -j 8 ACCEL_CDEV=y")
 
 
 def test_reclaim_physical_host_stops_qemu_unloads_draid_and_unbinds_vfio():

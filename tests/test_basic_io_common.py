@@ -1,20 +1,32 @@
 from decimal import Decimal
+from pathlib import Path
+
+import pytest
 
 from test_items import basic_io_common
 from test_items.basic_io_common import (
     EXCLUDED_NVME_MODELS,
     CommandLog,
+    MIN_MULTI_RAID_DISKS,
+    MULTI_RAID_VD_COUNT,
     NvmeDisk,
     create_raid5_vds,
+    create_raid_vds,
     drives_expr,
+    expected_degraded_vd_count,
     parse_dpraid_physical_devices,
     parse_dpraid_slots,
     parse_dpraid_virtual_ids,
     parse_lsblk_pairs,
     parse_nvme_list,
+    partition_disks_for_multi_raid,
     prepare_basic_raid5_vds,
+    resolve_logical_block_size,
     split_groups,
+    usable_capacity_gb,
+    vd_create_cmd,
     vd_size,
+    vd_size_gb_for_raid,
 )
 
 
@@ -187,6 +199,33 @@ def test_raid5_vd_size_uses_raid5_usable_capacity_divided_by_four():
 
     assert vd_size(group) == "675GB"
     assert drives_expr(group) == "0-3"
+
+
+def test_resolve_logical_block_size_accepts_512_and_4096(monkeypatch):
+    monkeypatch.delenv("LOGICAL_BLOCK_SIZE", raising=False)
+    assert resolve_logical_block_size() == 512
+    assert resolve_logical_block_size("4096") == 4096
+    monkeypatch.setenv("LOGICAL_BLOCK_SIZE", "4096")
+    assert resolve_logical_block_size() == 4096
+
+
+def test_resolve_logical_block_size_rejects_invalid_value():
+    with pytest.raises(AssertionError, match="LOGICAL_BLOCK_SIZE must be one of"):
+        resolve_logical_block_size("1024")
+
+
+def test_vd_create_cmd_includes_logical_block_size():
+    assert vd_create_cmd("0-5", 6512, 4096) == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=5",
+        "Size=6512GB",
+        "Strip=4",
+        "LogicalBlockSize=4096",
+        "drives=0-5",
+    ]
 
 
 def test_create_raid5_vds_splits_15_disks_into_7_and_8_disk_groups(monkeypatch):
@@ -365,6 +404,13 @@ DG/VD  State  Consist TYPE
     monkeypatch.setattr(basic_io_common, "show_virtual_devices", lambda log: next(show_virtual_outputs))
     monkeypatch.setattr(basic_io_common, "discover_nvme_data_disks", lambda log, inventory_disks=None: nvme_disks)
 
+    released = []
+
+    def fake_release_and_clear(disks, log):
+        released.append([disk.controller for disk in disks])
+
+    monkeypatch.setattr(basic_io_common, "release_and_clear_csd", fake_release_and_clear)
+
     def fake_run_cmd(cmd, log, check=True, shell=False):
         calls.append(cmd)
 
@@ -384,15 +430,85 @@ DG/VD  State  Consist TYPE
         ["dpraid", "/c0/v8", "delete"],
     ] + [["dpraid", f"/c0/eall/s{i}", "delete"] for i in range(15)]
     assert calls[: len(expected_cleanup)] == expected_cleanup
-    assert ["rmmod", "draid"] not in calls
-    assert ["insmod", "kernel_driver/drivers/draid/draid.ko"] not in calls
     assert calls[len(expected_cleanup)] == ["nvme", "list"]
+    assert released == [[f"nvme{i}" for i in range(15)]]
     assert ["dpraid", "/c0", "add", "disk", "/dev/nvme0"] in calls
     assert len(disks) == 15
     assert [len(group) for group in groups] == [7, 8]
     assert vd_output == "vd output"
     assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "LogicalBlockSize=512", "drives=0-6"] in calls
     assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=512", "drives=7-14"] in calls
+
+
+def test_clear_csd_flash_and_cache_only_runs_dirty_csd_helper(monkeypatch):
+    calls = []
+    disks = [
+        NvmeDisk(namespace="nvme0n1", controller="nvme0", size_gb=Decimal("6400")),
+        NvmeDisk(namespace="nvme1n1", controller="nvme1", size_gb=Decimal("6400")),
+    ]
+
+    def fake_run_cmd(cmd, log, check=True, shell=False):
+        calls.append((cmd, shell))
+
+        class Result:
+            stdout = ""
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+    basic_io_common.clear_csd_flash_and_cache(disks, CommandLog())
+
+    assert len(calls) == 1
+    cmd, shell = calls[0]
+    assert shell is False
+    assert cmd[0] == "bash"
+    assert "clear_8p_csd_flash.sh" in cmd[1]
+    assert "flash-clear.sh" not in " ".join(cmd if isinstance(cmd, list) else [cmd])
+
+
+def test_release_and_clear_csd_loads_draid_then_clears_without_unload(monkeypatch):
+    calls = []
+    disks = [NvmeDisk(namespace="nvme2n1", controller="nvme2", size_gb=Decimal("1000"))]
+    draid_loaded = {"value": True}
+
+    def fake_run_cmd(cmd, log, check=True, shell=False):
+        calls.append(cmd)
+
+        class Result:
+            stdout = ""
+            returncode = 0
+
+        result = Result()
+        if isinstance(cmd, list) and cmd[:3] == ["modinfo", "-F", "name"]:
+            result.stdout = "draid\n"
+        elif isinstance(cmd, str) and "grep -q '^draid ' /proc/modules" in cmd:
+            result.returncode = 0 if draid_loaded["value"] else 1
+        elif cmd == ["rmmod", "draid"]:
+            draid_loaded["value"] = False
+        elif isinstance(cmd, list) and cmd and cmd[0] == "insmod":
+            draid_loaded["value"] = True
+        return result
+
+    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+    monkeypatch.setattr(basic_io_common, "draid_ko_path", lambda: Path("kernel_driver/drivers/draid/draid.ko"))
+    monkeypatch.setattr(Path, "is_file", lambda self: True)
+
+    basic_io_common.release_and_clear_csd(disks, CommandLog())
+
+    assert ["rmmod", "draid"] not in calls
+    clear_idx = next(
+        i
+        for i, cmd in enumerate(calls)
+        if isinstance(cmd, list) and len(cmd) >= 2 and "clear_8p_csd_flash.sh" in str(cmd[1])
+    )
+    grep_idx = next(
+        i
+        for i, cmd in enumerate(calls)
+        if isinstance(cmd, str) and "grep -q '^draid ' /proc/modules" in cmd
+    )
+    assert grep_idx < clear_idx
+    assert draid_loaded["value"] is True
 
 
 def test_parse_lsblk_pairs_preserves_empty_parent_columns():
@@ -479,25 +595,191 @@ def test_power_cycle_skips_excluded_nvme_models(monkeypatch):
         raise AssertionError("Expected excluded QEMU NVMe Ctrl disk to be skipped for power-cycle")
 
 
-def test_run_env_prepare_invokes_dut_prepare_script(monkeypatch):
-    calls = []
+def test_partition_disks_for_multi_raid_uses_fixed_layout():
+    disks = [
+        NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("960.20"), did=i)
+        for i in range(MIN_MULTI_RAID_DISKS)
+    ]
 
-    def fake_run_cmd(cmd, log, check=True, shell=False, env=None):
-        calls.append((cmd, env))
+    groups = partition_disks_for_multi_raid(disks)
+
+    assert [(spec.raid_level, len(spec.disks)) for spec in groups] == [
+        (0, 1),
+        (0, 2),
+        (1, 2),
+        (10, 4),
+        (50, 6),
+    ]
+    assert [disk.did for spec in groups for disk in spec.disks] == list(range(MIN_MULTI_RAID_DISKS))
+
+
+def test_partition_disks_for_multi_raid_requires_minimum_disks():
+    disks = [
+        NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("960.20"), did=i)
+        for i in range(MIN_MULTI_RAID_DISKS - 1)
+    ]
+
+    with pytest.raises(AssertionError, match=f"Need at least {MIN_MULTI_RAID_DISKS}"):
+        partition_disks_for_multi_raid(disks)
+
+
+def test_vd_size_gb_for_raid_levels():
+    group = [
+        NvmeDisk(namespace="nvme0n1", controller="nvme0", size_gb=Decimal("960.20"), did=0),
+        NvmeDisk(namespace="nvme1n1", controller="nvme1", size_gb=Decimal("900.00"), did=1),
+        NvmeDisk(namespace="nvme2n1", controller="nvme2", size_gb=Decimal("960.20"), did=2),
+        NvmeDisk(namespace="nvme3n1", controller="nvme3", size_gb=Decimal("960.20"), did=3),
+    ]
+
+    assert usable_capacity_gb(0, 2, Decimal("900")) == Decimal("1800")
+    assert usable_capacity_gb(1, 2, Decimal("900")) == Decimal("900")
+    assert usable_capacity_gb(10, 4, Decimal("900")) == Decimal("1800")
+    assert usable_capacity_gb(50, 6, Decimal("900")) == Decimal("3600")
+    assert vd_size_gb_for_raid(0, group[:1]) == 240
+    assert vd_size_gb_for_raid(1, group[:2]) == 225
+    assert vd_size_gb_for_raid(10, group) == 450
+    assert vd_size_gb_for_raid(50, group + group[:2]) == 900
+
+
+def test_vd_create_cmd_supports_raid_level():
+    assert vd_create_cmd("0-1", 100, 512, raid_level=10) == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=10",
+        "Size=100GB",
+        "Strip=4",
+        "LogicalBlockSize=512",
+        "drives=0-1",
+    ]
+
+
+def test_vd_create_cmd_adds_pd_per_array_for_raid50():
+    assert vd_create_cmd("9-14", 5484, 512, raid_level=50) == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=50",
+        "Size=5484GB",
+        "Strip=4",
+        "PDperArray=3",
+        "LogicalBlockSize=512",
+        "drives=9-14",
+    ]
+
+
+def test_create_raid_vds_creates_four_vds_per_group(monkeypatch):
+    commands = []
+    disks = [
+        NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("5961.593"), did=i)
+        for i in range(15)
+    ]
+    group_specs = [(spec.disks, spec.raid_level) for spec in partition_disks_for_multi_raid(disks)]
+
+    def fake_run_cmd(cmd, log, check=True, shell=False):
+        commands.append(cmd)
 
         class Result:
-            returncode = 0
             stdout = ""
+            returncode = 0
 
         return Result()
 
     monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
-    log = CommandLog()
-    basic_io_common.run_env_prepare(log)
+    create_raid_vds(group_specs, CommandLog())
 
-    assert len(calls) == 1
-    cmd, env = calls[0]
-    assert cmd[0] == "bash"
-    assert cmd[1].endswith("prepare_env.sh")
-    assert "REMOTE_DIR" in env
-    assert any("env_prepare" in line for line in log.lines)
+    add_vd_commands = [cmd for cmd in commands if cmd[:4] == ["dpraid", "/c0", "add", "vd"]]
+    assert len(add_vd_commands) == MULTI_RAID_VD_COUNT
+    assert add_vd_commands[0] == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=0",
+        "Size=1370GB",
+        "Strip=4",
+        "LogicalBlockSize=512",
+        "drives=0",
+    ]
+    assert add_vd_commands[4] == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=0",
+        "Size=2741GB",
+        "Strip=4",
+        "LogicalBlockSize=512",
+        "drives=1-2",
+    ]
+    assert add_vd_commands[8] == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=1",
+        "Size=1370GB",
+        "Strip=4",
+        "LogicalBlockSize=512",
+        "drives=3-4",
+    ]
+    assert add_vd_commands[12] == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=10",
+        "Size=2741GB",
+        "Strip=4",
+        "LogicalBlockSize=512",
+        "drives=5-8",
+    ]
+    assert add_vd_commands[16] == [
+        "dpraid",
+        "/c0",
+        "add",
+        "vd",
+        "r=50",
+        "Size=5484GB",
+        "Strip=4",
+        "PDperArray=3",
+        "LogicalBlockSize=512",
+        "drives=9-14",
+    ]
+
+
+def test_expected_degraded_vd_count_skips_raid0_groups():
+    group_specs = partition_disks_for_multi_raid(
+        [
+            NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("960.20"), did=i)
+            for i in range(MIN_MULTI_RAID_DISKS)
+        ]
+    )
+
+    assert expected_degraded_vd_count(group_specs) == 12
+
+
+def test_degrade_non_raid0_groups_only_power_cycles_non_raid0(monkeypatch):
+    calls = []
+    group_specs = partition_disks_for_multi_raid(
+        [
+            NvmeDisk(
+                namespace=f"nvme{i}n1",
+                controller=f"nvme{i}",
+                size_gb=Decimal("960.20"),
+                did=i,
+                bdf=f"0000:{i:02d}:00.0",
+            )
+            for i in range(MIN_MULTI_RAID_DISKS)
+        ]
+    )
+
+    def fake_power_cycle(groups, log):
+        calls.append([[disk.did for disk in group] for group in groups])
+
+    monkeypatch.setattr(basic_io_common, "power_cycle_one_disk_per_group", fake_power_cycle)
+    basic_io_common.degrade_non_raid0_groups(group_specs, CommandLog())
+
+    assert calls == [[[3, 4], [5, 6, 7, 8], [9, 10, 11, 12, 13, 14]]]

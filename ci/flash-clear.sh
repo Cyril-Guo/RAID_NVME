@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-# 未传命令行参数时处理的默认 NVMe 控制器列表，设备之间使用空格分隔。
-DEFAULT_DEVICES="${DEFAULT_DEVICES:-/dev/nvme1}"
+# 未传命令行参数时处理的默认 draid accel 设备列表，设备之间使用空格分隔。
+DEFAULT_DEVICES="${DEFAULT_DEVICES:-/dev/draid_dbg_accel0}"
 # CSD Flash 写命令 opcode，对应驱动中的 UPDATE_CSD_NOR_OP。
 FLASH_WRITE_OPCODE="${FLASH_WRITE_OPCODE:-0xD1}"
+# CSD Cache clear 命令 opcode。
+CACHE_CLEAR_OPCODE="${CACHE_CLEAR_OPCODE:-0xD8}"
 # CSD Flash 读命令 opcode，对应驱动中的 LOAD_CSD_NOR_OP。
 FLASH_READ_OPCODE="${FLASH_READ_OPCODE:-0xDE}"
 # CSD Flash 硬件传输长度。新固件默认使用完整 8 KiB；旧固件可显式设为 4096。
@@ -39,11 +41,11 @@ cleanup() {
 trap cleanup EXIT
 
 usage() {
-    echo "用法：sudo $0 [/dev/nvmeX ...]"
+    echo "用法：sudo $0 [/dev/draid_dbg_accelX ...]"
     echo
     echo "示例："
-    echo "  sudo $0 /dev/nvme1 /dev/nvme2"
-    echo "  sudo DEFAULT_DEVICES='/dev/nvme1 /dev/nvme2' $0"
+    echo "  sudo $0 /dev/draid_dbg_accel0 /dev/draid_dbg_accel1"
+    echo "  sudo DEFAULT_DEVICES='/dev/draid_dbg_accel0 /dev/draid_dbg_accel1' $0"
     echo
     echo "警告：该操作会永久清空指定 CSD 的 ${FLASH_SIZE}B Flash。"
 }
@@ -79,16 +81,23 @@ else
 fi
 
 if [ "${#DEVICES[@]}" -eq 0 ]; then
-    echo "错误：没有指定 NVMe 控制器。" >&2
+    echo "错误：没有指定 draid accel 设备。" >&2
     usage
     exit 1
 fi
 
 for dev in "${DEVICES[@]}"; do
     if [ ! -c "$dev" ]; then
-        echo "错误：NVMe 控制器节点不存在或不是字符设备：$dev" >&2
+        echo "错误：draid accel 设备节点不存在或不是字符设备：$dev" >&2
         exit 1
     fi
+    case "$dev" in
+        /dev/draid*) ;;
+        *)
+            echo "错误：设备必须是 /dev 下 draid 开头的 accel 节点：$dev" >&2
+            exit 1
+            ;;
+    esac
 done
 
 echo "即将永久清空以下 CSD Flash："
@@ -149,7 +158,16 @@ for dev in "${DEVICES[@]}"; do
         continue
     fi
 
-    echo "成功：$dev Flash 已清零并通过回读校验。"
+    echo "===== Cache clear $dev ====="
+    if ! run_cmd nvme admin-passthru "$dev" \
+        --opcode="$CACHE_CLEAR_OPCODE" \
+        --namespace-id="$NAMESPACE_ID"; then
+        echo "失败：$dev Cache clear 命令失败。" >&2
+        FAILED_DEVICES+=("$dev")
+        continue
+    fi
+
+    echo "成功：$dev Flash 已清零并通过回读校验，Cache 已清空。"
 done
 
 if [ "${#FAILED_DEVICES[@]}" -gt 0 ]; then
