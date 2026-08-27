@@ -489,10 +489,10 @@ def test_release_and_clear_csd_rmmod_insmod_then_force_clears(monkeypatch):
 
     basic_io_common.release_and_clear_csd(disks, CommandLog())
 
-    rmmod_idx = next(i for i, (cmd, _) in enumerate(calls) if cmd == ["rmmod", "draid"])
-    insmod_idx = next(
+    rmmod_idxs = [i for i, (cmd, _) in enumerate(calls) if cmd == ["rmmod", "draid"]]
+    insmod_idxs = [
         i for i, (cmd, _) in enumerate(calls) if isinstance(cmd, list) and cmd and cmd[0] == "insmod"
-    )
+    ]
     clear_idx = next(
         i
         for i, (cmd, env) in enumerate(calls)
@@ -500,7 +500,9 @@ def test_release_and_clear_csd_rmmod_insmod_then_force_clears(monkeypatch):
         and len(cmd) >= 2
         and "clear_8p_csd_flash.sh" in str(cmd[1])
     )
-    assert rmmod_idx < insmod_idx < clear_idx
+    assert len(rmmod_idxs) >= 2
+    assert len(insmod_idxs) >= 2
+    assert rmmod_idxs[0] < insmod_idxs[0] < clear_idx < rmmod_idxs[1] < insmod_idxs[1]
     assert calls[clear_idx][1]["FORCE_CLEAR_ALL"] == "1"
     assert draid_loaded["value"] is True
 

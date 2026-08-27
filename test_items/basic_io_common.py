@@ -502,15 +502,25 @@ def clear_csd_flash_and_cache(disks, log, force=False):
 
 
 def release_and_clear_csd(disks, log):
-    """Per-case CSD refresh: rmmod draid -> insmod -> clear all accel devices.
+    """Per-case CSD refresh around force-clear of all accel devices.
 
-    Accel char nodes only exist while draid is loaded, so clear runs after
-    insmod. Module stays loaded for the following test case work.
+    Sequence:
+      1) rmmod draid
+      2) insmod draid.ko          (recreate /dev/draid_dbg_accel*)
+      3) FORCE_CLEAR_ALL clear
+      4) rmmod draid
+      5) insmod draid.ko          (reload for the following test case)
+    Module stays loaded afterwards.
     """
-    log.write("Per-case CSD refresh: rmmod draid -> insmod -> clear all /dev/draid_dbg_accel*")
+    log.write(
+        "Per-case CSD refresh: rmmod -> insmod -> clear all /dev/draid_dbg_accel* "
+        "-> rmmod -> insmod"
+    )
     unload_draid_module(log)
     load_draid_module(log)
     clear_csd_flash_and_cache(disks, log, force=True)
+    unload_draid_module(log)
+    load_draid_module(log)
 
 
 def add_physical_disks(disks, log):
