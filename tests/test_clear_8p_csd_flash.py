@@ -36,7 +36,6 @@ def _run_clear(tmp_path, env_extra):
     env["PATH"] = f"{tmp_path}{os.pathsep}{env.get('PATH', '')}"
     env["NODE_IP"] = "192.168.22.134"
     env["DRAID_SKIP_DEVICE_CHECK"] = "1"
-    env["SYSFS_ROOT"] = str(tmp_path / "sys").replace("\\", "/")
     env["NVME_BIN"] = str(tmp_path / "nvme").replace("\\", "/")
     env.update(env_extra)
     if not (tmp_path / "nvme").exists():
@@ -92,18 +91,14 @@ exit 0
     return script
 
 
-def _dev_map(*pairs: tuple[str, str]) -> str:
-    return ",".join(f"{bdf}={dev}" for bdf, dev in pairs)
-
-
-def test_clear_maps_dirty_dapu_csd_without_draid_nvme_driver(tmp_path):
+def test_clear_all_accel_devices_when_any_dapu_csd_dirty(tmp_path):
     fake_lspci = tmp_path / "lspci"
     _write_executable(
         fake_lspci,
         _fake_lspci_with_driver(
             {
                 "0000:95:00.0": "",
-                "0000:96:00.0": "",
+                "0000:96:00.0": "draid-nvme",
             }
         ),
     )
@@ -122,17 +117,15 @@ printf 'devices=%s\\n' "$*"
         {
             "LSPCI_BIN": str(fake_lspci).replace("\\", "/"),
             "FLASH_CLEAR_SCRIPT": str(fake_flash_clear).replace("\\", "/"),
-            "DRAID_ACCEL_DEV_MAP": _dev_map(
-                ("0000:95:00.0", "/dev/draid_dbg_accel0"),
-                ("0000:96:00.0", "/dev/draid_dbg_accel1"),
-            ),
+            "DRAID_ACCEL_DEVICES": "/dev/draid_dbg_accel0 /dev/draid_dbg_accel1",
         },
     )
 
     assert result.returncode == 0, result.stderr + result.stdout
     assert "confirm=CLEAR" in result.stdout
     assert "devices=/dev/draid_dbg_accel0 /dev/draid_dbg_accel1" in result.stdout
-    assert "missing Kernel driver in use: draid-nvme" in result.stdout
+    assert "clear ALL draid accel devices" in result.stdout
+    assert "dirty DAPU CSD 0000:95:00.0" in result.stdout
 
 
 def test_clear_skips_dapu_csd_already_bound_to_draid_nvme(tmp_path):
@@ -151,46 +144,38 @@ def test_clear_skips_dapu_csd_already_bound_to_draid_nvme(tmp_path):
         tmp_path,
         {
             "LSPCI_BIN": str(fake_lspci).replace("\\", "/"),
+            "DRAID_ACCEL_DEVICES": "/dev/draid_dbg_accel0 /dev/draid_dbg_accel1",
         },
     )
 
     assert result.returncode == 0, result.stderr + result.stdout
     assert "no dirty DAPU CSD devices" in result.stdout
-    assert "skip clean DAPU CSD" in result.stdout
+    assert "clean DAPU CSD" in result.stdout
 
 
-def test_clear_only_dirty_dapu_csd_is_cleared(tmp_path):
+def test_clear_fails_when_dirty_but_no_accel_devices(tmp_path):
     fake_lspci = tmp_path / "lspci"
     _write_executable(
         fake_lspci,
         _fake_lspci_with_driver(
             {
-                "0000:95:00.0": "draid-nvme",
+                "0000:95:00.0": "",
                 "0000:96:00.0": "",
             }
         ),
-    )
-    fake_flash_clear = tmp_path / "flash-clear.sh"
-    _write_executable(
-        fake_flash_clear,
-        """#!/usr/bin/env bash
-read -r confirm
-printf 'devices=%s\\n' "$*"
-""",
     )
 
     result = _run_clear(
         tmp_path,
         {
             "LSPCI_BIN": str(fake_lspci).replace("\\", "/"),
-            "FLASH_CLEAR_SCRIPT": str(fake_flash_clear).replace("\\", "/"),
-            "DRAID_ACCEL_DEV_MAP": _dev_map(("0000:96:00.0", "/dev/draid_dbg_accel6")),
+            "DRAID_ACCEL_DEVICES": "",
+            "DRAID_DEV_ROOT": str(tmp_path / "empty_dev").replace("\\", "/"),
         },
     )
 
-    assert result.returncode == 0, result.stderr + result.stdout
-    assert "devices=/dev/draid_dbg_accel6" in result.stdout
-    assert "skip clean DAPU CSD 0000:95:00.0" in result.stdout
+    assert result.returncode != 0
+    assert "no /dev/draid_dbg_accel*" in result.stderr
 
 
 def test_clear_skips_when_no_dapu_csd_devices(tmp_path):
