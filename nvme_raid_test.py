@@ -732,7 +732,8 @@ def run_single_item(
         os.environ[key] = value
         print(f"  [CONFIG] {key}={value}")
 
-    # Every case except env_prepare: rmmod draid -> insmod -> force clear all accel.
+    # Every case except env_prepare:
+    # rmmod -> insmod -> force clear all accel -> rmmod -> insmod.
     if item != "env_prepare":
         previous_clear = os.getcwd()
         try:
