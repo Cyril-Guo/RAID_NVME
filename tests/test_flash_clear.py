@@ -27,6 +27,9 @@ def test_flash_clear_defaults_to_draid_accel_device():
 
 
 def test_clear_8p_doc_mentions_cache_clear():
-    text = CLEAR_8P_SCRIPT.read_text(encoding="utf-8")
+    text = FLASH_CLEAR_SCRIPT.read_text(encoding="utf-8")
     assert "0xD8" in text
     assert "Cache clear" in text
+    clear_text = CLEAR_8P_SCRIPT.read_text(encoding="utf-8")
+    assert "draid-nvme" in clear_text
+    assert "lspci" in clear_text
