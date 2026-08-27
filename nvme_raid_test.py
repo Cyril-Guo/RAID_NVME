@@ -32,6 +32,8 @@ CASES_DIR = "cases"
 RUN_KEY_ENV = "RAID_NVME_RUN_KEY"
 RUN_ORDER_ENV = "RAID_NVME_RUN_ORDER"
 ITEM_ENV = "RAID_NVME_ITEM"
+# CI 06/07 only: force-clear CSD flash via draid accel before the case.
+CSD_CLEAR_ITEMS = frozenset({"basic_io", "basic_rebuild_io"})
 _NODE_IP_REPORT_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 
 _CI_NAME_RE = re.compile(r"^test_ci_\d+_(.+)\.py$", re.IGNORECASE)
@@ -732,9 +734,9 @@ def run_single_item(
         os.environ[key] = value
         print(f"  [CONFIG] {key}={value}")
 
-    # Every case except env_prepare:
+    # Only CI 06/07 (basic_io, basic_rebuild_io):
     # rmmod -> insmod -> force clear all accel -> rmmod -> insmod.
-    if item != "env_prepare":
+    if item in CSD_CLEAR_ITEMS:
         previous_clear = os.getcwd()
         try:
             os.chdir(work_dir)
