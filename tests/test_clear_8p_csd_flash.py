@@ -155,6 +155,39 @@ def test_clear_ignores_numeric_rows_outside_controller_table(tmp_path):
     assert "/c1 flash-clear" not in result.stdout
 
 
+def test_clear_parses_controller_when_show_has_separator_row(tmp_path):
+    fake_dpraid = tmp_path / "dpraid"
+    _write_executable(
+        fake_dpraid,
+        _fake_dpraid(
+            [
+                SHOW_HEADER,
+                "---- -------------------- --------------------- ---- -------- ------- ----------",
+                SHOW_C0,
+            ]
+        ),
+    )
+
+    result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
+
+    assert result.returncode == 0, (result.stderr or "") + (result.stdout or "")
+    assert "found 1 controller(s): /c0" in result.stdout
+
+
+def test_clear_parses_controller_when_show_id_has_ansi_color(tmp_path):
+    fake_dpraid = tmp_path / "dpraid"
+    colored = "\x1b[32m0\x1b[0m  DAPUSTOR DPFP62AA0R1G00105G0B0 SN-825F661183A26F54  0    Optimal  FH00310 2.8.1"
+    _write_executable(
+        fake_dpraid,
+        _fake_dpraid([SHOW_HEADER, colored]),
+    )
+
+    result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
+
+    assert result.returncode == 0, (result.stderr or "") + (result.stdout or "")
+    assert "found 1 controller(s): /c0" in result.stdout
+
+
 def test_clear_fails_when_dpraid_show_fails(tmp_path):
     fake_dpraid = tmp_path / "dpraid"
     _write_executable(

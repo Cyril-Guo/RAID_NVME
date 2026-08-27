@@ -272,16 +272,25 @@ ok "dpraid show finished"
 
 # Only parse the controller table after the "CONTROLLER MODEL" header.
 # Do not treat other numeric-leading rows (e.g. DID lists) as controllers.
+# Real dpraid show often inserts a ---/=== separator (or ANSI color) between
+# the header and ID rows; those must be skipped, not treated as end-of-table.
 mapfile -t controller_ids < <(
     printf '%s\n' "${show_output}" | awk '
+        {
+            gsub(/\r/, "")
+            gsub(/\033\[[0-9;]*[A-Za-z]/, "")
+            $0 = $0
+        }
         BEGIN { in_table = 0 }
         toupper($0) ~ /CONTROLLER[[:space:]]+MODEL/ {
             in_table = 1
             next
         }
-        in_table && $1 ~ /^[0-9]+$/ { print $1; next }
-        in_table && NF == 0 { exit }
-        in_table && $1 !~ /^[0-9]+$/ { exit }
+        !in_table { next }
+        NF == 0 { exit }
+        $0 ~ /^[[:space:]\-_=]+$/ { next }
+        $1 ~ /^[0-9]+$/ { print $1 + 0; next }
+        { exit }
     ' | sort -n -u
 )
 
