@@ -126,13 +126,12 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
         "deploy workspace",
         "install latest dpraid",
         "build and reload draid kernel driver",
-        "clear dirty CSD flash via draid accel devices",
         "restore RAID state before test",
         "install python dependencies",
         "collect environment metadata",
     ]:
         assert f"runTimedEnvironmentStep(ip, '{label}'" in source
-    assert "ci/clear_8p_csd_flash.sh" in source
+    assert "clear dirty CSD flash via draid accel devices" not in source
     assert "printf 'CLEAR\\n'" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
     assert "has_draid_nvme_driver_bound" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
     assert "DAPU_CSD_LSPCI_MATCH" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
@@ -144,12 +143,14 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
         "deploy workspace for physical host test",
         "install latest dpraid on physical host",
         "build and reload draid kernel driver on physical host",
-        "clear dirty CSD flash via draid accel devices on physical host",
         "restore RAID state before physical host test",
         "install python dependencies on physical host",
         "collect physical host environment metadata",
     ]:
         assert f'run_control_step "{label}"' in source
+    assert "clear dirty CSD flash via draid accel devices on physical host" not in Path(
+        "ci/run_physical_host_test.sh"
+    ).read_text(encoding="utf-8")
     assert "restore physical host RAID state after physical host test" not in source
     assert "PHYSICAL_RESTORE_STATUS=failed" not in Path("ci/run_physical_host_test.sh").read_text(encoding="utf-8")
 

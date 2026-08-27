@@ -89,20 +89,11 @@ run_control_step "install latest dpraid on physical host" bash -c '
         REMOTE_SCP_COMMAND="${host_scp}" ci/install_dpraid_remote.sh
 '
 
-# Dirty CSD flash clear uses /dev/draid_dbg_accel* and requires draid loaded (ACCEL_CDEV=y).
 run_control_step "build and reload draid kernel driver on physical host" bash -c '
     chmod +x ci/prepare_draid_driver.sh
     NODE_IP="${NODE_IP}" TARGET_USER="${TARGET_USER}" SSH_OPTS="${SSH_OPTS}" \
         TARGET_PASSWORD="${TARGET_PASSWORD}" REMOTE_DIR="${host_remote_dir}" \
         BUILD_NUMBER="${BUILD_NUMBER}" QEMU_VM_TARGET=0 ci/prepare_draid_driver.sh
-'
-
-run_control_step "clear dirty CSD flash via draid accel devices on physical host" bash -c '
-    remote_clear_dir="/tmp/jenkins_nvme_${BUILD_NUMBER}_flash_clear"
-    ${host_ssh} "rm -rf ${remote_clear_dir} && mkdir -p ${remote_clear_dir}"
-    chmod +x ci/clear_8p_csd_flash.sh ci/flash-clear.sh
-    ${host_scp} ci/clear_8p_csd_flash.sh ci/flash-clear.sh ${TARGET_USER}@${NODE_IP}:${remote_clear_dir}/
-    ${host_ssh} "cd ${remote_clear_dir} && chmod +x clear_8p_csd_flash.sh flash-clear.sh && NODE_IP=${NODE_IP} ./clear_8p_csd_flash.sh"
 '
 
 # Clear leftover RAID objects after dpraid/draid are ready, before metadata/tests.
