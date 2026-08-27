@@ -210,7 +210,7 @@ install_driver_build_deps
 host_ssh "REMOTE_DIR='${REMOTE_DIR}' bash -s" <<'REMOTE_BUILD'
 set -euo pipefail
 cd "${REMOTE_DIR}/kernel_driver/drivers/draid"
-make
+make -j 8 ACCEL_CDEV=y
 test -f ./draid.ko
 REMOTE_BUILD
 

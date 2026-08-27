@@ -200,6 +200,7 @@ def test_draid_module_unload_and_load_are_disabled():
 
     assert "Module unload/load (rmmod/insmod) is temporarily disabled for CI" in source
     assert "skip draid module unload/load (temporarily disabled)" in source
+    assert "make -j 8 ACCEL_CDEV=y" in source
     assert "# reload_remote_module" in stripped_lines
     assert "reload_remote_module" not in stripped_lines
 
