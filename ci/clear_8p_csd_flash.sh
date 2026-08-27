@@ -1,50 +1,77 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Find dirty CSD flash disks from lsblk (8P/9P SIZE) and/or nvme list
-# (PB-scale total capacity such as 9.01 PB). Map namespaces to draid accel
-# character devices under /dev (e.g. draid_dbg_accel0), then clear CSD flash
-# via flash-clear.sh, which also runs Cache clear (admin-passthru opcode 0xD8).
+# Find DAPU CSD PCI devices (Device 50d1) via lspci. When "Kernel driver in use:
+# draid-nvme" is missing the CSD is dirty and needs flash/cache clear on the mapped
+# /dev/draid_dbg_accel* node (ACCEL_CDEV=y, draid loaded).
 
 NODE_IP=${NODE_IP:-unknown}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 FLASH_CLEAR_SCRIPT=${FLASH_CLEAR_SCRIPT:-"${SCRIPT_DIR}/flash-clear.sh"}
-LSBLK_BIN=${LSBLK_BIN:-lsblk}
+LSPCI_BIN=${LSPCI_BIN:-lspci}
 NVME_BIN=${NVME_BIN:-nvme}
 DRAID_ACCEL_DEV_PREFIX=${DRAID_ACCEL_DEV_PREFIX:-draid_dbg_accel}
+DAPU_CSD_LSPCI_MATCH=${DAPU_CSD_LSPCI_MATCH:-"Shenzhen DAPU Microelectronics Co., Ltd Device 50d1"}
+DRAID_NVME_DRIVER=${DRAID_NVME_DRIVER:-draid-nvme}
+SYSFS_ROOT=${SYSFS_ROOT:-/sys}
 
-is_dirty_csd_size() {
-    # Dirty CSD flash commonly appears as 8P/9P in lsblk (nvme list may show ~9 PB).
-    # Real test drives are TB-scale and must not match.
-    local size="${1:-}"
-    size="${size// /}"
-    case "$size" in
-        8P|8.0P|8.00P|9P|9.0P|9.00P|9.01P) return 0 ;;
-        8PiB|8.0PiB|9PiB|9.0PiB|9.01PiB) return 0 ;;
-        8PB|8.0PB|8.00PB|9PB|9.0PB|9.00PB|9.01PB) return 0 ;;
-    esac
-    if [[ "$size" =~ ^[89](\.[0-9]+)?P(i?[Bb])?$ ]]; then
+normalize_bdf() {
+    local bdf="${1,,}"
+    if [[ "$bdf" =~ ^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$ ]]; then
+        printf '%s\n' "$bdf"
+        return 0
+    fi
+    if [[ "$bdf" =~ ^[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]$ ]]; then
+        printf '0000:%s\n' "$bdf"
         return 0
     fi
     return 1
 }
 
-namespace_to_draid_device() {
-    local name="$1"
-    name="${name#/dev/}"
-    if [[ "$name" =~ ^${DRAID_ACCEL_DEV_PREFIX}[0-9]+$ ]]; then
-        printf '%s\n' "/dev/${name}"
-        return 0
+bdf_matches() {
+    local path="$1"
+    local bdf="$2"
+    local base
+    base="$(basename "$path")"
+    [ "$base" = "$bdf" ] || [[ "$path" == *"/${bdf}" ]]
+}
+
+bdf_to_draid_accel_dev() {
+    local bdf="$1"
+    local accel resolved nvme_ctrl idx pair map_bdf map_dev
+
+    if [ -n "${DRAID_ACCEL_DEV_MAP:-}" ]; then
+        IFS=',' read -r -a _pairs <<< "${DRAID_ACCEL_DEV_MAP}"
+        for pair in "${_pairs[@]}"; do
+            map_bdf="${pair%%=*}"
+            map_dev="${pair#*=}"
+            map_bdf="$(normalize_bdf "$map_bdf" 2>/dev/null || printf '%s' "$map_bdf")"
+            if [ "$map_bdf" = "$bdf" ]; then
+                printf '%s\n' "$map_dev"
+                return 0
+            fi
+        done
     fi
-    if [[ "$name" =~ ^(nvme[0-9]+)n[0-9]+$ ]]; then
-        local idx="${BASH_REMATCH[1]#nvme}"
-        printf '/dev/%s%s\n' "${DRAID_ACCEL_DEV_PREFIX}" "${idx}"
-        return 0
-    fi
-    if [[ "$name" =~ ^nvme([0-9]+)$ ]]; then
-        printf '/dev/%s%s\n' "${DRAID_ACCEL_DEV_PREFIX}" "${BASH_REMATCH[1]}"
-        return 0
-    fi
+
+    for accel in "${SYSFS_ROOT}/class/draid_dbg_accel/${DRAID_ACCEL_DEV_PREFIX}"*; do
+        [ -e "${accel}/device" ] || continue
+        resolved="$(readlink -f "${accel}/device" 2>/dev/null || true)"
+        [ -n "$resolved" ] || continue
+        if bdf_matches "$resolved" "$bdf"; then
+            printf '/dev/%s\n' "$(basename "$accel")"
+            return 0
+        fi
+    done
+
+    for nvme_ctrl in "${SYSFS_ROOT}/bus/pci/devices/${bdf}/nvme/nvme"*; do
+        [ -e "$nvme_ctrl" ] || continue
+        if [[ "$(basename "$nvme_ctrl")" =~ ^nvme([0-9]+)$ ]]; then
+            idx="${BASH_REMATCH[1]}"
+            printf '/dev/%s%s\n' "${DRAID_ACCEL_DEV_PREFIX}" "${idx}"
+            return 0
+        fi
+    done
+
     return 1
 }
 
@@ -59,66 +86,63 @@ device_seen() {
     return 1
 }
 
-add_draid_device() {
-    local name="$1"
-    local size="$2"
-    local source="$3"
-    local dev
-    if ! dev="$(namespace_to_draid_device "$name")"; then
-        echo "[${NODE_IP}] skip non-draid-mappable dirty-CSD disk from ${source}: ${name} (${size})"
-        return 0
-    fi
+add_draid_device_path() {
+    local dev="$1"
+    local bdf="$2"
     if device_seen "$dev"; then
         return 0
     fi
-    echo "[${NODE_IP}] found dirty-CSD via ${source}: ${name} size=${size} -> ${dev}"
+    echo "[${NODE_IP}] dirty DAPU CSD ${bdf} -> ${dev} (missing Kernel driver in use: ${DRAID_NVME_DRIVER})"
     DRAID_DEVICES+=("$dev")
 }
 
-discover_dirty_from_lsblk() {
-    local name size type
-    while read -r name size type; do
-        [ -n "${name:-}" ] || continue
-        [ "${type:-}" = "disk" ] || continue
-        is_dirty_csd_size "${size:-}" || continue
-        add_draid_device "$name" "$size" "lsblk"
-    done < <("${LSBLK_BIN}" -dn -o NAME,SIZE,TYPE 2>/dev/null || true)
+has_draid_nvme_driver_bound() {
+    local bdf="$1"
+    local detail short_bdf
+    short_bdf="${bdf#0000:}"
+    detail="$("${LSPCI_BIN}" -s "$bdf" -k 2>/dev/null || true)"
+    if [ -z "$detail" ] && [ "$short_bdf" != "$bdf" ]; then
+        detail="$("${LSPCI_BIN}" -s "$short_bdf" -k 2>/dev/null || true)"
+    fi
+    detail="${detail//$'\r'/}"
+    grep -Fq "Kernel driver in use: ${DRAID_NVME_DRIVER}" <<< "$detail"
 }
 
-discover_dirty_from_nvme_list() {
-    # Match total capacity after '/' in nvme list Usage column, e.g. "0.00 B / 9.01 PB".
-    local line node size unit
-    while IFS= read -r line; do
-        [[ "$line" == /dev/nvme* ]] || continue
-        if [[ "$line" =~ ^(/dev/nvme[0-9]+n[0-9]+)[[:space:]].*/[[:space:]]*([0-9]+(\.[0-9]+)?)[[:space:]]*([KMGTP]i?B) ]]; then
-            node="${BASH_REMATCH[1]}"
-            size="${BASH_REMATCH[2]}"
-            unit="${BASH_REMATCH[4]}"
-            is_dirty_csd_size "${size}${unit}" || continue
-            add_draid_device "$node" "${size}${unit}" "nvme-list"
-        fi
-    done < <("${NVME_BIN}" list 2>/dev/null || true)
-}
-
-discover_dirty_draid_devices() {
+discover_dirty_dapu_csd_devices() {
     DRAID_DEVICES=()
-    echo "[${NODE_IP}] scan lsblk for dirty CSD flash disks (8P/9P)"
-    "${LSBLK_BIN}" -dn -o NAME,SIZE,TYPE 2>/dev/null | sed "s/^/[${NODE_IP}] lsblk: /" || true
-    discover_dirty_from_lsblk
+    local line bdf norm dev
 
-    echo "[${NODE_IP}] scan nvme list for dirty CSD flash disks (PB-scale)"
-    "${NVME_BIN}" list 2>/dev/null | sed "s/^/[${NODE_IP}] nvme-list: /" || true
-    discover_dirty_from_nvme_list
+    echo "[${NODE_IP}] scan lspci for DAPU CSD devices (${DAPU_CSD_LSPCI_MATCH})"
+    while IFS= read -r line; do
+        [ -n "${line:-}" ] || continue
+        [[ "$line" == *"${DAPU_CSD_LSPCI_MATCH}"* ]] || continue
+        bdf="$(awk '{print $1}' <<< "$line")"
+        [ -n "$bdf" ] || continue
+        norm="$(normalize_bdf "$bdf")" || {
+            echo "[${NODE_IP}] skip unparseable PCI BDF from lspci: ${bdf}" >&2
+            continue
+        }
+        echo "[${NODE_IP}] lspci: ${line}"
+        if has_draid_nvme_driver_bound "$norm"; then
+            echo "[${NODE_IP}] skip clean DAPU CSD ${norm}: Kernel driver in use: ${DRAID_NVME_DRIVER}"
+            continue
+        fi
+        if ! dev="$(bdf_to_draid_accel_dev "$norm")"; then
+            echo "[${NODE_IP}] ERROR: cannot map dirty DAPU CSD ${norm} to /dev/${DRAID_ACCEL_DEV_PREFIX}*" >&2
+            exit 1
+        fi
+        add_draid_device_path "$dev" "$norm"
+    done < <("${LSPCI_BIN}" -Dnn 2>/dev/null || "${LSPCI_BIN}" -nn 2>/dev/null || true)
 }
 
-discover_dirty_draid_devices
+discover_dirty_dapu_csd_devices
 
 if [ "${#DRAID_DEVICES[@]}" -eq 0 ]; then
-    echo "[${NODE_IP}] no dirty-CSD disks found via lsblk or nvme list; skip CSD flash clear"
+    echo "[${NODE_IP}] no dirty DAPU CSD devices (all bound to ${DRAID_NVME_DRIVER}); skip CSD flash clear"
     exit 0
 fi
 
-echo "[${NODE_IP}] dirty-CSD disks mapped to draid accel devices: ${DRAID_DEVICES[*]}"
+echo "[${NODE_IP}] dirty DAPU CSD devices mapped to draid accel: ${DRAID_DEVICES[*]}"
 
 if [ ! -x "${FLASH_CLEAR_SCRIPT}" ] && [ -f "${FLASH_CLEAR_SCRIPT}" ]; then
     chmod +x "${FLASH_CLEAR_SCRIPT}" || true

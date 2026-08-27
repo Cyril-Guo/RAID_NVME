@@ -18,7 +18,8 @@ def test_prepare_env_script_covers_smoke_physical_steps():
     assert "install_draid_build_deps" in source
     assert "ripgrep" in source
     assert "make -j 8 ACCEL_CDEV=y" in source
-    assert "namespace_to_draid_device" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
+    assert "has_draid_nvme_driver_bound" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
+    assert "DAPU_CSD_LSPCI_MATCH" in Path("ci/clear_8p_csd_flash.sh").read_text(encoding="utf-8")
     # reclaim -> dpraid -> draid load -> CSD clear via draid accel devices
     assert source.index("reclaim_physical_host.sh") < source.index("clear_8p_csd_flash.sh")
     assert source.index("insmod ./draid.ko") < source.index("clear_8p_csd_flash.sh")
