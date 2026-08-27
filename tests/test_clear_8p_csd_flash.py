@@ -56,9 +56,16 @@ exit 1
 
 def _run_clear(tmp_path, env_extra):
     bash = _bash()
+    dpraid_home = tmp_path / "dpraid_home"
+    jenkins_root = tmp_path / "jenkins_root"
+    dpraid_home.mkdir(parents=True, exist_ok=True)
+    jenkins_root.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env["PATH"] = f"{tmp_path}{os.pathsep}{env.get('PATH', '')}"
     env["NODE_IP"] = "192.168.22.134"
+    env["DPRAID_HOME"] = str(dpraid_home).replace("\\", "/")
+    env["JENKINS_DUT_ROOT"] = str(jenkins_root).replace("\\", "/")
+    env["DPRAID_MIN_FREE_MB"] = "1"
     env.update(env_extra)
     return subprocess.run(
         [bash, str(CLEAR_SCRIPT).replace("\\", "/")],
@@ -80,10 +87,32 @@ def test_clear_runs_flash_clear_on_single_controller(tmp_path):
     result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
 
     assert result.returncode == 0, result.stderr + result.stdout
+    assert "dpraid workspace ready" in result.stdout
     assert "dpraid show" in result.stdout
     assert "found 1 controller(s): /c0" in result.stdout
     assert "[OK] /c0 flash-clear --with-cache --force succeeded" in result.stdout
     assert "flash-clear /c1" not in result.stdout
+    assert (tmp_path / "dpraid_home" / "jobs").is_dir()
+
+
+def test_clear_fails_when_disk_too_full(tmp_path):
+    fake_dpraid = tmp_path / "dpraid"
+    _write_executable(
+        fake_dpraid,
+        _fake_dpraid([SHOW_HEADER, SHOW_C0]),
+    )
+
+    result = _run_clear(
+        tmp_path,
+        {
+            "DPRAID_BIN": str(fake_dpraid).replace("\\", "/"),
+            # Force the free-space gate without depending on real disk usage.
+            "DPRAID_MIN_FREE_MB": "999999999",
+        },
+    )
+
+    assert result.returncode != 0
+    assert "not enough free disk for dpraid jobs" in result.stderr
 
 
 def test_clear_runs_flash_clear_on_two_controllers(tmp_path):
