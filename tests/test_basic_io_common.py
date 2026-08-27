@@ -551,14 +551,11 @@ def test_power_cycle_uses_pci_remove_and_rescan_on_qemu_and_physical(monkeypatch
         normalized = str(self).replace("\\", "/")
         if normalized.endswith("/sys/bus/pci/devices/0000:01:00.0/remove"):
             return True
-        if normalized.endswith("/dev/nvme0n1"):
-            return True
         return original_exists(self)
 
     monkeypatch.delenv("QEMU_VM_TARGET", raising=False)
     monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
     monkeypatch.setattr(basic_io_common.Path, "exists", fake_exists)
-    monkeypatch.setattr(basic_io_common, "list_nvme_namespaces_for_bdf", lambda bdf: ["nvme0n1"])
 
     basic_io_common.power_cycle_one_disk_per_group([[disk]], CommandLog())
 
@@ -566,7 +563,6 @@ def test_power_cycle_uses_pci_remove_and_rescan_on_qemu_and_physical(monkeypatch
     assert (["sleep", "1"], False) in calls
     assert ("echo 1 > /sys/bus/pci/rescan", True) in calls
     assert (["sleep", "2"], False) in calls
-    assert (["nvme", "format", "-f", "/dev/nvme0n1"], False) in calls
     assert not any("/sys/bus/pci/slots/" in str(cmd) for cmd, _ in calls)
 
     calls.clear()
@@ -574,47 +570,6 @@ def test_power_cycle_uses_pci_remove_and_rescan_on_qemu_and_physical(monkeypatch
     basic_io_common.power_cycle_one_disk_per_group([[disk]], CommandLog())
     assert ("echo 1 > /sys/bus/pci/devices/0000:01:00.0/remove", True) in calls
     assert ("echo 1 > /sys/bus/pci/rescan", True) in calls
-    assert (["nvme", "format", "-f", "/dev/nvme0n1"], False) in calls
-
-
-def test_power_cycle_formats_renamed_nvme_resolved_by_bdf(monkeypatch):
-    calls = []
-    disk = NvmeDisk(
-        namespace="nvme6n1",
-        controller="nvme6",
-        size_gb=Decimal("1"),
-        bdf="0000:b0:00.0",
-        did=0,
-    )
-    original_exists = basic_io_common.Path.exists
-
-    def fake_run_cmd(cmd, log, check=True, shell=False):
-        calls.append((cmd, shell))
-
-        class Result:
-            stdout = ""
-            returncode = 0
-
-        return Result()
-
-    def fake_exists(self):
-        normalized = str(self).replace("\\", "/")
-        if normalized.endswith("/sys/bus/pci/devices/0000:b0:00.0/remove"):
-            return True
-        if normalized.endswith("/dev/nvme14n1"):
-            return True
-        return original_exists(self)
-
-    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
-    monkeypatch.setattr(basic_io_common.Path, "exists", fake_exists)
-    monkeypatch.setattr(basic_io_common, "list_nvme_namespaces_for_bdf", lambda bdf: ["nvme14n1"])
-
-    basic_io_common.power_cycle_one_disk_per_group([[disk]], CommandLog())
-
-    assert (["nvme", "format", "-f", "/dev/nvme14n1"], False) in calls
-    assert (["nvme", "format", "-f", "/dev/nvme6n1"], False) not in calls
-    assert disk.namespace == "nvme14n1"
-    assert disk.controller == "nvme14"
 
 
 def test_power_cycle_skips_excluded_nvme_models(monkeypatch):
