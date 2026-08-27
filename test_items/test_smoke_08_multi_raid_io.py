@@ -11,7 +11,7 @@ def test_multi_raid_io():
     allure.dynamic.title("Test_Smoke_08_multi_raid_IO")
     allure.dynamic.description(
         "Create RAID0 (1/2 disks), RAID1 (2 disks), RAID10 (4 disks), and RAID50 (6 disks), "
-        "create four VDs per drive group, then run 2min bssplit mixed IO FIO."
+        "create four VDs per drive group, then run 1min bssplit mixed IO plus 4x25s lawdisk FIO."
     )
 
     if os.environ.get("ALLOW_DESTRUCTIVE_FIO", "0") != "1":
@@ -21,7 +21,7 @@ def test_multi_raid_io():
     try:
         log.write("Test_Smoke_08_multi_raid_IO phase: prepare multi-RAID VDs")
         prepare_multi_raid_vds(log)
-        log.write("Test_Smoke_08_multi_raid_IO phase: start bssplit mixed IO FIO (2min)")
+        log.write("Test_Smoke_08_multi_raid_IO phase: start bssplit 1min + 4x25s lawdisk FIO")
     finally:
         log.attach("Test_Smoke_08_multi_raid_IO_terminal_output")
 

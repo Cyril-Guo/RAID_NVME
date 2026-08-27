@@ -17,7 +17,7 @@ def test_multi_raid_degraded_io():
     allure.dynamic.title("Test_Smoke_09_multi_raid_degraded_IO")
     allure.dynamic.description(
         "Create RAID0/1/10/50 VDs, power-cycle one disk in each non-RAID0 group to degrade, "
-        "verify degraded VDs, then run 2min bssplit mixed IO FIO."
+        "verify degraded VDs, then run 1min bssplit mixed IO plus 4x25s lawdisk FIO."
     )
 
     if os.environ.get("ALLOW_DESTRUCTIVE_FIO", "0") != "1":
@@ -31,7 +31,7 @@ def test_multi_raid_degraded_io():
         degrade_non_raid0_groups(group_specs, log)
         log.write("Test_Smoke_09_multi_raid_degraded_IO phase: verify degraded VDs")
         verify_all_vds_degraded(log, expected=expected_degraded_vd_count(group_specs))
-        log.write("Test_Smoke_09_multi_raid_degraded_IO phase: start bssplit mixed IO FIO on degraded VDs (2min)")
+        log.write("Test_Smoke_09_multi_raid_degraded_IO phase: start bssplit 1min + 4x25s lawdisk FIO on degraded VDs")
     finally:
         log.attach("Test_Smoke_09_multi_raid_degraded_IO_terminal_output")
 
