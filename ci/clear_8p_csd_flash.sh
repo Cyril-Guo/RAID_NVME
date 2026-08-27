@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Find DAPU CSD PCI devices (Device 50d1) via lspci. When "Kernel driver in use:
-# draid-nvme" is missing the CSD is dirty and needs flash/cache clear on the mapped
-# /dev/draid_dbg_accel* node (ACCEL_CDEV=y, draid loaded).
+# Find DAPU CSD PCI devices (Device 50d1) via lspci. When any device lacks
+# "Kernel driver in use: draid-nvme", clear ALL /dev/draid_dbg_accel* nodes
+# (ACCEL_CDEV=y, draid loaded). No nvmeN <-> accelN index mapping.
 
 NODE_IP=${NODE_IP:-unknown}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -11,9 +11,9 @@ FLASH_CLEAR_SCRIPT=${FLASH_CLEAR_SCRIPT:-"${SCRIPT_DIR}/flash-clear.sh"}
 LSPCI_BIN=${LSPCI_BIN:-lspci}
 NVME_BIN=${NVME_BIN:-nvme}
 DRAID_ACCEL_DEV_PREFIX=${DRAID_ACCEL_DEV_PREFIX:-draid_dbg_accel}
+DRAID_DEV_ROOT=${DRAID_DEV_ROOT:-/dev}
 DAPU_CSD_LSPCI_MATCH=${DAPU_CSD_LSPCI_MATCH:-"Shenzhen DAPU Microelectronics Co., Ltd Device 50d1"}
 DRAID_NVME_DRIVER=${DRAID_NVME_DRIVER:-draid-nvme}
-SYSFS_ROOT=${SYSFS_ROOT:-/sys}
 
 normalize_bdf() {
     local bdf="${1,,}"
@@ -28,74 +28,6 @@ normalize_bdf() {
     return 1
 }
 
-bdf_matches() {
-    local path="$1"
-    local bdf="$2"
-    local base
-    base="$(basename "$path")"
-    [ "$base" = "$bdf" ] || [[ "$path" == *"/${bdf}" ]]
-}
-
-bdf_to_draid_accel_dev() {
-    local bdf="$1"
-    local accel resolved nvme_ctrl idx pair map_bdf map_dev
-
-    if [ -n "${DRAID_ACCEL_DEV_MAP:-}" ]; then
-        IFS=',' read -r -a _pairs <<< "${DRAID_ACCEL_DEV_MAP}"
-        for pair in "${_pairs[@]}"; do
-            map_bdf="${pair%%=*}"
-            map_dev="${pair#*=}"
-            map_bdf="$(normalize_bdf "$map_bdf" 2>/dev/null || printf '%s' "$map_bdf")"
-            if [ "$map_bdf" = "$bdf" ]; then
-                printf '%s\n' "$map_dev"
-                return 0
-            fi
-        done
-    fi
-
-    for accel in "${SYSFS_ROOT}/class/draid_dbg_accel/${DRAID_ACCEL_DEV_PREFIX}"*; do
-        [ -e "${accel}/device" ] || continue
-        resolved="$(readlink -f "${accel}/device" 2>/dev/null || true)"
-        [ -n "$resolved" ] || continue
-        if bdf_matches "$resolved" "$bdf"; then
-            printf '/dev/%s\n' "$(basename "$accel")"
-            return 0
-        fi
-    done
-
-    for nvme_ctrl in "${SYSFS_ROOT}/bus/pci/devices/${bdf}/nvme/nvme"*; do
-        [ -e "$nvme_ctrl" ] || continue
-        if [[ "$(basename "$nvme_ctrl")" =~ ^nvme([0-9]+)$ ]]; then
-            idx="${BASH_REMATCH[1]}"
-            printf '/dev/%s%s\n' "${DRAID_ACCEL_DEV_PREFIX}" "${idx}"
-            return 0
-        fi
-    done
-
-    return 1
-}
-
-device_seen() {
-    local needle="$1"
-    local item
-    for item in "${DRAID_DEVICES[@]:-}"; do
-        if [ "$item" = "$needle" ]; then
-            return 0
-        fi
-    done
-    return 1
-}
-
-add_draid_device_path() {
-    local dev="$1"
-    local bdf="$2"
-    if device_seen "$dev"; then
-        return 0
-    fi
-    echo "[${NODE_IP}] dirty DAPU CSD ${bdf} -> ${dev} (missing Kernel driver in use: ${DRAID_NVME_DRIVER})"
-    DRAID_DEVICES+=("$dev")
-}
-
 has_draid_nvme_driver_bound() {
     local bdf="$1"
     local detail short_bdf
@@ -108,9 +40,8 @@ has_draid_nvme_driver_bound() {
     grep -Fq "Kernel driver in use: ${DRAID_NVME_DRIVER}" <<< "$detail"
 }
 
-discover_dirty_dapu_csd_devices() {
-    DRAID_DEVICES=()
-    local line bdf norm dev
+any_dirty_dapu_csd() {
+    local line bdf norm dirty=0
 
     echo "[${NODE_IP}] scan lspci for DAPU CSD devices (${DAPU_CSD_LSPCI_MATCH})"
     while IFS= read -r line; do
@@ -124,25 +55,56 @@ discover_dirty_dapu_csd_devices() {
         }
         echo "[${NODE_IP}] lspci: ${line}"
         if has_draid_nvme_driver_bound "$norm"; then
-            echo "[${NODE_IP}] skip clean DAPU CSD ${norm}: Kernel driver in use: ${DRAID_NVME_DRIVER}"
+            echo "[${NODE_IP}] clean DAPU CSD ${norm}: Kernel driver in use: ${DRAID_NVME_DRIVER}"
             continue
         fi
-        if ! dev="$(bdf_to_draid_accel_dev "$norm")"; then
-            echo "[${NODE_IP}] ERROR: cannot map dirty DAPU CSD ${norm} to /dev/${DRAID_ACCEL_DEV_PREFIX}*" >&2
-            exit 1
-        fi
-        add_draid_device_path "$dev" "$norm"
+        echo "[${NODE_IP}] dirty DAPU CSD ${norm}: missing Kernel driver in use: ${DRAID_NVME_DRIVER}"
+        dirty=1
     done < <("${LSPCI_BIN}" -Dnn 2>/dev/null || "${LSPCI_BIN}" -nn 2>/dev/null || true)
+
+    [ "${dirty}" = "1" ]
 }
 
-discover_dirty_dapu_csd_devices
+list_all_draid_accel_devices() {
+    local path name
+    DRAID_DEVICES=()
 
-if [ "${#DRAID_DEVICES[@]}" -eq 0 ]; then
+    if [ -n "${DRAID_ACCEL_DEVICES:-}" ]; then
+        # Test/override: space-separated absolute paths.
+        # shellcheck disable=SC2206
+        DRAID_DEVICES=(${DRAID_ACCEL_DEVICES})
+        return 0
+    fi
+
+    shopt -s nullglob
+    for path in "${DRAID_DEV_ROOT}/${DRAID_ACCEL_DEV_PREFIX}"*; do
+        name="$(basename "$path")"
+        [[ "$name" =~ ^${DRAID_ACCEL_DEV_PREFIX}[0-9]+$ ]] || continue
+        if [ "${DRAID_SKIP_DEVICE_CHECK:-0}" = "1" ] || [ -c "$path" ] || [ -e "$path" ]; then
+            DRAID_DEVICES+=("$path")
+        fi
+    done
+    shopt -u nullglob
+
+    if [ "${#DRAID_DEVICES[@]}" -gt 0 ]; then
+        # Stable order: accel0, accel1, ...
+        mapfile -t DRAID_DEVICES < <(printf '%s\n' "${DRAID_DEVICES[@]}" | sort -V)
+    fi
+}
+
+if ! any_dirty_dapu_csd; then
     echo "[${NODE_IP}] no dirty DAPU CSD devices (all bound to ${DRAID_NVME_DRIVER}); skip CSD flash clear"
     exit 0
 fi
 
-echo "[${NODE_IP}] dirty DAPU CSD devices mapped to draid accel: ${DRAID_DEVICES[*]}"
+list_all_draid_accel_devices
+
+if [ "${#DRAID_DEVICES[@]}" -eq 0 ]; then
+    echo "[${NODE_IP}] ERROR: dirty DAPU CSD found but no /dev/${DRAID_ACCEL_DEV_PREFIX}* devices (load draid.ko with ACCEL_CDEV=y first)" >&2
+    exit 1
+fi
+
+echo "[${NODE_IP}] clear ALL draid accel devices: ${DRAID_DEVICES[*]}"
 
 if [ ! -x "${FLASH_CLEAR_SCRIPT}" ] && [ -f "${FLASH_CLEAR_SCRIPT}" ]; then
     chmod +x "${FLASH_CLEAR_SCRIPT}" || true

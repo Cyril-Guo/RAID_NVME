@@ -488,8 +488,8 @@ def clear_csd_flash_and_cache(disks, log):
     """Clear only dirty CSD flash+cache before rebuilding VDs.
 
     Uses clear_8p_csd_flash.sh: detect dirty DAPU CSD (Device 50d1) via lspci
-    when "Kernel driver in use: draid-nvme" is missing, then clear via
-    /dev/draid_dbg_accel* devices.
+    when "Kernel driver in use: draid-nvme" is missing, then clear ALL
+    /dev/draid_dbg_accel* devices (no nvmeN index mapping).
     Healthy TB-scale data drives are never cleared.
     If no dirty CSD is present the helper exits 0 and this is a no-op.
     Caller must ensure draid is loaded with ACCEL_CDEV=y first.
@@ -499,8 +499,8 @@ def clear_csd_flash_and_cache(disks, log):
     if not script.is_file():
         raise AssertionError(f"clear_8p script not found: {script}")
     log.write(
-        "Clear dirty CSD flash+cache via draid accel devices "
-        "(lspci DAPU Device 50d1 without draid-nvme driver); skip healthy CSD"
+        "Clear dirty CSD flash+cache on ALL draid accel devices "
+        "(lspci DAPU Device 50d1 without draid-nvme driver)"
     )
     run_cmd(["bash", str(script)], log, check=True)
     log.write("Dirty CSD flash+cache clear finished (or skipped: none dirty)")
