@@ -17,6 +17,8 @@ def test_repository_test_items_file_is_valid():
     assert "basic_rebuild_io" in params
     assert "multi_raid_io" in params
     assert "multi_raid_degraded_io" in params
+    assert params["multi_raid_io"]["FIO_CONFIG"] == "Input_Config_multi_raid_bssplit.csv"
+    assert params["multi_raid_degraded_io"]["FIO_CONFIG"] == "Input_Config_multi_raid_bssplit.csv"
 
 
 def test_basic_io_items_are_registered_after_existing_smoke_items():

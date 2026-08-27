@@ -437,7 +437,11 @@ function gen_config_file()
     fi
 
         count=` expr $line_t - 1 `
-        config_file="$count-$mode_-$blocksize-$iodepth-$run_time.log"
+        blocksize_label="$blocksize"
+        if [[ "$blocksize" == bssplit=* ]]; then
+            blocksize_label="bssplit"
+        fi
+        config_file="$count-$mode_-$blocksize_label-$iodepth-$run_time.log"
 
         sed -i '/randrepeat/d' $Cur_Dir/configuration.tmp
         sed -i '/norandommap/d' $Cur_Dir/configuration.tmp
@@ -471,7 +475,11 @@ function gen_config_file()
                 sed -i "9i do_verify=0" $Cur_Dir/configuration.tmp
             fi
         fi
-        sed  "s/config_blocksize/$blocksize/" $Cur_Dir/configuration.tmp > $Config_Dir/$config_file
+        if [[ "$blocksize" == bssplit=* ]]; then
+            sed "s/^bs=config_blocksize/${blocksize}/" $Cur_Dir/configuration.tmp > $Config_Dir/$config_file
+        else
+            sed  "s/config_blocksize/$blocksize/" $Cur_Dir/configuration.tmp > $Config_Dir/$config_file
+        fi
         sed -i "s/config_mode/$mode_/" $Config_Dir/$config_file
         sed -i "s/run_time/$run_time/" $Config_Dir/$config_file
         sed -i "s/config_iodepth/$iodepth/" $Config_Dir/$config_file

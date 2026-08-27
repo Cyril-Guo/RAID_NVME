@@ -64,6 +64,9 @@ def test_lawdiskstress():
 
     # ---------- 3. 组装 Fio_All.sh 参数 ----------
     fio_args = ["-i", "lawdiskstress", "-f", flag_val]
+    fio_config = os.environ.get("FIO_CONFIG", "").strip()
+    if fio_config:
+        fio_args.extend(["-n", os.path.basename(fio_config.replace("\\", "/"))])
     fio_disks = os.environ.get("FIO_DISKS", "").strip()
     if fio_disks:
         fio_args.extend(["-u", fio_disks])
