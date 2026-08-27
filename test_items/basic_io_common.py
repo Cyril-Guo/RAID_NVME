@@ -782,7 +782,8 @@ def drop_pci_disk(
     Sequence:
       1) echo 1 > /sys/bus/pci/devices/<bdf>/remove   (trigger degrade)
       2) pci rescan                                   (device node comes back)
-      3) nvme format -f /dev/<namespace>              (clear stale data before Add)
+      3) resolve current /dev/nvmeXnY by BDF (name may change after hotplug)
+      4) nvme format -f /dev/<resolved>               (clear stale data before Add)
     """
     remove_path = f"/sys/bus/pci/devices/{bdf}/remove"
     if not Path(remove_path).exists():
@@ -791,33 +792,126 @@ def drop_pci_disk(
     run_cmd(["sleep", str(remove_settle_seconds)], log, check=True)
     run_cmd("echo 1 > /sys/bus/pci/rescan", log, check=True, shell=True)
     run_cmd(["sleep", str(rescan_settle_seconds)], log, check=True)
-    if namespace:
-        format_nvme_before_readd(namespace, log, settle_seconds=format_settle_seconds)
+    return format_nvme_before_readd(
+        bdf,
+        log,
+        settle_seconds=format_settle_seconds,
+        previous_namespace=namespace,
+    )
 
 
-def format_nvme_before_readd(namespace, log, settle_seconds=2, wait_seconds=30):
-    """Wipe the rescanned NVMe namespace before RAID/controller re-adds it."""
-    name = Path(namespace).name
+def list_nvme_namespaces_for_bdf(bdf):
+    """Return nvmeXnY names currently bound to the given PCI BDF."""
+    bdf_l = (bdf or "").lower()
+    if not re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]", bdf_l):
+        raise AssertionError(f"Invalid PCI BDF: {bdf}")
+
+    found = []
+
+    def _pci_matches(path):
+        text = str(path).replace("\\", "/").lower()
+        return path.name.lower() == bdf_l or f"/{bdf_l}" in text or text.endswith(f"/{bdf_l}")
+
+    class_nvme = Path("/sys/class/nvme")
+    if class_nvme.is_dir():
+        for ctrl in sorted(class_nvme.glob("nvme*")):
+            if not re.fullmatch(r"nvme\d+", ctrl.name):
+                continue
+            device = ctrl / "device"
+            if not device.exists():
+                continue
+            try:
+                resolved = device.resolve()
+            except OSError:
+                continue
+            if not _pci_matches(resolved):
+                continue
+            for child in sorted(ctrl.iterdir()):
+                if re.fullmatch(r"nvme\d+n\d+", child.name):
+                    found.append(child.name)
+            if not any(name.startswith(ctrl.name + "n") for name in found):
+                block_root = Path("/sys/block")
+                if block_root.is_dir():
+                    for block in sorted(block_root.glob(f"{ctrl.name}n*")):
+                        if re.fullmatch(r"nvme\d+n\d+", block.name):
+                            found.append(block.name)
+
+    if not found:
+        pci = Path(f"/sys/bus/pci/devices/{bdf}")
+        if pci.is_dir():
+            for path in pci.rglob("*"):
+                if re.fullmatch(r"nvme\d+n\d+", path.name):
+                    found.append(path.name)
+
+    unique = []
+    seen = set()
+    for name in found:
+        if name not in seen:
+            seen.add(name)
+            unique.append(name)
+    return unique
+
+
+def wait_for_nvme_namespace_by_bdf(
+    bdf,
+    log,
+    timeout_seconds=30,
+    poll_seconds=1,
+    previous_namespace=None,
+):
+    """Wait until an NVMe namespace for BDF is visible under /dev (hotplug may renumber)."""
+    previous = Path(previous_namespace).name if previous_namespace else None
+    elapsed = 0
+    while elapsed <= timeout_seconds:
+        names = [
+            name
+            for name in list_nvme_namespaces_for_bdf(bdf)
+            if Path(f"/dev/{name}").exists()
+        ]
+        if names:
+            if previous and previous in names:
+                chosen = previous
+            else:
+                n1 = [name for name in names if re.fullmatch(r"nvme\d+n1", name)]
+                chosen = sorted(n1 or names)[0]
+            if previous and previous != chosen:
+                log.write(
+                    f"NVMe renamed after PCI rescan: {previous} -> {chosen} (BDF {bdf}, waited {elapsed}s)"
+                )
+            else:
+                log.write(f"resolved NVMe after PCI rescan: {chosen} (BDF {bdf}, waited {elapsed}s)")
+            return chosen
+        run_cmd(["sleep", str(poll_seconds)], log, check=True)
+        elapsed += poll_seconds
+    hint = f" (previous {previous})" if previous else ""
+    raise AssertionError(
+        f"Timed out waiting for NVMe namespace on BDF {bdf} after PCI rescan "
+        f"({timeout_seconds}s){hint}"
+    )
+
+
+def format_nvme_before_readd(
+    bdf,
+    log,
+    settle_seconds=2,
+    wait_seconds=30,
+    previous_namespace=None,
+):
+    """Wipe the rescanned NVMe namespace (resolved by BDF) before RAID re-adds it."""
+    name = wait_for_nvme_namespace_by_bdf(
+        bdf,
+        log,
+        timeout_seconds=wait_seconds,
+        previous_namespace=previous_namespace,
+    )
     if not re.fullmatch(r"nvme\d+n\d+", name):
-        raise AssertionError(f"Invalid NVMe namespace for format before re-add: {namespace}")
+        raise AssertionError(f"Invalid NVMe namespace for format before re-add: {name}")
     dev = f"/dev/{name}"
-    wait_for_block_device(dev, log, timeout_seconds=wait_seconds)
-    log.write(f"nvme format before re-add: {dev}")
+    log.write(f"nvme format before re-add: {dev} (BDF {bdf})")
     run_cmd(["nvme", "format", "-f", dev], log, check=True)
     run_cmd(["sleep", str(settle_seconds)], log, check=True)
     log.write(f"nvme format done: {dev}")
-
-
-def wait_for_block_device(dev, log, timeout_seconds=30, poll_seconds=1):
-    deadline = timeout_seconds
-    elapsed = 0
-    while elapsed <= deadline:
-        if Path(dev).exists():
-            log.write(f"block device ready: {dev} (waited {elapsed}s)")
-            return
-        run_cmd(["sleep", str(poll_seconds)], log, check=True)
-        elapsed += poll_seconds
-    raise AssertionError(f"Timed out waiting for {dev} after PCI rescan ({timeout_seconds}s)")
+    return name
 
 
 def degrade_non_raid0_groups(group_specs, log):
@@ -849,10 +943,20 @@ def power_cycle_one_disk_per_group(groups, log):
     for disk in selected:
         log.write(
             f"PCI drop/rescan/format {disk.namespace} BDF {disk.bdf} "
-            f"(nvme format before re-add)"
+            f"(resolve by BDF then nvme format before re-add)"
         )
-        drop_pci_disk(disk.bdf, log, namespace=disk.namespace)
-        log.write(f"PCI drop/rescan/format done for {disk.namespace} BDF {disk.bdf}")
+        resolved = drop_pci_disk(disk.bdf, log, namespace=disk.namespace)
+        if resolved and resolved != disk.namespace:
+            log.write(
+                f"PCI drop/rescan/format done for BDF {disk.bdf}: "
+                f"{disk.namespace} -> {resolved}"
+            )
+            disk.namespace = resolved
+            match = re.fullmatch(r"(nvme\d+)n\d+", resolved)
+            if match:
+                disk.controller = match.group(1)
+        else:
+            log.write(f"PCI drop/rescan/format done for {disk.namespace} BDF {disk.bdf}")
 
 
 def verify_all_vds_degraded(log, expected=8):
