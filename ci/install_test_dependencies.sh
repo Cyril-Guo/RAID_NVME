@@ -9,24 +9,26 @@ need_test_deps=0
 KERNEL_BUILD_DIR="/lib/modules/$(uname -r)/build"
 
 enable_failure_coredumps_early() {
-    if [ -f "${SCRIPT_DIR}/enable_failure_coredumps.sh" ]; then
-        echo "Enable DUT userspace coredumps (limits/sysctl/ptrace/core_pattern)"
-        chmod +x "${SCRIPT_DIR}/enable_failure_coredumps.sh" 2>/dev/null || true
-        NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
-            "${SCRIPT_DIR}/enable_failure_coredumps.sh" || true
-    fi
-    if [ -f "${SCRIPT_DIR}/enable_failure_kdump.sh" ]; then
-        echo "Enable DUT kdump (crashkernel / vmcore path)"
-        chmod +x "${SCRIPT_DIR}/enable_failure_kdump.sh" 2>/dev/null || true
-        NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
-            "${SCRIPT_DIR}/enable_failure_kdump.sh" || true
-    fi
-    if [ -f "${SCRIPT_DIR}/enable_draid_pending_debug.sh" ]; then
-        echo "Enable draid RAID1 pending debug knobs (best-effort)"
-        chmod +x "${SCRIPT_DIR}/enable_draid_pending_debug.sh" 2>/dev/null || true
-        NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
-            "${SCRIPT_DIR}/enable_draid_pending_debug.sh" || true
-    fi
+    # Coredump / kdump / draid debug temporarily disabled
+    :
+    # if [ -f "${SCRIPT_DIR}/enable_failure_coredumps.sh" ]; then
+    #     echo "Enable DUT userspace coredumps (limits/sysctl/ptrace/core_pattern)"
+    #     chmod +x "${SCRIPT_DIR}/enable_failure_coredumps.sh" 2>/dev/null || true
+    #     NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
+    #         "${SCRIPT_DIR}/enable_failure_coredumps.sh" || true
+    # fi
+    # if [ -f "${SCRIPT_DIR}/enable_failure_kdump.sh" ]; then
+    #     echo "Enable DUT kdump (crashkernel / vmcore path)"
+    #     chmod +x "${SCRIPT_DIR}/enable_failure_kdump.sh" 2>/dev/null || true
+    #     NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
+    #         "${SCRIPT_DIR}/enable_failure_kdump.sh" || true
+    # fi
+    # if [ -f "${SCRIPT_DIR}/enable_draid_pending_debug.sh" ]; then
+    #     echo "Enable draid RAID1 pending debug knobs (best-effort)"
+    #     chmod +x "${SCRIPT_DIR}/enable_draid_pending_debug.sh" 2>/dev/null || true
+    #     NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
+    #         "${SCRIPT_DIR}/enable_draid_pending_debug.sh" || true
+    # fi
 }
 
 # Always arm coredumps + kdump during dependency/env prepare, even if packages are already installed.

@@ -13,6 +13,12 @@ CORE_DIR="${REMOTE_DIR}/failure_bundles/cores"
 NODE_IP=${NODE_IP:-unknown}
 LIMITS_FILE=/etc/security/limits.d/99-raid-nvme-coredump.conf
 SYSCTL_FILE=/etc/sysctl.d/99-raid-nvme-coredump.conf
+ENABLE_COREDUMPS=${ENABLE_COREDUMPS:-0}
+
+if [ "${ENABLE_COREDUMPS}" = "0" ] || [ "${ENABLE_COREDUMPS}" = "no" ] || [ "${ENABLE_COREDUMPS}" = "off" ]; then
+    echo "[${NODE_IP}] coredump setup skipped (disabled)"
+    exit 0
+fi
 
 mkdir -p "${CORE_DIR}" 2>/dev/null || true
 

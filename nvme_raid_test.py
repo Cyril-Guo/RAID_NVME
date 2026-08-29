@@ -987,8 +987,8 @@ def main(argv=None):
     print(f"Selected test items: {run_order}")
     print(f"Discovered test items: {list(test_items.keys())}")
 
-    enable_failure_coredumps(base_dir)
-    enable_draid_pending_debug(base_dir)
+    # enable_failure_coredumps(base_dir)
+    # enable_draid_pending_debug(base_dir)
 
     exit_codes = []
     executed_run_keys = []

@@ -13,6 +13,12 @@ STATUS_FILE="${REMOTE_DIR}/failure_bundles/kdump_status.txt"
 REBOOT_FLAG="${REMOTE_DIR}/failure_bundles/kdump_reboot_required.txt"
 # Reserved memory for the dump capture kernel (not the full RAM dump size).
 CRASHKERNEL_CMDLINE=${CRASHKERNEL_CMDLINE:-crashkernel=512M}
+ENABLE_KDUMP=${ENABLE_KDUMP:-0}
+
+if [ "${ENABLE_KDUMP}" = "0" ] || [ "${ENABLE_KDUMP}" = "no" ] || [ "${ENABLE_KDUMP}" = "off" ]; then
+    echo "[${NODE_IP}] kdump setup skipped (disabled)"
+    exit 0
+fi
 
 mkdir -p "${KDUMP_DIR}" /var/crash 2>/dev/null || true
 : >"${STATUS_FILE}"
