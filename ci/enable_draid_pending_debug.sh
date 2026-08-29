@@ -15,7 +15,7 @@ REMOTE_DIR=${REMOTE_DIR:-${REPO_ROOT}}
 LOG_DIR="${REMOTE_DIR}/failure_bundles"
 LOG_FILE="${LOG_DIR}/draid_pending_debug.txt"
 # p | full | 0/off/no
-DRAID_DYNDBG=${DRAID_DYNDBG:-p}
+DRAID_DYNDBG=${DRAID_DYNDBG:-0}
 
 mkdir -p "${LOG_DIR}" 2>/dev/null || true
 {
@@ -56,6 +56,20 @@ WHITELIST_PARAMS=(
     pending_io_debug
 )
 
+# Parameters to skip (never auto-enable these).
+SKIP_PARAMS=(
+    raid1_plp_debug
+    raid1_plp_pending_debug
+)
+
+is_skipped() {
+    local name="$1"
+    for s in "${SKIP_PARAMS[@]}"; do
+        [ "$s" = "$name" ] && return 0
+    done
+    return 1
+}
+
 PARAMS=/sys/module/draid/parameters
 if [ -d "${PARAMS}" ]; then
     log "draid module parameters present"
@@ -70,6 +84,10 @@ if [ -d "${PARAMS}" ]; then
 
     for name in "${WHITELIST_PARAMS[@]}"; do
         if [ -w "${PARAMS}/${name}" ]; then
+            if is_skipped "${name}"; then
+                log "skip parameters/${name}: in SKIP_PARAMS"
+                continue
+            fi
             before=$(cat "${PARAMS}/${name}" 2>/dev/null || echo '?')
             if ! is_off_value "${before}" && [ "${before}" != "?" ]; then
                 log "skip parameters/${name}: already ${before}"
@@ -91,6 +109,9 @@ if [ -d "${PARAMS}" ]; then
         name=$(basename "$f")
         case "${name}" in
             *_debug|*_dbg|enable_*debug*|enable_*dbg*)
+                if is_skipped "${name}"; then
+                    continue
+                fi
                 before=$(cat "$f" 2>/dev/null || echo '?')
                 if ! is_off_value "${before}"; then
                     continue
