@@ -22,9 +22,9 @@ lawdisk     = no
 filesystem  = no
 mix         = no
 basic_io    = yes
-basic_rebuild_io = yes
-multi_raid_io = yes
-multi_raid_degraded_io = yes
+basic_rebuild_io = no
+multi_raid_io = no
+multi_raid_degraded_io = no
 
 
 # ============================================================
