@@ -29,7 +29,8 @@ temp_dict = {
 #     "32k": 10, "64k": 10, "128k": 8, "256k": 4, "512k": 2, "1m": 1,
 # }
 
-proportion_dict = {k: int(v * 0.01 * 1400) for k, v in temp_dict.items()}
+total = 3500
+proportion_dict = {k: int(v * 0.01 * total) for k, v in temp_dict.items()}
 
 random_p = {}
 for k, v in proportion_dict.items():
@@ -56,7 +57,6 @@ def parse_dict(d):
     return new_d
 
 bs = []
-total = 1400
 
 for i in range(total):
     proportion_dict = parse_dict(proportion_dict)
