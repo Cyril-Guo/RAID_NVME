@@ -4,7 +4,7 @@
 
 ## 🌟 主要功能
 
-- **分布式并发执行**：通过 Jenkins 并发调度，可同时对 `target_ips.txt` 中配置的多个节点进行测试。
+- **分布式并发执行**：通过 Jenkins 并发调度，可同时对构建参数 `TARGET_IPS` 中配置的多个节点进行测试。
 - **自动化环境部署**：Jenkins Pipeline 会通过 SSH 自动将测试代码部署到远端服务器，目录按  
   `/root/Cyril/Jenkins/<JOB>/<BRANCH>/build-<N>/` 分层（CI/SMOKE、分支、构建互不混杂）；  
   各用例在 `cases/<item>/` 下隔离运行，并自动加载安装所需 Python 依赖。
@@ -18,7 +18,7 @@ RAID_NVME/
 ├── Jenkinsfile             # Jenkins 流水线定义脚本，包含集群并发逻辑与飞书通知
 ├── nvme_raid_test.py       # 主测试执行调度脚本（从 test_items.txt 读取测试项）
 ├── requirements.txt        # Python 依赖包 (pytest, allure-pytest 等)
-├── target_ips.txt          # 存放被测目标服务器的 IP 列表
+├── target_ips.txt          # 旧版目标 IP 记录（Pipeline 已改用 TARGET_IPS 构建参数）
 ├── test_items.txt          # 测试项白名单 + 各用例独立参数
 ├── conftest.py             # Pytest 全局配置
 ├── IO_Stress/              # FIO 压力测试引擎（共用）：Fio_All.sh、lib/ 等
@@ -45,7 +45,7 @@ Jenkins 通过 **`sshpass` + 密码** 连接被测机，**不再依赖 SSH 免�
 ## 🚀 快速使用说明
 
 ### 1. 配置测试目标节点
-编辑项目根目录中的 `target_ips.txt`，将所有需要测试的节点 IP 地址逐行填入。
+在 Jenkins **Build with Parameters** 页面填写 `TARGET_IPS`，每行一个 IPv4 地址；空行和以 `#` 开头的注释行会被忽略。
 
 ### 2. 配置要执行的测试项
 
@@ -98,10 +98,11 @@ CI 任务**仅支持手动触发**（无定时轮询、无自动 MR 触发）。
 
 - 直接构建（`RESTORE` 不勾选）：按 `test_items.txt` 执行测试；被测驱动默认 checkout
   `kernel_driver/main`。
+- **`TARGET_IPS`**：被测物理机 IPv4 地址，每行一个；默认值可直接修改。
 - 可选填写 **`MANUAL_MR_IID`**：按指定 GitLab MR 的 source branch 测试，并固定到该 MR 当前 `sha`
   （优先于分支参数）。
 - 可选填写 **`MANUAL_KERNEL_DRIVER_REF`**：按指定 `kernel_driver` 分支测试；留空则用 `main`。
-- 勾选 **`RESTORE`** 后构建：本次不执行测试，仅对 `target_ips.txt` 中所有节点
+- 勾选 **`RESTORE`** 后构建：本次不执行测试，仅对 `TARGET_IPS` 中所有节点
   **立即停止**正在运行的测试（含后台 FIO / 监控进程），并恢复系统环境
   （还原自动登录、开机自启等配置）。用于随时中止测试。
 
