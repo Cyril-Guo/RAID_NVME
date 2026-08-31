@@ -235,6 +235,15 @@ def peak_qd(plan):
     return sum(int(model["iodepth"]) for model in plan["models"])
 
 
+def format_consistency_result(round_idx: int, disk_count: int, passed: bool) -> str:
+    status = "PASS" if passed else "FAIL"
+    return (
+        f"[RANDOM_IO round {round_idx}] DATA_CONSISTENCY={status} "
+        f"disks={disk_count} per_disk_models={MODEL_COUNT} "
+        f"total_jobs={disk_count * MODEL_COUNT} verify={VERIFY_TYPE}"
+    )
+
+
 def plan_to_csv(plan, disk_sizes=None):
     """CSV uses real byte offsets when disk_sizes is provided."""
     rows = [CSV_HEADER]

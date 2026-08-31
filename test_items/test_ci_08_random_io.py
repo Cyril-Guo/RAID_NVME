@@ -17,6 +17,7 @@ from test_items.fio_run import maybe_start_monitor, run_and_check_argv
 from test_items.random_io_plan import (
     DEFAULT_STRESS_RUNTIME,
     PHASES,
+    format_consistency_result,
     format_plan,
     generate_random_io_plan,
     list_test_disks,
@@ -79,13 +80,26 @@ def test_random_io():
         output = header
         for phase in PHASES:
             attach = phase == "VERIFY"
-            output = run_and_check_argv(
-                ["fio", os.path.basename(jobs[phase])],
-                cwd=stress_dir,
-                extra_output=output
-                + f"[RANDOM_IO round {round_idx}] PHASE={phase} all 16 models together\n",
-                attach=attach,
-            )
+            try:
+                output = run_and_check_argv(
+                    ["fio", os.path.basename(jobs[phase])],
+                    cwd=stress_dir,
+                    extra_output=output
+                    + f"[RANDOM_IO round {round_idx}] PHASE={phase} all 16 models together\n",
+                    attach=attach,
+                )
+            except pytest.fail.Exception:
+                if phase == "VERIFY":
+                    result = format_consistency_result(
+                        round_idx, len(disks), passed=False
+                    )
+                    print(result)
+                    attach_named_text(result + "\n", f"数据一致性结果 (round {round_idx})")
+                raise
+            if phase == "VERIFY":
+                result = format_consistency_result(round_idx, len(disks), passed=True)
+                print(result)
+                attach_named_text(result + "\n", f"数据一致性结果 (round {round_idx})")
 
     if round_idx == 0:
         pytest.fail(f"RANDOM_IO_DURATION 过短，未能跑完至少一轮: {duration_seconds}s")

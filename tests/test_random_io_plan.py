@@ -1,3 +1,6 @@
+import pytest
+
+from test_items import test_ci_08_random_io as random_io_case
 from test_items.random_io_plan import (
     DEFAULT_DURATION_SECONDS,
     DEFAULT_STRESS_RUNTIME,
@@ -8,6 +11,7 @@ from test_items.random_io_plan import (
     PREP_IODEPTH,
     adaptive_slice_bytes,
     block_size_bytes,
+    format_consistency_result,
     format_plan,
     generate_random_io_plan,
     layout_models_on_disk,
@@ -159,3 +163,72 @@ def test_random_io_seed_changes_the_model_set():
     assert [model["bs"] for model in first["models"]] != [model["bs"] for model in second["models"]] or [
         model["iodepth"] for model in first["models"]
     ] != [model["iodepth"] for model in second["models"]]
+
+
+def test_format_consistency_result_is_explicit_for_pass_and_fail():
+    assert format_consistency_result(9, 8, passed=True) == (
+        "[RANDOM_IO round 9] DATA_CONSISTENCY=PASS disks=8 "
+        "per_disk_models=16 total_jobs=128 verify=crc32c"
+    )
+    assert format_consistency_result(9, 8, passed=False) == (
+        "[RANDOM_IO round 9] DATA_CONSISTENCY=FAIL disks=8 "
+        "per_disk_models=16 total_jobs=128 verify=crc32c"
+    )
+
+
+def _configure_single_round_case(monkeypatch, tmp_path, runner, attachments):
+    ticks = iter((0.0, 0.0, 0.0, 2.0))
+    monkeypatch.setattr(random_io_case, "io_stress_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        random_io_case, "list_test_disks", lambda: {"dp0-vd1": 64 * 1024**3}
+    )
+    monkeypatch.setattr(random_io_case, "parse_duration_seconds", lambda: 1)
+    monkeypatch.setattr(random_io_case.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(random_io_case, "maybe_start_monitor", lambda: None)
+    monkeypatch.setattr(random_io_case, "run_and_check_argv", runner)
+    monkeypatch.setattr(
+        random_io_case,
+        "attach_named_text",
+        lambda text, name: attachments.append((text, name)),
+    )
+    monkeypatch.setattr(random_io_case.allure.dynamic, "title", lambda *_: None)
+    monkeypatch.setattr(random_io_case.allure.dynamic, "description", lambda *_: None)
+
+
+def test_random_io_prints_and_attaches_consistency_pass(monkeypatch, tmp_path, capsys):
+    attachments = []
+
+    def runner(argv, cwd, extra_output="", **_kwargs):
+        return extra_output + " ".join(argv) + "\n"
+
+    _configure_single_round_case(monkeypatch, tmp_path, runner, attachments)
+    random_io_case.test_random_io()
+
+    status = (
+        "[RANDOM_IO round 1] DATA_CONSISTENCY=PASS disks=1 "
+        "per_disk_models=16 total_jobs=16 verify=crc32c"
+    )
+    assert status in capsys.readouterr().out
+    assert (status + "\n", "数据一致性结果 (round 1)") in attachments
+
+
+def test_random_io_prints_consistency_fail_and_preserves_failure(
+    monkeypatch, tmp_path, capsys
+):
+    attachments = []
+
+    def runner(argv, cwd, extra_output="", **_kwargs):
+        if argv[-1] == "random_io_verify.fio":
+            pytest.fail("verify failed at file /dev/dp0-vd1 offset 4096")
+        return extra_output + " ".join(argv) + "\n"
+
+    _configure_single_round_case(monkeypatch, tmp_path, runner, attachments)
+    with pytest.raises(pytest.fail.Exception, match="verify failed"):
+        random_io_case.test_random_io()
+
+    status = (
+        "[RANDOM_IO round 1] DATA_CONSISTENCY=FAIL disks=1 "
+        "per_disk_models=16 total_jobs=16 verify=crc32c"
+    )
+    assert status in capsys.readouterr().out
+    assert (status + "\n", "数据一致性结果 (round 1)") in attachments
