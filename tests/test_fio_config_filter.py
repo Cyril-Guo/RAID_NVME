@@ -1,4 +1,5 @@
 from pathlib import Path
+import csv
 import os
 import subprocess
 import textwrap
@@ -20,6 +21,146 @@ def test_fio_runner_only_iterates_generated_log_configs():
 
     assert "grep '\\.log$'" in source
     assert "for configuration in `ls -p $Config_Dir | grep -v / | sort" not in source
+
+
+def test_ci_filesystem_profile_is_random_mixed_aligned_and_unaligned_io():
+    with Path("IO_Stress/Input_Config_filesystem.csv").open(
+        encoding="utf-8", newline=""
+    ) as handle:
+        rows = list(csv.reader(handle))
+
+    assert len(rows) == 3
+    block_sizes, random_pct, read_pct, iodepth, runtime, numjobs, offset = rows[1]
+    assert block_sizes.startswith("bssplit=")
+    assert "512/4" in block_sizes
+    assert "513/4" in block_sizes
+    assert "16777215/4" in block_sizes
+    assert "16m/4" in block_sizes
+    assert random_pct == "100"
+    assert read_pct == "50"
+    assert iodepth == "32"
+    assert runtime == "180"
+    assert numjobs == "1"
+    assert offset == "0"
+
+    def size_bytes(value):
+        suffixes = {"k": 1024, "m": 1024 * 1024}
+        suffix = value[-1].lower()
+        if suffix in suffixes:
+            return int(value[:-1]) * suffixes[suffix]
+        return int(value)
+
+    weighted_sizes = []
+    for entry in block_sizes.removeprefix("bssplit=").split(":"):
+        size, weight = entry.split("/")
+        weighted_sizes.append((size_bytes(size), int(weight)))
+
+    assert min(size for size, _ in weighted_sizes) == 512
+    assert max(size for size, _ in weighted_sizes) == 16 * 1024 * 1024
+    assert sum(weight for _, weight in weighted_sizes) == 100
+    assert sum(weight for size, weight in weighted_sizes if size % 512 == 0) == 50
+    assert sum(weight for size, weight in weighted_sizes if size % 512 != 0) == 50
+
+
+def test_ci_filesystem_prepares_sixteen_partitions_and_buffered_async_io():
+    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+
+    assert "FILESYSTEM_PARTITIONS_PER_DISK=16" in source
+    assert "actual_partition_count != FILESYSTEM_PARTITIONS_PER_DISK" in source
+    model_block = source.split("FILESYSTEM_MODEL_SIZE_PAIRS=(", 1)[1].split(")", 1)[0]
+    models = [line.strip().strip('"') for line in model_block.splitlines() if ":" in line]
+    assert len(models) == 16
+    assert len(set(models)) == 16
+    assert models[0] == "512:513"
+    assert models[-1] == "16m:16777215"
+    assert 'for model_index in "${!FILESYSTEM_MODEL_SIZE_PAIRS[@]}"' in source
+    assert 'echo "numjobs=1"' in source
+    assert 'echo "iodepth=32"' in source
+    assert 'echo "rw=randrw"' in source
+    assert 'echo "rwmixread=$read_percentage"' in source
+    assert "FILESYSTEM_MODEL_RUNTIME=180" in source
+    assert "ioengine=io_uring" in source
+    assert "direct=0" in source
+    assert "bs_unaligned=1" in source
+
+
+def test_ci_filesystem_runtime_can_be_overridden_from_test_items():
+    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+    config = Path("test_items.txt").read_text(encoding="utf-8")
+
+    assert "configure_filesystem_rounds" in source
+    assert 'total_runtime="${FIO_RUNTIME:-$FILESYSTEM_MODEL_RUNTIME}"' in source
+    assert "FIO_RUNTIME" in config
+
+
+def test_ci_filesystem_appends_sixteen_distinct_fio_jobs(tmp_path):
+    first_config_path = (tmp_path / "round1.log").as_posix()
+    second_config_path = (tmp_path / "round2.log").as_posix()
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            "source IO_Stress/lib/fio.sh; "
+            f"Cur_Dir='{tmp_path.as_posix()}'; "
+            f": > '{first_config_path}'; : > '{second_config_path}'; "
+            f"append_filesystem_model_jobs /tmp/fio.data testp1 '{first_config_path}' 1; "
+            f"append_filesystem_model_jobs /tmp/fio.data testp1 '{second_config_path}' 2",
+        ],
+        cwd=Path.cwd(),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.stderr == ""
+    first_content = Path(first_config_path).read_text(encoding="utf-8")
+    second_content = Path(second_config_path).read_text(encoding="utf-8")
+    first_sections = [line for line in first_content.splitlines() if line.startswith("[")]
+    first_bssplits = [line for line in first_content.splitlines() if line.startswith("bssplit=")]
+    second_bssplits = [line for line in second_content.splitlines() if line.startswith("bssplit=")]
+    first_read_mix = [line for line in first_content.splitlines() if line.startswith("rwmixread=")]
+    second_read_mix = [line for line in second_content.splitlines() if line.startswith("rwmixread=")]
+
+    assert first_sections == [
+        f"[testp1-round-0001-model-{index:02d}]" for index in range(1, 17)
+    ]
+    assert len(first_bssplits) == 16
+    assert len(set(first_bssplits)) == 16
+    assert first_bssplits != second_bssplits
+    assert first_read_mix != second_read_mix
+    assert first_content.count("rw=randrw") == 16
+    assert first_content.count("iodepth=32") == 16
+    assert first_content.count("numjobs=1") == 16
+
+
+def test_ci_filesystem_generates_one_changed_model_set_per_three_minutes(tmp_path):
+    config_dir = (tmp_path / "jobs").as_posix()
+    result = subprocess.run(
+        [
+            "bash",
+            "-lc",
+            "source IO_Stress/lib/fio.sh; "
+            f"Config_Dir='{config_dir}'; mkdir -p \"$Config_Dir\"; "
+            "add_file=(/tmp/fiotest/testp1/fio.data); "
+            "FIO_RUNTIME=540; log_interval=100; configure_filesystem_rounds",
+        ],
+        cwd=Path.cwd(),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    assert "3 rounds x 180s = 540s" in result.stdout
+    configs = sorted((tmp_path / "jobs").glob("*.log"))
+    assert [path.name for path in configs] == [
+        "0001-filesystem-models-32-180.log",
+        "0002-filesystem-models-32-180.log",
+        "0003-filesystem-models-32-180.log",
+    ]
+    contents = [path.read_text(encoding="utf-8") for path in configs]
+    assert all(content.count("runtime=180") == 1 for content in contents)
+    assert all(content.count("round-") == 16 for content in contents)
+    assert len(set(contents)) == 3
 
 
 def test_fio_system_disk_detection_handles_lvm_parent_disk():

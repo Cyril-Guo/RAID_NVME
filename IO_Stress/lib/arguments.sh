@@ -168,6 +168,16 @@ function check_arguments()
         if [[ -z "$filename" ]];then
              filename="Input_Config_Disk_Full_Scan.csv"
         fi
+        if [[ $item == "FILESYSTEMSTRESS" && -n "${FIO_RUNTIME:-}" ]]; then
+            if ! [[ "$FIO_RUNTIME" =~ ^[1-9][0-9]*$ ]]; then
+                echo "FIO_RUNTIME must be a positive integer in seconds, got: $FIO_RUNTIME"
+                exit 1
+            fi
+            if (( FIO_RUNTIME < 180 || FIO_RUNTIME % 180 != 0 )); then
+                echo "FIO_RUNTIME must be a multiple of 180 seconds and at least 180, got: $FIO_RUNTIME"
+                exit 1
+            fi
+        fi
     elif [[ $item == "REBOOT" ]];then
         show_produce_message "Reboot test start"
     elif [[ $item == "DC" ]];then

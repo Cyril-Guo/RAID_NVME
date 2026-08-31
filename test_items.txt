@@ -68,6 +68,7 @@ MONITOR_RUNTIME = 21600
 
 [filesystem]
 FIO_CONFIG      = Input_Config_filesystem.csv
+FIO_RUNTIME     = 43200
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no

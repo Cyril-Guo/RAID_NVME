@@ -202,21 +202,64 @@ test_end()
     exit "${rc}"
 }
 
+FILESYSTEM_PARTITIONS_PER_DISK=16
+FILESYSTEM_MODEL_RUNTIME=180
+FILESYSTEM_MODEL_SIZE_PAIRS=(
+    "512:513"
+    "1k:1025"
+    "2k:2049"
+    "4k:4097"
+    "8k:8193"
+    "16k:16385"
+    "32k:32769"
+    "64k:65537"
+    "128k:131073"
+    "256k:262145"
+    "512k:524289"
+    "1m:1048577"
+    "2m:2097153"
+    "4m:4194305"
+    "8m:8388609"
+    "16m:16777215"
+)
+
 function partition(){
-    disk_partition=$1
-    totoal_num=$2
-    disk_size=$3
+    local disk_partition=$1
+    local total_num=$2
+    local device="/dev/${disk_partition}"
+    local alignment_sectors=2048
+    local first_sector=$alignment_sectors
+    local total_sectors
+    local last_sector
+    local usable_sectors
+    local partition_sectors
+    local partition_start
+    local partition_end
+    local i
+
     assert_not_system_disk "$disk_partition" "partition" || return $?
-    for ((i=1; i<=$totoal_num; i++));do
-        fdisk /dev/$disk_partition  <<eof
-n
+    total_sectors=$(blockdev --getsz "$device") || return $?
+    last_sector=$((total_sectors - alignment_sectors - 1))
+    usable_sectors=$((last_sector - first_sector + 1))
+    partition_sectors=$((usable_sectors / total_num / alignment_sectors * alignment_sectors))
+    if (( partition_sectors <= 0 )); then
+        echo "ERROR: ${device} is too small for ${total_num} aligned partitions."
+        return 1
+    fi
 
-
-+${disk_size}G
-w
-eof
-    partprobe /dev/${disk_partition}
+    parted -s "$device" mklabel gpt || return $?
+    for ((i=1; i<=total_num; i++)); do
+        partition_start=$((first_sector + (i - 1) * partition_sectors))
+        if (( i == total_num )); then
+            partition_end=$last_sector
+        else
+            partition_end=$((partition_start + partition_sectors - 1))
+        fi
+        parted -s -a none "$device" unit s mkpart primary \
+            "${partition_start}s" "${partition_end}s" || return $?
     done
+    partprobe "$device" || return $?
+    udevadm settle --timeout=30 || true
 }
 
 function del_partition(){
@@ -238,8 +281,97 @@ function mount_disk(){
     touch /tmp/fiotest/${disk_mount}/test_${disk_mount}
 }
 
+function append_filesystem_model_jobs(){
+    local fio_file=$1
+    local partition_name=$2
+    local target_config=${3:-$Cur_Dir/configuration.tmp}
+    local round_number=${4:-1}
+    local model_index
+    local model_number
+    local model_name
+    local size_pair
+    local aligned_size
+    local unaligned_size
+    local aligned_percentage
+    local unaligned_percentage
+    local read_percentage
+
+    for model_index in "${!FILESYSTEM_MODEL_SIZE_PAIRS[@]}"; do
+        model_number=$((model_index + 1))
+        size_pair=${FILESYSTEM_MODEL_SIZE_PAIRS[$model_index]}
+        aligned_size=${size_pair%%:*}
+        unaligned_size=${size_pair#*:}
+        aligned_percentage=$((10 + (round_number * 7 + model_number * 11) % 81))
+        unaligned_percentage=$((100 - aligned_percentage))
+        read_percentage=$((10 + (round_number * 13 + model_number * 17) % 81))
+        printf -v model_name '%s-round-%04d-model-%02d' \
+            "$partition_name" "$round_number" "$model_number"
+        {
+            echo ""
+            echo "[$model_name]"
+            echo "filename=$fio_file"
+            echo "rw=randrw"
+            echo "rwmixread=$read_percentage"
+            echo "bssplit=${aligned_size}/${aligned_percentage}:${unaligned_size}/${unaligned_percentage}"
+            echo "bs_unaligned=1"
+            echo "iodepth=32"
+            echo "numjobs=1"
+        } >> "$target_config"
+    done
+}
+
+function configure_filesystem_rounds(){
+    local total_runtime="${FIO_RUNTIME:-$FILESYSTEM_MODEL_RUNTIME}"
+    local round_count=$((total_runtime / FILESYSTEM_MODEL_RUNTIME))
+    local round_number
+    local config_file
+    local target_config
+    local fio_file
+    local partition_name
+
+    echo "Filesystem FIO: ${round_count} rounds x ${FILESYSTEM_MODEL_RUNTIME}s = ${total_runtime}s"
+    for ((round_number=1; round_number<=round_count; round_number++)); do
+        printf -v config_file '%04d-filesystem-models-32-%d.log' \
+            "$round_number" "$FILESYSTEM_MODEL_RUNTIME"
+        target_config="$Config_Dir/$config_file"
+        {
+            echo "[global]"
+            echo "ioengine=io_uring"
+            echo "direct=0"
+            echo "runtime=$FILESYSTEM_MODEL_RUNTIME"
+            echo "time_based=1"
+            echo "iodepth=32"
+            echo "numjobs=1"
+            echo "size=100%"
+            echo "randrepeat=0"
+            echo "norandommap"
+            echo "refill_buffers"
+            echo "group_reporting"
+            echo "log_avg_msec=$log_interval"
+        } > "$target_config"
+
+        for fio_file in "${add_file[@]}"; do
+            partition_name=$(basename "$(dirname "$fio_file")")
+            append_filesystem_model_jobs \
+                "$fio_file" "$partition_name" "$target_config" "$round_number"
+        done
+    done
+    echo "Filesystem round configs are under $Config_Dir"
+}
+
 
 function prepare_filesystem(){
+    local hd
+    local pid
+    local part_path
+    local actual_partition_count
+    local mount_path
+    local fio_file
+    local available_bytes
+    local file_size
+    local -a partition_pids=()
+    local -a disk_partitions=()
+
     if [ -d /tmp/fiotest/ ]; then
         mount | grep "/tmp/fiotest/" | awk '{print $3}' | xargs umount -l 2>/dev/null
     fi
@@ -252,51 +384,63 @@ function prepare_filesystem(){
     done
     wait
     sleep 10
-    partprobe
-    lsblk | awk '{print $1}' > before.disk
     for hd in ${disk[*]};do
         assert_not_system_disk "$hd" "create filesystem partitions" || return $?
-        disk_capacit_B=$(fdisk -l | grep "/dev/${hd}" | sed -n '1p' | awk '{print $5}')
-        disk_capacit_G=`echo "$disk_capacit_B/1024/1024/1024" | bc`
-        partition_num=8
-        partition_size=`echo "scale=0;$disk_capacit_G/8" | bc`
-        partition $hd $partition_num $partition_size &
+        partition "$hd" "$FILESYSTEM_PARTITIONS_PER_DISK" &
+        partition_pids+=("$!")
     done
-    wait
+    for pid in "${partition_pids[@]}"; do
+        wait "$pid" || return $?
+    done
     partprobe
-    sleep 60
+    udevadm settle --timeout=30 || true
+    sleep 2
     for hd in ${disk[*]};do
         assert_not_system_disk "$hd" "partprobe" || return $?
         partprobe /dev/$hd
-    done
-    sleep 10
-    lsblk | awk '{print $1}' > after.disk
-    add_disk=(`sort before.disk after.disk | uniq -u | sed 's/.*\([sn][dv].*\)/\1/'`)
-    for hd in ${add_disk[*]};do
-        add_disks[${#add_disks[*]}]=$hd
+        mapfile -t disk_partitions < <(
+            lsblk -lnpo NAME,TYPE "/dev/$hd" |
+                awk '$2 == "part" {print $1}' |
+                sort -V
+        )
+        actual_partition_count=${#disk_partitions[@]}
+        if (( actual_partition_count != FILESYSTEM_PARTITIONS_PER_DISK )); then
+            echo "ERROR: /dev/$hd has ${actual_partition_count} partitions; expected ${FILESYSTEM_PARTITIONS_PER_DISK}."
+            return 1
+        fi
+        for part_path in "${disk_partitions[@]}"; do
+            add_disks+=("$(basename "$part_path")")
+        done
     done
         	
     echo ${add_disks[*]} 
     add_file=()
     mkdir -p /tmp/fiotest
+    partition_pids=()
     for ((i=0; i<${#add_disks[*]}; i++));do
         assert_not_system_disk "${add_disks[$i]}" "mkfs" || return $?
         mkfs.xfs /dev/${add_disks[$i]} -f &
+        partition_pids+=("$!")
     done
-    wait
-    sleep 10
+    for pid in "${partition_pids[@]}"; do
+        wait "$pid" || return $?
+    done
     for ((i=0; i<${#add_disks[*]}; i++));do
-	    mount_disk ${add_disks[$i]} &
+        mount_disk "${add_disks[$i]}" || return $?
     done
-    wait
-    sleep 10
-    echo "try to generate file for fio"
+    echo "Allocate one filesystem test file per partition"
     for ((i=0; i<${#add_disks[*]}; i++));do
-        dd if=/dev/zero of=/tmp/fiotest/${add_disks[$i]}/test_${add_disks[$i]} bs=1G count=10 conv=fsync &
-	add_file[$i]="/tmp/fiotest/${add_disks[$i]}/test_${add_disks[$i]}"
+        mount_path="/tmp/fiotest/${add_disks[$i]}"
+        fio_file="${mount_path}/test_${add_disks[$i]}"
+        available_bytes=$(df -B1 --output=avail "$mount_path" | tail -n 1 | tr -d '[:space:]')
+        file_size=$((available_bytes * 80 / 100 / 512 * 512))
+        if (( file_size < 33554432 )); then
+            echo "ERROR: ${mount_path} has insufficient free space for filesystem FIO."
+            return 1
+        fi
+        fallocate -l "$file_size" "$fio_file" || return $?
+	add_file[$i]="$fio_file"
     done
-    wait
-    sleep 20
     echo ${add_file[*]}
 }
 
@@ -389,7 +533,11 @@ function gen_config_file()
     fi
 
         count=` expr $line_t - 1 `
-        config_file="$count-$mode_-$blocksize-$iodepth-$run_time.log"
+        blocksize_label="$blocksize"
+        if [[ "$blocksize" == bssplit=* ]]; then
+            blocksize_label="bssplit"
+        fi
+        config_file="$count-$mode_-$blocksize_label-$iodepth-$run_time.log"
 
         sed -i '/randrepeat/d' $Cur_Dir/configuration.tmp
         sed -i '/norandommap/d' $Cur_Dir/configuration.tmp
@@ -408,7 +556,13 @@ function gen_config_file()
         if [[ -n "$verify_mode" ]]; then
             fio_verify_apply_mode_options "$verify_mode" "$run_time"
         fi
-        sed  "s/config_blocksize/$blocksize/" $Cur_Dir/configuration.tmp > $Config_Dir/$config_file
+        if [[ "$blocksize" == bssplit=* ]]; then
+            sed "s#^bs=config_blocksize#${blocksize}#" \
+                $Cur_Dir/configuration.tmp > $Config_Dir/$config_file
+        else
+            sed "s/config_blocksize/$blocksize/" \
+                $Cur_Dir/configuration.tmp > $Config_Dir/$config_file
+        fi
         sed -i "s/config_mode/$mode_/" $Config_Dir/$config_file
         sed -i "s/run_time/$run_time/" $Config_Dir/$config_file
         sed -i "s/config_iodepth/$iodepth/" $Config_Dir/$config_file
@@ -419,7 +573,14 @@ function gen_config_file()
         else
             sed -i "s/off_set/${offset}%/" $Config_Dir/$config_file
         fi
-	sed -i "s/config_log_avg_msec/$log_interval/"  $Config_Dir/$config_file
+	    sed -i "s/config_log_avg_msec/$log_interval/"  $Config_Dir/$config_file
+
+        if [[ "$item" == FILESYSTEMSTRESS && "$blocksize" == bssplit=* ]]; then
+            sed -i 's/^ioengine=.*/ioengine=io_uring/' $Config_Dir/$config_file
+            sed -i 's/^direct=.*/direct=0/' $Config_Dir/$config_file
+            sed -i '/^bs_unaligned=/d' $Config_Dir/$config_file
+            sed -i '/^group_reporting/a bs_unaligned=1' $Config_Dir/$config_file
+        fi
 
     
 }
@@ -427,6 +588,11 @@ function gen_config_file()
 function configure()
 {
     echo "**********" `date +%m-%d" "%H:%M:%S` "Generating Config Files**********"
+
+    if [[ "$item" == FILESYSTEMSTRESS ]]; then
+        configure_filesystem_rounds
+        return $?
+    fi
 
     check_="START"
     line_t=2
@@ -570,14 +736,11 @@ function set_Disk()
             done
         elif [[ $item == FILESYSTEMSTRESS ]];then
             # 仅对非系统盘新建的文件系统做 IO，不在系统盘上创建任何测试文件
-            prepare_filesystem
-            echo "size=100%" >>$Cur_Dir/configuration.tmp
-            for str in ${add_file[@]}
-            do
-                job_name=`echo $str | awk -F '/' '{print $4}'`
-                echo "["$job_name"]" >>$Cur_Dir/configuration.tmp
-                echo "filename="${str} >>$Cur_Dir/configuration.tmp 
-            done
+            prepare_filesystem || {
+                local prepare_rc=$?
+                close_mount
+                return "$prepare_rc"
+            }
         fi
         swapoff -a
     fi  
@@ -1476,8 +1639,12 @@ function run_all()
     if [[ $mix_io == NO ]];then
         cd $Config_Dir
         echo "**********" `date +%m-%d" "%H:%M:%S` "Running FIO As All Mode,Reports For ALL Disk  **********"
-        num=`cat $Cur_Dir/$filename |grep -v -i 'End'|wc -l`
-        totalnum=`expr $num - 1`
+        if [[ $item == FILESYSTEMSTRESS ]]; then
+            totalnum=$(find "$Config_Dir" -maxdepth 1 -type f -name '*.log' | wc -l)
+        else
+            num=`cat $Cur_Dir/$filename |grep -v -i 'End'|wc -l`
+            totalnum=`expr $num - 1`
+        fi
         jobnum=1
         printf "%-10s %-12s %-10s %-12s %-10s %-10s %-8s %-18s %-18s %-12s %-11s %-10s %-10s\n" Test-Mode, Queue-Depth, Blocksize, NumJbs, ReadIOPS, WriteIOPS, IOPS, Read_Bandwidth, Write_Bandwindth, Bandwidth, Latency, CPUusr%, CPUsys% >>$Result_Dir/result_$loop.csv
         rm -rf stor*
@@ -1831,7 +1998,7 @@ all()
             echo "" >>$File_Dir/$b
             echo "End" >>$File_Dir/$b
             configure
-            run_all $b
+            run_all $b || return $?
         done
         if [[ -n "$loop" ]] && [ "$loop" -gt 1 ]; then
             comparebw

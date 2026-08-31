@@ -82,6 +82,7 @@ MONITOR_RUNTIME = 1000
 - `FIO_CYCLES`：电源循环次数（仅 `reboot`/`dc` 有效；压测项循环由 CSV 与 runtime 决定，不使用此参数）。
 - `IGNORE_ERROR`：MachineCheck 结果不一致时是否继续 (yes/no)。
 - `FIO_DISKS`：指定数据盘 (如 `sdb,sdc`)，留空为全部数据盘。
+- `FIO_RUNTIME`：filesystem 的 fio 压测阶段总时长，单位秒且必须是 180 的整数倍；每轮 180 秒后更换 16 个模型的读写比例及对齐/非对齐权重，不包含分区、格式化和挂载时间。
 - `STRESS_MONITOR` / `MONITOR_RUNTIME`：后台压力监控开关与时长（`lawdisk` / `filesystem` / `mix`；`reboot` / `dc` 不支持）。
 
 > 白名单为空时不跑任何用例（破坏性测试的安全默认）。停止/清理（restore）

@@ -68,6 +68,8 @@ def test_repository_test_items_file_is_valid():
     assert params["lawdisk"]["FIO_CONFIG"] == "Input_Config_lawdisk.csv"
     assert params["mix"]["FIO_CONFIG"] == "Input_Config_mix.csv"
     assert params["mix"]["MIX_FAIL_ON_ANY"].strip().lower() in ("yes", "no")
+    assert params["filesystem"]["FIO_RUNTIME"] == "43200"
+    assert "FIO_RUNTIME" in nvme_raid_test.ALLOWED_PARAM_KEYS
     assert params["basic_io"]["FIO_CONFIG"] == "Input_Config_basic_io.csv"
     assert params["random_io"]["FIO_CONFIG"] == "Input_Config_random_io.csv"
     assert "FIO_CYCLES" not in params["lawdisk"]
