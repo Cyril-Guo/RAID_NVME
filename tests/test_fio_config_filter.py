@@ -67,6 +67,8 @@ def test_ci_filesystem_prepares_sixteen_partitions_and_buffered_async_io():
 
     assert "FILESYSTEM_PARTITIONS_PER_DISK=16" in source
     assert "actual_partition_count != FILESYSTEM_PARTITIONS_PER_DISK" in source
+    assert "refresh_partition_devices" in source
+    assert 'partx -a "$device"' in source
     model_block = source.split("FILESYSTEM_MODEL_SIZE_PAIRS=(", 1)[1].split(")", 1)[0]
     models = [line.strip().strip('"') for line in model_block.splitlines() if ":" in line]
     assert len(models) == 16
@@ -82,6 +84,46 @@ def test_ci_filesystem_prepares_sixteen_partitions_and_buffered_async_io():
     assert "ioengine=io_uring" in source
     assert "direct=0" in source
     assert "bs_unaligned=1" in source
+
+
+def test_filesystem_partition_refresh_runs_partx_after_successful_partprobe(tmp_path):
+    call_log = (tmp_path / "calls.log").as_posix()
+    for command in ("partprobe", "partx", "udevadm"):
+        executable = tmp_path / command
+        executable.write_text(
+            textwrap.dedent(
+                f"""\
+                #!/bin/sh
+                printf '{command} %s\\n' "$*" >> "$CALL_LOG"
+                exit 0
+                """
+            ),
+            encoding="utf-8",
+        )
+        executable.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{tmp_path}{os.pathsep}{env['PATH']}"
+    env["CALL_LOG"] = call_log
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "source IO_Stress/lib/fio.sh; refresh_partition_devices /dev/dp0-vd1",
+        ],
+        cwd=Path.cwd(),
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    calls = Path(call_log).read_text(encoding="utf-8").splitlines()
+    assert calls == [
+        "partprobe /dev/dp0-vd1",
+        "partx -a /dev/dp0-vd1",
+        "udevadm settle --timeout=30",
+    ]
 
 
 def test_ci_filesystem_runtime_can_be_overridden_from_test_items():
@@ -502,6 +544,42 @@ def test_fio_system_disk_detection_parses_jenkins_source_line_under_set_e():
     )
 
     assert result.stdout.splitlines() == ["nvme3n1"]
+
+
+def test_fio_system_block_device_collection_has_valid_awk(tmp_path):
+    lsblk = tmp_path / "lsblk"
+    lsblk.write_text(
+        textwrap.dedent(
+            """\
+            #!/bin/sh
+            echo "nvme3n1 "
+            echo "nvme3n1p1 nvme3n1"
+            echo "nvme3n1p2 nvme3n1"
+            """
+        ),
+        encoding="utf-8",
+    )
+    lsblk.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{tmp_path}{os.pathsep}{env['PATH']}"
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "source IO_Stress/lib/fio.sh; "
+            "system_disk=nvme3n1; "
+            "collect_system_block_devices 'nvme3n1 nvme3n1p1'",
+        ],
+        cwd=Path.cwd(),
+        env=env,
+        text=True,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0
+    assert result.stderr == ""
+    assert result.stdout.split() == ["nvme3n1", "nvme3n1p1", "nvme3n1p2"]
 
 
 def test_fio_output_has_successful_io_detects_any_positive_iops(tmp_path):

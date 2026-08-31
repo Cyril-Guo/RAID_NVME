@@ -223,6 +223,20 @@ FILESYSTEM_MODEL_SIZE_PAIRS=(
     "16m:16777215"
 )
 
+refresh_partition_devices()
+{
+    local device="$1"
+
+    # Some draid virtual disks accept the GPT write while BLKRRPART does not
+    # create partition devices. partx uses BLKPG to register them explicitly.
+    partprobe "$device" >/dev/null 2>&1 || true
+    if command -v partx >/dev/null 2>&1; then
+        partx -a "$device" >/dev/null 2>&1 ||
+            partx -u "$device" >/dev/null 2>&1 || true
+    fi
+    udevadm settle --timeout=30 || true
+}
+
 function partition(){
     local disk_partition=$1
     local total_num=$2
@@ -258,8 +272,7 @@ function partition(){
         parted -s -a none "$device" unit s mkpart primary \
             "${partition_start}s" "${partition_end}s" || return $?
     done
-    partprobe "$device" || return $?
-    udevadm settle --timeout=30 || true
+    refresh_partition_devices "$device"
 }
 
 function del_partition(){
@@ -365,6 +378,7 @@ function prepare_filesystem(){
     local pid
     local part_path
     local actual_partition_count
+    local partition_attempt
     local mount_path
     local fio_file
     local available_bytes
@@ -392,18 +406,19 @@ function prepare_filesystem(){
     for pid in "${partition_pids[@]}"; do
         wait "$pid" || return $?
     done
-    partprobe
-    udevadm settle --timeout=30 || true
-    sleep 2
     for hd in ${disk[*]};do
         assert_not_system_disk "$hd" "partprobe" || return $?
-        partprobe /dev/$hd
-        mapfile -t disk_partitions < <(
-            lsblk -lnpo NAME,TYPE "/dev/$hd" |
-                awk '$2 == "part" {print $1}' |
-                sort -V
-        )
-        actual_partition_count=${#disk_partitions[@]}
+        for ((partition_attempt=1; partition_attempt<=10; partition_attempt++)); do
+            refresh_partition_devices "/dev/$hd"
+            mapfile -t disk_partitions < <(
+                lsblk -lnpo NAME,TYPE "/dev/$hd" |
+                    awk '$2 == "part" {print $1}' |
+                    sort -V
+            )
+            actual_partition_count=${#disk_partitions[@]}
+            (( actual_partition_count == FILESYSTEM_PARTITIONS_PER_DISK )) && break
+            sleep 1
+        done
         if (( actual_partition_count != FILESYSTEM_PARTITIONS_PER_DISK )); then
             echo "ERROR: /dev/$hd has ${actual_partition_count} partitions; expected ${FILESYSTEM_PARTITIONS_PER_DISK}."
             return 1
@@ -929,6 +944,7 @@ collect_system_block_devices()
                 for (i in disk_list) {
                     if (disk_list[i] != "") protected[disk_list[i]]=1
                 }
+            }
             {
                 name=$1
                 parent=$2
@@ -936,6 +952,7 @@ collect_system_block_devices()
                     protected[name]=1
                     print name
                 }
+            }
         '
     } | awk 'NF && !seen[$0]++' | xargs
 }
