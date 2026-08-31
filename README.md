@@ -4,7 +4,7 @@
 
 ## 🌟 主要功能
 
-- **分布式并发执行**：通过 Jenkins 并发调度，可同时对 `target_ips.txt` 中配置的多个节点进行测试。
+- **分布式并发执行**：通过 Jenkins 并发调度，可同时对构建参数 `TARGET_IPS` 中配置的多个节点进行测试。
 - **自动化环境部署**：Jenkins Pipeline 通过 **SSH 密码登录**（`sshpass`）将测试代码部署到远端服务器，目录为 `/root/Cyril/Jenkins/<JOB>/<BRANCH>/build-<N>/` 分层（CI/SMOKE、分支、构建互不混杂）；各用例在 `cases/<item>/` 下隔离运行，并自动安装所需 Python 运行依赖、编译/加载 `draid` 驱动。
 - **Allure 监控报告合并**：自动从所有远端测试节点中回收测试产物（`.xml` 控制台日志和 `allure-results`），统一生成直观的 Allure UI 评估报告。
 - **飞书通知集成**：测试完成后，通过自定义飞书机器人 Webhook，自动实时推送详尽的测试结果与成功/失败数据到飞书群组。
@@ -16,7 +16,7 @@ RAID_NVME/
 ├── Jenkinsfile             # Jenkins 流水线定义脚本，包含集群并发逻辑与飞书通知
 ├── nvme_raid_test.py       # 主测试执行调度脚本（从 test_items.txt 读取测试项）
 ├── requirements.txt        # Python 依赖包 (pytest, allure-pytest 等)
-├── target_ips.txt          # 存放被测目标服务器的 IP 列表
+├── target_ips.txt          # 旧版目标 IP 记录（Pipeline 已改用 TARGET_IPS 构建参数）
 ├── test_items.txt          # 测试项选择文件：勾选要执行的测试项及全局参数
 ├── conftest.py             # Pytest 全局配置
 ├── IO_Stress/              # FIO 压力测试引擎（共用）：Fio_All.sh、lib/ 等
@@ -36,7 +36,7 @@ Pipeline **不再依赖** Jenkins → 被测机的 SSH 免密（公钥）。所�
 
 | 对象 | 用户 | 密码来源 | 默认值 |
 |------|------|----------|--------|
-| 物理机（`target_ips.txt`） | `root`（`TARGET_USER`） | 构建参数 / 环境变量 `TARGET_PASSWORD` | `123456` |
+| 物理机（`TARGET_IPS`） | `root`（`TARGET_USER`） | 构建参数 / 环境变量 `TARGET_PASSWORD` | `123456` |
 | QEMU 客户机（端口 `2233`） | `root` | `QEMU_VM_PASSWORD`（Jenkinsfile 环境变量） | `1` |
 
 **被测物理机侧只需保证：**
@@ -62,7 +62,7 @@ SSHPASS='123456' sshpass -e ssh \
 ## 🚀 快速使用说明
 
 ### 1. 配置测试目标节点
-编辑项目根目录中的 `target_ips.txt`，将所有需要测试的节点 IP 地址逐行填入。
+在 Jenkins **Build with Parameters** 页面填写 `TARGET_IPS`，每行一个 IPv4 地址；空行和以 `#` 开头的注释行会被忽略。
 
 ### 2. 配置要执行的测试项
 编辑项目根目录中的 `test_items.txt`。**每个测试项就是一个 `[item]` 块**，开关和参数都在同一个块里，
@@ -112,11 +112,12 @@ MONITOR_RUNTIME =
 **手动触发**：在 Jenkins 界面点击 **"Build with Parameters"**：
 - 直接构建（`RESTORE` 不勾选）即按 `test_items.txt` 执行测试，不受 MR 轮询去重限制；
   被测驱动默认 checkout `kernel_driver/main`。
+- **`TARGET_IPS`**：被测物理机 IPv4 地址，每行一个；默认值可直接修改。
 - **`TARGET_PASSWORD`**：物理机 `root` SSH 密码，默认 `123456`；仅当目标机密码不是默认值时再改。
 - 勾选 **`SIMULATE_AUTO_MR_TRIGGER`（虚拟机路径）**：先在 **QEMU 虚拟机**里按 `test_items.txt`
   **串行跑完全部勾选用例**，再 **只 poweroff 一次** 归还 NVMe，然后在 **物理机**上对同一批用例再串行跑一遍
   （自动 MR 触发同样是这条路径；避免每个用例来回开关虚拟机）。
-- 勾选 **`RESTORE`** 后构建：本次不执行测试，仅对 `target_ips.txt` 中所有节点
+- 勾选 **`RESTORE`** 后构建：本次不执行测试，仅对 `TARGET_IPS` 中所有节点
   **立即停止**正在运行的测试（含后台 FIO / 监控进程），并恢复系统环境
   （还原自动登录、开机自启等配置）。用于随时中止测试。
 

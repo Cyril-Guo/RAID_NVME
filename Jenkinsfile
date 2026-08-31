@@ -498,6 +498,11 @@ pipeline {
             defaultValue: false,
             description: '勾选虚拟机路径：先在 QEMU 里按 test_items.txt 串行跑完全部勾选用例，再只 poweroff 一次归还 NVMe，然后在物理机上再串行跑同一批用例（避免每个用例来回开关虚拟机）。'
         )
+        text(
+            name: 'TARGET_IPS',
+            defaultValue: '192.168.23.94',
+            description: 'Target node IPv4 addresses, one per line. Blank lines and lines beginning with # are ignored.'
+        )
         string(
             name: 'MANUAL_MR_IID',
             defaultValue: '',
@@ -919,15 +924,24 @@ PY
                         return
                     }
 
-                    if (!fileExists('target_ips.txt')) {
-                        error 'Missing target_ips.txt in repository root.'
-                    }
-
-                    def ipContent = readFile('target_ips.txt').trim()
-                    targetIPs = ipContent.split('\\r?\\n').findAll { it.trim() != '' && !it.startsWith('#') }
+                    def ipContent = (params.TARGET_IPS ?: '').trim()
+                    targetIPs = ipContent.split('\\r?\\n')
+                        .collect { it.trim() }
+                        .findAll { it != '' && !it.startsWith('#') }
+                        .unique()
 
                     if (targetIPs.size() == 0) {
-                        error 'No valid target IPs found in target_ips.txt.'
+                        error 'No valid target IPs provided in TARGET_IPS.'
+                    }
+
+                    def invalidIPs = targetIPs.findAll { candidate ->
+                        def octets = candidate.tokenize('.')
+                        octets.size() != 4 || octets.any { octet ->
+                            !(octet ==~ /^\d{1,3}$/) || octet.toInteger() > 255
+                        }
+                    }
+                    if (invalidIPs.size() > 0) {
+                        error "Invalid TARGET_IPS entries: ${invalidIPs.join(', ')}. Enter one IPv4 address per line."
                     }
 
                     echo "Target nodes: ${targetIPs}"
