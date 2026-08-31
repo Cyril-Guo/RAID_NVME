@@ -296,7 +296,7 @@ def test_physical_host_ssh_uses_password_with_default_and_override():
     assert '    "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"' not in jenkinsfile
     assert "TARGET_PASSWORD=${TARGET_PASSWORD:-123456}" in source
     assert "sshpass -e ssh" in source
-    assert "do not store sshpass -p" in jenkinsfile
+    assert "sshpass -p" not in source
 
 
 def test_qemu_vm_start_forces_clean_environment_before_start():
