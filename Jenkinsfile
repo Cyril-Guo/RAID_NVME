@@ -1096,8 +1096,11 @@ PY
                 cat allure-results/environment_*.properties > allure-results/environment.properties 2>/dev/null || true
                 rm -f allure-results/environment_*.properties
                 python3 ci/collect_console_output.py
+                python3 ci/build_status.py --manual-abort jenkins_console.log > manual_abort.txt
                 python3 ci/junit_to_allure.py
                 '''
+
+                def manuallyAborted = fileExists('manual_abort.txt') && readFile('manual_abort.txt').trim() == 'true'
 
                 // Node-level reports only; skip leftover per-item report_<case>.xml files.
                 junit testResults: 'report_*.*.*.*.xml,report_*_physical.xml', allowEmptyResults: true
@@ -1110,6 +1113,11 @@ PY
                 )
 
                 archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, allure-results/monitor_log_*.tar.gz', allowEmptyArchive: true
+
+                if (manuallyAborted) {
+                    echo 'Manual abort detected; keep ABORTED and skip Feishu notification.'
+                    return
+                }
 
                 def metricsOutput = sh(script: "python3 ci/report_metrics.py", returnStdout: true).trim()
                 sh 'python3 ci/extract_failure_summary.py --output failure_summary.txt || true'

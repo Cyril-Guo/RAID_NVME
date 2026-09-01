@@ -115,6 +115,14 @@ def test_target_hang_times_out_and_keeps_pipeline_control():
     assert 'exit "${test_rc}"' in source
 
 
+def test_manual_abort_keeps_aborted_and_skips_feishu_notification():
+    source = pipeline_sources()
+
+    assert "ci/build_status.py --manual-abort jenkins_console.log" in source
+    assert "Manual abort detected; keep ABORTED and skip Feishu notification." in source
+    assert source.index("if (manuallyAborted)") < source.index("python3 ci/build_feishu_payload.py")
+
+
 def test_environment_prepare_hang_times_out_after_15_minutes():
     source = pipeline_sources()
 
