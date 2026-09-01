@@ -16,6 +16,83 @@ report_file="report_${NODE_IP}${report_suffix}.xml"
 tmp_results="allure-results-${NODE_IP}${report_suffix}"
 idle_timeout_seconds=$((TEST_IDLE_TIMEOUT_MINUTES * 60))
 watch_interval_seconds=30
+failure_bundle_query_timeout_seconds="${FAILURE_BUNDLE_QUERY_TIMEOUT_SECONDS:-30}"
+failure_bundle_collect_timeout_seconds="${FAILURE_BUNDLE_COLLECT_TIMEOUT_SECONDS:-600}"
+failure_bundle_copy_timeout_seconds="${FAILURE_BUNDLE_COPY_TIMEOUT_SECONDS:-600}"
+failure_bundle_kill_after_seconds="${FAILURE_BUNDLE_KILL_AFTER_SECONDS:-30}"
+
+read_remote_bundle_pointer() {
+    local pointer_name="$1"
+    local pointer_command
+
+    pointer_command="${REMOTE_SSH_COMMAND} \"cat '${REMOTE_DIR}/failure_bundles/${pointer_name}' 2>/dev/null || true\""
+    timeout --kill-after="${failure_bundle_kill_after_seconds}s" \
+        "${failure_bundle_query_timeout_seconds}s" \
+        bash -c "${pointer_command}" 2>/dev/null | tr -d '\r' | tail -n 1
+}
+
+is_expected_failure_bundle_path() {
+    local bundle_path="${1:-}"
+    local bundle_name
+
+    case "${bundle_path}" in
+        "${REMOTE_DIR}"/failure_bundles/*)
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
+    bundle_name="$(basename -- "${bundle_path}")"
+    [[ "${bundle_name}" =~ ^failure_bundle_[A-Za-z0-9._-]+\.tar\.gz$ ]]
+}
+
+remote_bundle_exists() {
+    local bundle_path="$1"
+    local exists_command
+
+    exists_command="${REMOTE_SSH_COMMAND} \"test -f '${bundle_path}'\""
+    timeout --kill-after="${failure_bundle_kill_after_seconds}s" \
+        "${failure_bundle_query_timeout_seconds}s" \
+        bash -c "${exists_command}" >/dev/null 2>&1
+}
+
+find_remote_failure_bundle() {
+    local pointer_name="$1"
+    local bundle_path
+
+    bundle_path="$(read_remote_bundle_pointer "${pointer_name}" || true)"
+    if is_expected_failure_bundle_path "${bundle_path}" && remote_bundle_exists "${bundle_path}"; then
+        printf '%s\n' "${bundle_path}"
+        return 0
+    fi
+    return 1
+}
+
+collect_fallback_failure_bundle() {
+    local collect_command
+    local transport_timeout_seconds
+
+    transport_timeout_seconds=$((failure_bundle_collect_timeout_seconds + failure_bundle_kill_after_seconds + 30))
+    collect_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x ci/collect_failure_bundle.sh ci/enable_failure_coredumps.sh && timeout --kill-after=${failure_bundle_kill_after_seconds}s ${failure_bundle_collect_timeout_seconds}s env NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} RUN_KEY=remote_runner BUNDLE_REASON=remote_test_rc_${test_rc} bash -c 'ci/enable_failure_coredumps.sh && ci/collect_failure_bundle.sh'\""
+
+    timeout --kill-after="${failure_bundle_kill_after_seconds}s" \
+        "${transport_timeout_seconds}s" \
+        bash -c "${collect_command}"
+}
+
+copy_exact_failure_bundle() {
+    local remote_bundle_path="$1"
+    local bundle_name
+    local copy_command
+
+    bundle_name="$(basename -- "${remote_bundle_path}")"
+    echo "[${NODE_IP}] copy exact failure bundle ${bundle_name} (timeout=${failure_bundle_copy_timeout_seconds}s)"
+    copy_command="${REMOTE_SCP_COMMAND} '${TARGET_USER}@${NODE_IP}:${remote_bundle_path}' ."
+    timeout --kill-after="${failure_bundle_kill_after_seconds}s" \
+        "${failure_bundle_copy_timeout_seconds}s" \
+        bash -c "${copy_command}"
+}
 
 collect_io_signature() {
     timeout --kill-after=5s 20s bash -c "
@@ -79,10 +156,24 @@ fi
 eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && python3 ci/salvage_junit_reports.py --stop-monitor --output report.xml\"" || true
 
 if [ "${test_rc}" != "0" ]; then
-    echo "[${NODE_IP}] collect failure gcore/diagnostic bundle on DUT"
-    eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x ci/collect_failure_bundle.sh ci/enable_failure_coredumps.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} RUN_KEY=remote_runner BUNDLE_REASON=remote_test_rc_${test_rc} ci/enable_failure_coredumps.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} RUN_KEY=remote_runner BUNDLE_REASON=remote_test_rc_${test_rc} ci/collect_failure_bundle.sh\"" || true
-    mkdir -p .
-    eval "${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/failure_bundles/failure_bundle_*.tar.gz ." || true
+    remote_bundle_path="$(find_remote_failure_bundle preferred_live_bundle_path.txt || true)"
+    if [ -n "${remote_bundle_path}" ]; then
+        echo "[${NODE_IP}] reuse live EIO failure bundle: $(basename -- "${remote_bundle_path}")"
+    else
+        echo "[${NODE_IP}] no reusable live EIO bundle; collect fallback gcore/diagnostic bundle on DUT (timeout=${failure_bundle_collect_timeout_seconds}s)"
+        if ! collect_fallback_failure_bundle; then
+            echo "[${NODE_IP}] WARN: fallback failure bundle collection failed or timed out; keep original test exit code ${test_rc}"
+        fi
+        remote_bundle_path="$(find_remote_failure_bundle latest_bundle_path.txt || true)"
+    fi
+
+    if [ -n "${remote_bundle_path}" ]; then
+        if ! copy_exact_failure_bundle "${remote_bundle_path}"; then
+            echo "[${NODE_IP}] WARN: exact failure bundle copy failed or timed out; keep original test exit code ${test_rc}"
+        fi
+    else
+        echo "[${NODE_IP}] WARN: no valid failure bundle path is available for copy"
+    fi
 fi
 
 echo "[${NODE_IP}] copy back reports"

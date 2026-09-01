@@ -99,7 +99,7 @@ def test_wiring_references_failure_bundle():
     assert "enable_draid_pending_debug" in nvme
     assert "collect_failure_bundle.sh" in remote
     assert "enable_draid_pending_debug.sh" in remote
-    assert "failure_bundle_*.tar.gz" in remote
+    assert "failure_bundle_*.tar.gz" not in remote
     assert "failure_bundle_*.tar.gz" in jenkins
     assert "allure-results/failure_bundle_*.tar.gz" in jenkins
     assert "enable_failure_coredumps.sh" in prepare
@@ -109,6 +109,20 @@ def test_wiring_references_failure_bundle():
     assert "enable_draid_pending_debug.sh" in install
     assert "gdb" in install
     assert "enable_failure_coredumps.sh" in install
+
+
+def test_remote_failure_bundle_reuses_live_capture_and_bounds_collection_copy():
+    source = (REPO_ROOT / "ci" / "run_remote_test_and_collect.sh").read_text(encoding="utf-8")
+
+    assert "preferred_live_bundle_path.txt" in source
+    assert "latest_bundle_path.txt" in source
+    assert "reuse live EIO failure bundle" in source
+    assert "no reusable live EIO bundle; collect fallback" in source
+    assert 'failure_bundle_collect_timeout_seconds="${FAILURE_BUNDLE_COLLECT_TIMEOUT_SECONDS:-600}"' in source
+    assert 'failure_bundle_copy_timeout_seconds="${FAILURE_BUNDLE_COPY_TIMEOUT_SECONDS:-600}"' in source
+    assert 'timeout --kill-after="${failure_bundle_kill_after_seconds}s"' in source
+    assert "copy exact failure bundle" in source
+    assert 'basename -- "${remote_bundle_path}"' in source
 
 
 def test_resolve_failure_bundle_prefers_live_over_recollect(tmp_path, monkeypatch):
