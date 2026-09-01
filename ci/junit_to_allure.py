@@ -8,11 +8,13 @@ import uuid
 import xml.etree.ElementTree as ET
 
 try:
+    from ci.build_status import console_was_manually_aborted
     from ci.extract_failure_summary import extract_failure_lines
-    from ci.report_metrics import is_node_junit_report
+    from ci.report_metrics import execution_log_has_explicit_failure, is_node_junit_report
 except ModuleNotFoundError:
+    from build_status import console_was_manually_aborted
     from extract_failure_summary import extract_failure_lines
-    from report_metrics import is_node_junit_report
+    from report_metrics import execution_log_has_explicit_failure, is_node_junit_report
 
 
 def normalize_root(root):
@@ -408,14 +410,7 @@ def execution_log_needs_result(text):
     Also surface hard FIO stops even when the remote wrapper wrongly wrote
     TEST_EXECUTION_STATUS=passed (pytest stayed green after Fio_All swallowed rc).
     """
-    hard_markers = (
-        "FIO stage failed",
-        "FIO stage abort",
-        "MIX_FAIL_ON_ANY=yes, fail",
-        "idle watchdog timeout",
-        "idle watchdog fired",
-    )
-    if any(marker in (text or "") for marker in hard_markers):
+    if execution_log_has_explicit_failure(text):
         return True
     if "TEST_EXECUTION_STATUS=passed" in text:
         return False
@@ -427,6 +422,7 @@ def execution_log_needs_result(text):
 
 
 def write_failed_execution_results(allure_dir, existing_ids):
+    manually_aborted = console_was_manually_aborted()
     generated = 0
     for path in sorted(glob.glob("test_execution_*.log")):
         try:
@@ -435,6 +431,8 @@ def write_failed_execution_results(allure_dir, existing_ids):
         except OSError:
             continue
 
+        if manually_aborted and not execution_log_has_explicit_failure(text):
+            continue
         if not execution_log_needs_result(text):
             continue
 
@@ -502,6 +500,8 @@ def write_failed_execution_results(allure_dir, existing_ids):
 
 def write_console_fallback_result(allure_dir, existing_ids, console_path="jenkins_console.log"):
     """Ensure ABORTED/infra builds still produce an Allure case when no other results exist."""
+    if console_was_manually_aborted(console_path):
+        return 0
     if not os.path.isfile(console_path):
         return 0
     if glob.glob(os.path.join(allure_dir, "*-result.json")):

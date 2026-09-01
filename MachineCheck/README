@@ -21,6 +21,8 @@ bash MachineCheck.sh
 
 以上均为**快照记录**，本脚本不做 OK/ERROR 判定。IO_Stress 每圈把测前 `info_before.log` 与测后 `info_after.log` 做 diff：一致则通过，不一致则产生 MachineCheck error（是否停测由 `IGNORE_ERROR` 决定）。
 
+PCIe Link/AER 读取会实时打印每个 BDF 的 `probe start/finish`。单个 `lspci -vvv` 默认最多运行 15 秒（可通过 `MACHINECHECK_PCIE_TIMEOUT_SECONDS` 调整）；超时会打印具体 BDF，并让本次 MachineCheck 返回 124，避免无期限阻塞在测前检查。
+
 ## 扩展
 
 新增检查项直接改 `MachineCheck.sh` 写入 `Result/machinecheck.log` 即可；前后比对逻辑无需改。

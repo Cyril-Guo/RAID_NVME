@@ -34,9 +34,17 @@ intializer
 #install_HPL
 #install_fio
 
+echo "[STAGE] item=${item} phase=machinecheck_before start"
 info_check
+machinecheck_rc=$?
+if [[ $machinecheck_rc -ne 0 ]]; then
+    echo "[STAGE] item=${item} phase=machinecheck_before failed rc=${machinecheck_rc}"
+    exit "$machinecheck_rc"
+fi
+echo "[STAGE] item=${item} phase=machinecheck_before finish rc=0"
 
 
+echo "[STAGE] item=${item} phase=fio_cycle start"
 fio_cycle
 
 

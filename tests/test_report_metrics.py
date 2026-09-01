@@ -244,9 +244,44 @@ def test_report_metrics_surfaces_hard_fio_fail_even_when_status_passed(tmp_path,
     }
 
 
-def test_report_metrics_counts_aborted_empty_execution_log(tmp_path, monkeypatch):
+def test_report_metrics_does_not_count_manual_abort_as_infra_failure(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "test_execution_192.168.22.134.log").write_text("", encoding="utf-8")
+    (tmp_path / "jenkins_console.log").write_text(
+        "Running nvme_raid_test.py\nAborted by cyril\nFinished: ABORTED\n",
+        encoding="utf-8",
+    )
+
+    assert report_metrics.report_metrics() == {
+        "tests": 0,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "kind": "empty",
+    }
+
+
+def test_report_metrics_still_counts_incomplete_execution_without_manual_abort(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "test_execution_192.168.22.134.log").write_text("", encoding="utf-8")
+
+    assert report_metrics.report_metrics() == {
+        "tests": 1,
+        "failures": 0,
+        "errors": 1,
+        "skipped": 0,
+        "kind": "infra",
+    }
+
+
+def test_report_metrics_keeps_real_failure_before_manual_abort(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "test_execution_192.168.22.134.log").write_text(
+        "idle watchdog fired after 15 minutes without progress\n"
+        "TEST_EXECUTION_STATUS=failed\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "jenkins_console.log").write_text("Aborted by cyril\n", encoding="utf-8")
 
     assert report_metrics.report_metrics() == {
         "tests": 1,

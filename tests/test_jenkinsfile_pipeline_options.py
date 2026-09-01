@@ -110,9 +110,10 @@ def test_manual_build_can_select_kernel_driver_branch():
 
 def test_target_hang_times_out_and_keeps_pipeline_control():
     source = pipeline_sources()
+    fio_all = Path("IO_Stress/Fio_All.sh").read_text(encoding="utf-8")
 
     assert "TARGET_NODE_TIMEOUT_MINUTES" not in source
-    assert "TEST_IDLE_TIMEOUT_MINUTES = '90'" in source
+    assert "TEST_IDLE_TIMEOUT_MINUTES = '15'" in source
     assert "ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'" in source
     assert "ServerAliveInterval=30" in source
     assert "ServerAliveCountMax=3" in source
@@ -122,7 +123,17 @@ def test_target_hang_times_out_and_keeps_pipeline_control():
     assert "ci/io_progress_signature.sh" in source
     assert "made no log or non-system disk IO progress for ${TEST_IDLE_TIMEOUT_MINUTES} minutes" in source
     assert "idle watchdog fired after ${TEST_IDLE_TIMEOUT_MINUTES} minutes without progress" in source
+    assert "[STAGE] item=${item} phase=machinecheck_before start" in fio_all
+    assert "[STAGE] item=${item} phase=fio_cycle start" in fio_all
     assert 'exit "${test_rc}"' in source
+
+
+def test_manual_abort_is_not_converted_to_failure_or_feishu_notification():
+    source = pipeline_sources()
+
+    assert "ci/build_status.py --manual-abort jenkins_console.log" in source
+    assert "Manual abort detected without real test failures" in source
+    assert "keep ABORTED and skip Feishu notification" in source
 
 
 def test_environment_prepare_hang_times_out_after_15_minutes():

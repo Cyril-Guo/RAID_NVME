@@ -445,7 +445,7 @@ def test_junit_to_allure_generates_execution_result_when_junit_only_passed(tmp_p
     assert "Test_Execution_Physical_192.168.22.134" in names
 
 
-def test_junit_to_allure_generates_result_for_aborted_empty_execution_log(tmp_path, monkeypatch):
+def test_junit_to_allure_does_not_fail_manually_aborted_empty_execution_log(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
@@ -458,15 +458,42 @@ def test_junit_to_allure_generates_result_for_aborted_empty_execution_log(tmp_pa
     assert junit_to_allure.main() == 0
 
     results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    assert results == []
+
+
+def test_junit_to_allure_still_fails_incomplete_execution_without_manual_abort(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "test_execution_192.168.22.134.log").write_text("", encoding="utf-8")
+
+    assert junit_to_allure.main() == 0
+
+    results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
     assert len(results) == 1
-    result = results[0]
-    assert result["name"] == "Test_Execution_Physical_192.168.22.134"
-    assert result["status"] == "broken"
-    assert "aborted or incomplete" in result["statusDetails"]["message"]
-    assert any(item["name"] == "终端输出" for item in result["attachments"])
+    assert results[0]["name"] == "Test_Execution_Physical_192.168.22.134"
+    assert results[0]["status"] == "broken"
 
 
-def test_junit_to_allure_console_fallback_when_no_execution_log(tmp_path, monkeypatch):
+def test_junit_to_allure_keeps_real_failure_before_manual_abort(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "test_execution_192.168.22.134.log").write_text(
+        "idle watchdog fired after 15 minutes without progress\n"
+        "TEST_EXECUTION_STATUS=failed\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "jenkins_console.log").write_text("Aborted by cyril\n", encoding="utf-8")
+
+    assert junit_to_allure.main() == 0
+
+    results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
+    assert len(results) == 1
+    assert results[0]["status"] == "broken"
+
+
+def test_junit_to_allure_skips_console_fallback_for_manual_abort(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
@@ -478,11 +505,7 @@ def test_junit_to_allure_console_fallback_when_no_execution_log(tmp_path, monkey
     assert junit_to_allure.main() == 0
 
     results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
-    assert len(results) == 1
-    result = results[0]
-    assert result["name"] == "Test_Execution_Build_Console"
-    assert result["status"] == "broken"
-    assert "aborted" in result["statusDetails"]["message"].lower()
+    assert results == []
 
 
 def test_junit_to_allure_treats_all_node_reports_as_physical(tmp_path, monkeypatch):

@@ -85,6 +85,7 @@ function info_check(){
  	    show_produce_message "start first machinecheck"
       cd $MachineCheck_Dir >/dev/null
       bash MachineCheck.sh
+      machinecheck_rc=$?
 
       process_machinecheck_results "$MachineCheckLog/info_before.log"
       
@@ -92,6 +93,10 @@ function info_check(){
           echo "Machinecheck finish" >> $MachineCheckLog/info_before.log
       fi
       cd - >/dev/null
+      if [[ $machinecheck_rc -ne 0 ]]; then
+          echo "ERROR: MachineCheck before FIO failed, rc=${machinecheck_rc}"
+          return "$machinecheck_rc"
+      fi
       sleep 5
    fi
 }

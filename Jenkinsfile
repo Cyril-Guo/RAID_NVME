@@ -158,7 +158,7 @@ pipeline {
         FEISHU_WEBHOOK = credentials('feishu-webhook')
         TARGET_USER = 'root'
         TARGET_PASSWORD = "${params.TARGET_PASSWORD?.trim() ?: '123456'}"
-        TEST_IDLE_TIMEOUT_MINUTES = '90'
+        TEST_IDLE_TIMEOUT_MINUTES = '15'
         ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
         TEST_EXECUTION_ATTEMPTED = 'false'
         SSH_OPTS = '-o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
@@ -462,8 +462,11 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                 cat allure-results/environment_*.properties > allure-results/environment.properties 2>/dev/null || true
                 rm -f allure-results/environment_*.properties
                 python3 ci/collect_console_output.py
+                python3 ci/build_status.py --manual-abort jenkins_console.log > manual_abort.txt
                 python3 ci/junit_to_allure.py
                 '''
+
+                def manuallyAborted = fileExists('manual_abort.txt') && readFile('manual_abort.txt').trim() == 'true'
 
                 // Node-level reports only; skip leftover per-item report_<case>.xml files.
                 junit testResults: 'report_*.*.*.*.xml', allowEmptyResults: true
@@ -505,6 +508,11 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                     echo "WARN: unexpected report_metrics output '${metricsOutput}'"
                 }
                 def hasFailureSummary = fileExists('failure_summary.txt') && readFile('failure_summary.txt').trim()
+
+                if (manuallyAborted && failed + errors == 0 && !hasFailureSummary) {
+                    echo 'Manual abort detected without real test failures; keep ABORTED and skip Feishu notification.'
+                    return
+                }
 
                 def startStr = new Date(currentBuild.startTimeInMillis).format('yyyy-MM-dd HH:mm:ss')
                 def endStr = new Date().format('yyyy-MM-dd HH:mm:ss')

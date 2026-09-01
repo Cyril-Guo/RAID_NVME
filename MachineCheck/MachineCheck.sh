@@ -4,6 +4,7 @@ export LC_ALL=C.UTF-8
 export TERM=linux
 Cur_Dir=$(cd "$(dirname "$0")" && pwd)
 Result_Dir="$Cur_Dir/Result"
+pcie_timeout_seconds="${MACHINECHECK_PCIE_TIMEOUT_SECONDS:-15}"
 
 rm -rf "$Result_Dir"
 rm -rf "$Cur_Dir"/*.log
@@ -196,10 +197,22 @@ check_nvme_link_and_aer() {
     # Record-only snapshot. Per-loop MachineCheck before/after diff decides ERROR.
     show_produce_message "NVMe Link / AER Record"
     show_title "Link Speed Width and AER"
-    local bdf desc detail cap_speed cap_width sta_speed sta_width ue_raw ce_raw
+    local bdf desc detail cap_speed cap_width sta_speed sta_width ue_raw ce_raw probe_rc
+    local probe_failed=0
     while IFS=$'\t' read -r bdf desc; do
         [[ -z "$bdf" ]] && continue
-        detail=$(lspci -s "$bdf" -vvv 2>/dev/null || true)
+        echo "[MACHINECHECK] probe start bdf=${bdf} command=lspci-vvv timeout=${pcie_timeout_seconds}s" >&2
+        detail=""
+        probe_rc=0
+        detail=$(timeout --kill-after=2s "${pcie_timeout_seconds}s" lspci -s "$bdf" -vvv 2>/dev/null) || probe_rc=$?
+        if [[ $probe_rc -eq 124 || $probe_rc -eq 137 ]]; then
+            echo "[MACHINECHECK] probe timeout bdf=${bdf} command=lspci-vvv rc=${probe_rc}" >&2
+            show_item "link:" "${bdf} LnkCap_Speed=NA LnkCap_Width=NA LnkSta_Speed=NA LnkSta_Width=NA"
+            show_item "aer:" "${bdf} UESta=NA CESta=NA"
+            probe_failed=1
+            continue
+        fi
+        echo "[MACHINECHECK] probe finish bdf=${bdf} command=lspci-vvv rc=${probe_rc}" >&2
         if [[ -z "$detail" ]]; then
             show_item "link:" "${bdf} LnkCap_Speed=NA LnkCap_Width=NA LnkSta_Speed=NA LnkSta_Width=NA"
             show_item "aer:" "${bdf} UESta=NA CESta=NA"
@@ -217,6 +230,9 @@ check_nvme_link_and_aer() {
         show_item "aer:" "${bdf} UESta=${ue_raw:-NA} CESta=${ce_raw:-NA}"
     done < <(list_nvme_pcie_controllers)
     show_produce_message "NVMe Link / AER Record"
+    if [[ $probe_failed -ne 0 ]]; then
+        return 124
+    fi
 }
 
 # Execution
@@ -230,6 +246,8 @@ machine_info_check_tool_ver >> "$Result_Dir/machinecheck.log"
 machine_summary >> "$Result_Dir/machinecheck.log"
 check_block_disks >> "$Result_Dir/machinecheck.log"
 check_nvme_pcie_devices >> "$Result_Dir/machinecheck.log"
-check_nvme_link_and_aer >> "$Result_Dir/machinecheck.log"
+machinecheck_rc=0
+check_nvme_link_and_aer >> "$Result_Dir/machinecheck.log" || machinecheck_rc=$?
 
 cat "$Result_Dir/machinecheck.log"
+exit "$machinecheck_rc"

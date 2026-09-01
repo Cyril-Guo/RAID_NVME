@@ -4,10 +4,22 @@ import os
 import re
 import xml.etree.ElementTree as ET
 
+try:
+    from ci.build_status import console_was_manually_aborted
+except ModuleNotFoundError:
+    from build_status import console_was_manually_aborted
+
 
 STAT_KEYS = ("tests", "failures", "errors", "skipped")
 INFRA_SUITES = frozenset({"Environment_Prepare", "Test_Execution", "Physical_Restore"})
 NODE_REPORT_RE = re.compile(r"^report_.+\..+\.xml$")
+EXECUTION_HARD_MARKERS = (
+    "FIO stage failed",
+    "FIO stage abort",
+    "MIX_FAIL_ON_ANY=yes, fail",
+    "idle watchdog timeout",
+    "idle watchdog fired",
+)
 
 
 def empty_stats():
@@ -124,20 +136,19 @@ def _read_text(path):
         return ""
 
 
+def execution_log_has_explicit_failure(text):
+    return "TEST_EXECUTION_STATUS=failed" in (text or "") or any(
+        marker in (text or "") for marker in EXECUTION_HARD_MARKERS
+    )
+
+
 def execution_log_needs_result(text):
     """Treat explicit failures and abort/incomplete logs (no passed marker) as reportable.
 
     Also surface hard FIO stops even when the remote wrapper wrongly wrote
     TEST_EXECUTION_STATUS=passed (pytest stayed green after Fio_All swallowed rc).
     """
-    hard_markers = (
-        "FIO stage failed",
-        "FIO stage abort",
-        "MIX_FAIL_ON_ANY=yes, fail",
-        "idle watchdog timeout",
-        "idle watchdog fired",
-    )
-    if any(marker in (text or "") for marker in hard_markers):
+    if execution_log_has_explicit_failure(text):
         return True
     if "TEST_EXECUTION_STATUS=passed" in text:
         return False
@@ -168,6 +179,7 @@ def report_has_failures_or_errors(target_node):
 def status_log_infra_metrics():
     """Count each failed env/execution/restore log as one execution item."""
     stats = empty_stats()
+    manually_aborted = console_was_manually_aborted()
 
     for path in sorted(glob.glob("environment_prepare_*.log")):
         text = _read_text(path)
@@ -180,6 +192,8 @@ def status_log_infra_metrics():
 
     for path in sorted(glob.glob("test_execution_*.log")):
         text = _read_text(path)
+        if manually_aborted and not execution_log_has_explicit_failure(text):
+            continue
         if not execution_log_needs_result(text):
             continue
         stem = os.path.basename(path).removeprefix("test_execution_").removesuffix(".log")

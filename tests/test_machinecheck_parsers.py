@@ -1,6 +1,13 @@
 """Lightweight parser checks mirroring MachineCheck link/AER extraction rules."""
 
+import os
 import re
+import shutil
+import stat
+import subprocess
+from pathlib import Path
+
+import pytest
 
 
 def extract_link_field(text, section, field):
@@ -58,3 +65,71 @@ def test_extract_aer_records_raw_flag_tokens():
     assert "RxErr-" in extract_aer_field(SAMPLE, "CESta")
     assert "TLP+" in extract_aer_field(SAMPLE_CHANGED, "UESta")
     assert "RxErr+" in extract_aer_field(SAMPLE_CHANGED, "CESta")
+
+
+def test_machinecheck_pcie_probe_is_bounded_and_reports_live_bdf_progress():
+    source = Path("MachineCheck/MachineCheck.sh").read_text(encoding="utf-8")
+
+    assert 'MACHINECHECK_PCIE_TIMEOUT_SECONDS:-15' in source
+    assert 'timeout --kill-after=2s "${pcie_timeout_seconds}s"' in source
+    assert "[MACHINECHECK] probe start bdf=" in source
+    assert "[MACHINECHECK] probe finish bdf=" in source
+    assert "[MACHINECHECK] probe timeout bdf=" in source
+    assert "machinecheck_rc" in source
+
+
+def _bash_path(path):
+    text = str(Path(path).resolve()).replace("\\", "/")
+    if len(text) >= 2 and text[1] == ":":
+        return f"/{text[0].lower()}{text[2:]}"
+    return text
+
+
+def _write_executable(path, content):
+    path.write_text(content, encoding="utf-8", newline="\n")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
+def test_machinecheck_times_out_stuck_lspci_and_returns_124(tmp_path):
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash is required to exercise MachineCheck.sh")
+
+    machine_dir = tmp_path / "MachineCheck"
+    fake_bin = tmp_path / "bin"
+    machine_dir.mkdir()
+    fake_bin.mkdir()
+    shutil.copy2("MachineCheck/MachineCheck.sh", machine_dir / "MachineCheck.sh")
+    (machine_dir / "install_flag").write_text("done\n", encoding="utf-8")
+
+    _write_executable(
+        fake_bin / "lspci",
+        """#!/usr/bin/env bash
+case "${1:-}" in
+    --version) echo 'lspci fake 1.0' ;;
+    -Dnn) echo '0000:17:00.0 Non-Volatile memory controller [0108]: DAPU test [1e3b:0600]' ;;
+    -s) sleep 5 ;;
+esac
+""",
+    )
+    _write_executable(fake_bin / "nvme", "#!/usr/bin/env bash\n[ \"${1:-}\" = --version ] && echo 'nvme fake 1.0'\n")
+    _write_executable(fake_bin / "lscpu", "#!/usr/bin/env bash\necho 'Model name: Fake CPU'\necho 'Socket(s): 1'\n")
+    _write_executable(fake_bin / "lsblk", "#!/usr/bin/env bash\necho 'sda disk'\n")
+    _write_executable(fake_bin / "tput", "#!/usr/bin/env bash\nexit 0\n")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}{os.pathsep}{env.get('PATH', '')}"
+    env["MACHINECHECK_PCIE_TIMEOUT_SECONDS"] = "1"
+    result = subprocess.run(
+        [bash, _bash_path(machine_dir / "MachineCheck.sh")],
+        env=env,
+        text=True,
+        capture_output=True,
+        timeout=15,
+        check=False,
+    )
+
+    assert result.returncode == 124, result.stdout + result.stderr
+    assert "[MACHINECHECK] probe start bdf=0000:17:00.0" in result.stderr
+    assert "[MACHINECHECK] probe timeout bdf=0000:17:00.0" in result.stderr
+    assert "link:" in result.stdout and "LnkCap_Speed=NA" in result.stdout
