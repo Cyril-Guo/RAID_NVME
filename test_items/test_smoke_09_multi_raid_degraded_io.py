@@ -16,8 +16,9 @@ from test_items import test_smoke_03_lawdisk as lawdisk_case
 def test_multi_raid_degraded_io():
     allure.dynamic.title("Test_Smoke_09_multi_raid_degraded_IO")
     allure.dynamic.description(
-        "Create RAID0/1/10/50 VDs, power-cycle one disk in each non-RAID0 group to degrade, "
-        "verify degraded VDs, then run 1min bssplit mixed IO plus 4x25s lawdisk FIO."
+        "Format non-system NVMe disks before adding PDs, create RAID0/1/10/50 VDs, power-cycle "
+        "one disk in each non-RAID0 group to degrade, verify degraded VDs, then run 1min "
+        "bssplit mixed IO plus 4x25s lawdisk FIO."
     )
 
     if os.environ.get("ALLOW_DESTRUCTIVE_FIO", "0") != "1":

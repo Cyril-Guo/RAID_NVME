@@ -522,6 +522,23 @@ def release_and_clear_csd(disks, log):
     log.write("")
 
 
+def format_nvme_disks(disks, log):
+    """Format every selected non-system NVMe namespace before adding PDs."""
+    log.write(
+        "Format selected NVMe disks before adding PDs: "
+        + ", ".join(disk.namespace for disk in disks)
+    )
+    for disk in disks:
+        if not re.fullmatch(r"nvme\d+n\d+", disk.namespace or ""):
+            raise AssertionError(f"Invalid NVMe namespace for format: {disk.namespace}")
+        run_cmd(
+            ["nvme", "format", f"/dev/{disk.namespace}", "--force"],
+            log,
+            check=True,
+        )
+    log.write("NVMe format completed for all selected data disks")
+
+
 def add_physical_disks(disks, log):
     for disk in disks:
         run_cmd(["dpraid", "/c0", "add", "disk", f"/dev/{disk.controller}"], log, check=True)
@@ -716,6 +733,7 @@ def prepare_multi_raid_vds(log, logical_block_size=None):
         raise AssertionError(
             f"Need at least {MIN_MULTI_RAID_DISKS} non-system NVMe disks, got {len(nvme_disks)}"
         )
+    format_nvme_disks(nvme_disks, log)
     add_physical_disks(nvme_disks, log)
     physical_output = show_physical_devices(log)
     disks = []
@@ -758,6 +776,7 @@ def prepare_basic_raid5_vds(log, logical_block_size=None):
         if disk.size_gb > 0:
             query_bdf(disk, log)
     nvme_disks = discover_nvme_data_disks(log, nvme_inventory_disks)
+    format_nvme_disks(nvme_disks, log)
     add_physical_disks(nvme_disks, log)
     physical_output = show_physical_devices(log)
     disks = []

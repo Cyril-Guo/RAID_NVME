@@ -14,6 +14,7 @@ from test_items.basic_io_common import (
     create_raid_vds,
     drives_expr,
     expected_degraded_vd_count,
+    format_nvme_disks,
     parse_dpraid_physical_devices,
     parse_dpraid_slots,
     parse_dpraid_virtual_ids,
@@ -424,12 +425,59 @@ DG/VD  State  Consist TYPE
     ] + [["dpraid", f"/c0/eall/s{i}", "delete"] for i in range(15)]
     assert calls[: len(expected_cleanup)] == expected_cleanup
     assert calls[len(expected_cleanup)] == ["nvme", "list"]
+    format_commands = [
+        ["nvme", "format", f"/dev/nvme{i}n1", "--force"] for i in range(15)
+    ]
+    for command in format_commands:
+        assert command in calls
+    first_add_index = calls.index(["dpraid", "/c0", "add", "disk", "/dev/nvme0"])
+    assert max(calls.index(command) for command in format_commands) < first_add_index
     assert ["dpraid", "/c0", "add", "disk", "/dev/nvme0"] in calls
     assert len(disks) == 15
     assert [len(group) for group in groups] == [7, 8]
     assert vd_output == "vd output"
     assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "LogicalBlockSize=512", "drives=0-6"] in calls
     assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=512", "drives=7-14"] in calls
+
+
+def test_format_nvme_disks_formats_each_namespace_with_force(monkeypatch):
+    calls = []
+    disks = [
+        NvmeDisk(namespace="nvme2n1", controller="nvme2", size_gb=Decimal("6400")),
+        NvmeDisk(namespace="nvme5n1", controller="nvme5", size_gb=Decimal("6400")),
+    ]
+
+    def fake_run_cmd(cmd, log, check=True, shell=False, env=None):
+        calls.append((cmd, check))
+
+        class Result:
+            stdout = ""
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(basic_io_common, "run_cmd", fake_run_cmd)
+
+    format_nvme_disks(disks, CommandLog())
+
+    assert calls == [
+        (["nvme", "format", "/dev/nvme2n1", "--force"], True),
+        (["nvme", "format", "/dev/nvme5n1", "--force"], True),
+    ]
+
+
+def test_format_nvme_disks_rejects_invalid_namespace_before_command(monkeypatch):
+    monkeypatch.setattr(
+        basic_io_common,
+        "run_cmd",
+        lambda *args, **kwargs: pytest.fail("run_cmd must not receive an invalid namespace"),
+    )
+
+    with pytest.raises(AssertionError, match="Invalid NVMe namespace"):
+        format_nvme_disks(
+            [NvmeDisk(namespace="nvme0n1;reboot", controller="nvme0", size_gb=Decimal("6400"))],
+            CommandLog(),
+        )
 
 
 def test_clear_csd_flash_and_cache_runs_dpraid_clear_script(monkeypatch):

@@ -15,8 +15,8 @@ from test_items import test_smoke_03_lawdisk as lawdisk_case
 def test_basic_rebuild_io():
     allure.dynamic.title("Test_Smoke_07_basic_rebuild_IO")
     allure.dynamic.description(
-        "Create eight RAID5 VDs from non-system NVMe disks, power-cycle one disk in each group, "
-        "verify degraded VDs, then run lawdisk FIO."
+        "Format non-system NVMe disks, add them as PDs, create eight RAID5 VDs, power-cycle one "
+        "disk in each group, verify degraded VDs, then run lawdisk FIO."
     )
 
     if os.environ.get("ALLOW_DESTRUCTIVE_FIO", "0") != "1":
