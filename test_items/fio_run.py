@@ -303,7 +303,7 @@ def _failure_message(title, capture, exit_code, failures):
         f"command={capture.command}",
         f"cwd={capture.cwd}",
         f"console_mirror={'available' if capture.console_available else 'closed'}",
-        f"full_log={capture.path or 'Allure 终端输出（内存回退）'}",
+        f"full_log={capture.path or 'Allure FIO 执行日志（内存回退）'}",
     ]
     if details:
         lines.extend([f"primary_error={details[0]}", "detected_errors:"])

@@ -3,6 +3,10 @@ import json
 from ci import junit_to_allure
 
 
+def _section(result, name):
+    return next(step for step in result["steps"] if step["name"] == name)
+
+
 def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
@@ -39,7 +43,8 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
     assert result["name"] == "[Physical 192.168.22.134] test_lawdiskstress"
     assert "start" in result and "stop" in result
     assert result["stop"] >= result["start"]
-    assert result["attachments"][0]["source"] == "monitor_log_lawdisk.tar.gz"
+    debug = _section(result, "日志收集")
+    assert debug["attachments"][0]["source"] == "monitor_log_lawdisk.tar.gz"
 
     assert junit_to_allure.main() == 0
     assert len(list(allure_dir.glob("*-result.json"))) == 1
@@ -107,17 +112,17 @@ def test_junit_to_allure_attaches_console_snapshot(tmp_path, monkeypatch):
 
     result_path = next(allure_dir.glob("*-result.json"))
     result = json.loads(result_path.read_text(encoding="utf-8"))
-    console_attachment = next(
-        item for item in result["attachments"] if item["name"] == "终端输出"
-    )
+    assert [step["name"] for step in result["steps"][:3]] == ["终端输出", "测试结果", "日志收集"]
+    console_attachment = _section(result, "终端输出")["attachments"][0]
+    assert console_attachment["name"] == "完整 Jenkins Console"
     console_text = (allure_dir / console_attachment["source"]).read_text(encoding="utf-8")
     assert "all console output" in console_text
-    assert "[Pipeline] stage" not in console_text
-    assert "[Pipeline] echo" not in console_text
+    assert "[Pipeline] stage" in console_text
+    assert "[Pipeline] echo" in console_text
     assert "links" not in result
 
 
-def test_junit_to_allure_large_console_uses_english_hint(tmp_path, monkeypatch):
+def test_junit_to_allure_large_console_remains_one_complete_attachment(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
@@ -136,12 +141,10 @@ def test_junit_to_allure_large_console_uses_english_hint(tmp_path, monkeypatch):
     assert junit_to_allure.main() == 0
 
     result = json.loads(next(allure_dir.glob("*-result.json")).read_text(encoding="utf-8"))
-    hint = next(item for item in result["attachments"] if item["name"] == "终端输出")
-    full = next(item for item in result["attachments"] if item["name"] == "终端输出.log")
-    assert "Content is too large, please refer to the attachment." in (
-        allure_dir / hint["source"]
-    ).read_text(encoding="utf-8")
-    assert (allure_dir / full["source"]).stat().st_size > 1024 * 1024
+    attachments = _section(result, "终端输出")["attachments"]
+    assert len(attachments) == 1
+    assert attachments[0]["name"] == "完整 Jenkins Console"
+    assert (allure_dir / attachments[0]["source"]).stat().st_size > 1024 * 1024
 
 
 
@@ -182,24 +185,20 @@ def test_junit_to_allure_does_not_copy_global_fio_summary_onto_every_case(tmp_pa
     mix = by_name["[Physical 192.168.23.94] test_mix_stress"]
     basic = by_name["[Physical 192.168.23.94] test_basic_io"]
     for result in results:
-        names = [item["name"] for item in result.get("attachments") or []]
+        names = [item["name"] for item in _section(result, "测试结果")["attachments"]]
         assert "FIO 任务摘要" not in names
         assert "测试结果汇总" not in names
         assert "MachineCheck 差异记录" not in names
-        assert "终端输出" in names
-    mix_console = next(item for item in mix["attachments"] if item["name"] == "终端输出")
-    basic_console = next(item for item in basic["attachments"] if item["name"] == "终端输出")
+        assert "执行结果" in names
+    mix_console = _section(mix, "终端输出")["attachments"][0]
+    basic_console = _section(basic, "终端输出")["attachments"][0]
     mix_text = (allure_dir / mix_console["source"]).read_text(encoding="utf-8")
     basic_text = (allure_dir / basic_console["source"]).read_text(encoding="utf-8")
-    assert "mix only line" in mix_text
-    assert "basic io only line" not in mix_text
-    assert "all cases share this console" not in mix_text
-    assert "basic io only line" in basic_text
-    assert "mix only line" not in basic_text
-    assert "all cases share this console" not in basic_text
+    assert mix_text == basic_text
+    assert "all cases share this console" in mix_text
 
 
-def test_junit_to_allure_does_not_copy_full_jenkins_console_onto_pytest_case(tmp_path, monkeypatch):
+def test_junit_to_allure_copies_full_jenkins_console_onto_pytest_case(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
@@ -218,11 +217,14 @@ def test_junit_to_allure_does_not_copy_full_jenkins_console_onto_pytest_case(tmp
     assert junit_to_allure.main() == 0
 
     result = json.loads(next(allure_dir.glob("*-result.json")).read_text(encoding="utf-8"))
-    names = [item["name"] for item in result.get("attachments") or []]
-    assert "终端输出" not in names
+    console = _section(result, "终端输出")["attachments"][0]
+    assert console["name"] == "完整 Jenkins Console"
+    assert "this is the full Jenkins console" in (
+        allure_dir / console["source"]
+    ).read_text(encoding="utf-8")
 
 
-def test_junit_to_allure_keeps_existing_pytest_terminal_output(tmp_path, monkeypatch):
+def test_junit_to_allure_relabels_existing_pytest_terminal_as_debug_log(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
@@ -255,28 +257,63 @@ def test_junit_to_allure_keeps_existing_pytest_terminal_output(tmp_path, monkeyp
     assert junit_to_allure.main() == 0
 
     saved = json.loads((allure_dir / "pytest-mix-result.json").read_text(encoding="utf-8"))
-    consoles = [item for item in saved["attachments"] if item["name"] == "终端输出"]
-    assert len(consoles) == 1
-    assert (allure_dir / consoles[0]["source"]).read_text(encoding="utf-8") == "this case stdout only\n"
-
-
-def test_split_item_console_chunks_uses_item_markers():
-    text = (
-        "[Pipeline] stage\n"
-        "[ITEM_START] mix\n"
-        "mix body\n"
-        "[ITEM_END] mix exit_code=0\n"
-        "between cases\n"
-        "[ITEM] lawdisk -> test_items/test_ci_03_lawdisk.py\n"
-        "lawdisk body\n"
+    console = _section(saved, "终端输出")["attachments"][0]
+    assert console["name"] == "完整 Jenkins Console"
+    debug = next(
+        item
+        for item in _section(saved, "日志收集")["attachments"]
+        if item["name"] == "FIO 执行日志（旧版）"
     )
-    chunks = junit_to_allure.split_item_console_chunks(text)
-    assert "mix body" in chunks["mix"]
-    assert "[Pipeline] stage" not in chunks["mix"]
-    assert "between cases" not in chunks["mix"]
-    assert "lawdisk body" not in chunks["mix"]
-    assert "lawdisk body" in chunks["lawdisk"]
-    assert "mix body" not in chunks["lawdisk"]
+    assert (allure_dir / debug["source"]).read_text(encoding="utf-8") == "this case stdout only\n"
+
+
+def test_junit_to_allure_groups_console_result_and_debug_logs_as_siblings(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (tmp_path / "jenkins_console.log").write_text(
+        "[Pipeline] Start of Pipeline\nfull Jenkins console\n[Pipeline] End of Pipeline\n",
+        encoding="utf-8",
+    )
+    (allure_dir / "fio.log").write_text("fio raw output\n", encoding="utf-8")
+    (allure_dir / "failure.txt").write_text("primary_error=Input/output error\n", encoding="utf-8")
+    (allure_dir / "failure_bundle.tar.gz").write_bytes(b"debug bundle")
+    result = {
+        "uuid": "case-uuid",
+        "name": "FIO 测试: mix (混合 IO)",
+        "status": "failed",
+        "stage": "finished",
+        "statusDetails": {
+            "message": "FIO 脚本执行失败",
+            "trace": "primary_error=Input/output error",
+        },
+        "labels": [{"name": "framework", "value": "pytest"}],
+        "attachments": [
+            {"name": "FIO 执行日志", "source": "fio.log", "type": "text/plain"},
+            {"name": "FIO 故障摘要", "source": "failure.txt", "type": "text/plain"},
+            {
+                "name": "failure_gcore_bundle_mix",
+                "source": "failure_bundle.tar.gz",
+                "type": "application/gzip",
+            },
+        ],
+    }
+    result_path = allure_dir / "case-result.json"
+    result_path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+
+    assert junit_to_allure.main() == 0
+    assert junit_to_allure.main() == 0
+
+    saved = json.loads(result_path.read_text(encoding="utf-8"))
+    assert "attachments" not in saved
+    assert [step["name"] for step in saved["steps"][:3]] == ["终端输出", "测试结果", "日志收集"]
+    terminal = _section(saved, "终端输出")["attachments"]
+    assert [item["name"] for item in terminal] == ["完整 Jenkins Console"]
+    assert "full Jenkins console" in (allure_dir / terminal[0]["source"]).read_text(encoding="utf-8")
+    result_names = [item["name"] for item in _section(saved, "测试结果")["attachments"]]
+    assert result_names == ["报错日志", "FIO 故障摘要"]
+    debug_names = [item["name"] for item in _section(saved, "日志收集")["attachments"]]
+    assert debug_names == ["FIO 执行日志", "failure_gcore_bundle_mix"]
 
 
 def test_junit_to_allure_generates_environment_prepare_result(tmp_path, monkeypatch):
@@ -296,7 +333,7 @@ def test_junit_to_allure_generates_environment_prepare_result(tmp_path, monkeypa
     env_result = next(result for result in results if result["name"] == "Environment_Prepare_192.168.22.134")
     assert env_result["status"] == "broken"
     assert env_result["labels"][0] == {"name": "suite", "value": "Environment_Prepare"}
-    attachment = allure_dir / env_result["attachments"][0]["source"]
+    attachment = allure_dir / _section(env_result, "日志收集")["attachments"][0]["source"]
     assert "insmod ./draid.ko failed" in attachment.read_text(encoding="utf-8")
 
 
@@ -382,7 +419,9 @@ def test_junit_to_allure_surfaces_fio_model_elapsed_in_report(tmp_path, monkeypa
     assert "model=randwrite bs=4k qd=64 runtime=30s (#2)" in result["statusDetails"]["message"]
     assert "elapsed=12s" in result["statusDetails"]["message"]
     attachment = next(
-        item for item in result["attachments"] if item["name"] == "FIO Failure Detail"
+        item
+        for item in _section(result, "测试结果")["attachments"]
+        if item["name"] == "FIO Failure Detail"
     )
     detail_text = (allure_dir / attachment["source"]).read_text(encoding="utf-8")
     assert "elapsed=12s" in detail_text
@@ -411,7 +450,7 @@ def test_junit_to_allure_generates_broken_result_for_hung_test_without_junit(tmp
     assert result["name"] == "Test_Execution_Physical_192.168.22.134"
     assert result["status"] == "broken"
     assert "idle watchdog fired" in result["statusDetails"]["message"]
-    attachment = allure_dir / result["attachments"][0]["source"]
+    attachment = allure_dir / _section(result, "日志收集")["attachments"][0]["source"]
     assert attachment.read_text(encoding="utf-8") == execution_log.read_text(encoding="utf-8")
 
     assert junit_to_allure.main() == 0

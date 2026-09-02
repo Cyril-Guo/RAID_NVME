@@ -12,7 +12,7 @@ _ERROR_MARKERS = (
 )
 TEXT_PREVIEW_LIMIT = 1024 * 1024
 LARGE_CONTENT_HINT = "Content is too large, please refer to the attachment."
-CONSOLE_ATTACHMENT_NAME = "终端输出"
+FIO_COMMAND_LOG_NAME = "FIO 执行日志"
 RESULT_SUMMARY_NAME = "测试结果汇总"
 MACHINECHECK_ATTACHMENT_NAME = "MachineCheck 差异记录"
 FIO_FAILURE_SUMMARY_NAME = "FIO 故障摘要"
@@ -90,11 +90,11 @@ def attach_named_file(path, name):
 
 
 def attach_case_terminal_output(output_text, output_path=None):
-    if attach_named_file(output_path, CONSOLE_ATTACHMENT_NAME):
+    if attach_named_file(output_path, FIO_COMMAND_LOG_NAME):
         return True
     if not (output_text or "").strip():
         return False
-    attach_named_text(output_text, CONSOLE_ATTACHMENT_NAME)
+    attach_named_text(output_text, FIO_COMMAND_LOG_NAME)
     return True
 
 

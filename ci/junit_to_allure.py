@@ -2,7 +2,6 @@ import glob
 import json
 import os
 import re
-import sys
 import time
 import uuid
 import xml.etree.ElementTree as ET
@@ -561,35 +560,21 @@ def write_console_fallback_result(allure_dir, existing_ids, console_path="jenkin
     return 1
 
 
-def _repo_root():
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def _fio_allure():
-    root = _repo_root()
-    if root not in sys.path:
-        sys.path.insert(0, root)
-    from test_items import fio_allure
-
-    return fio_allure
-
-
 CONSOLE_ATTACHMENT_ALIASES = {
     "终端输出",
     "终端完整输出",
     "Jenkins Console Output",
 }
-
-_ITEM_BOUNDARY_RE = re.compile(r"\[ITEM_START\]\s+(\S+)|\[ITEM\]\s+(\S+)\s+->")
-_ITEM_END_RE = re.compile(r"\[ITEM_END\]\s+(\S+)")
-_INFRA_SUITES = {"Test_Execution"}
-
-
-def _has_console_attachment(attachments):
-    names = {item.get("name") for item in attachments}
-    return bool(names & CONSOLE_ATTACHMENT_ALIASES) or any(
-        name and str(name).startswith("终端输出") for name in names
-    )
+FULL_CONSOLE_ATTACHMENT_NAME = "完整 Jenkins Console"
+FULL_CONSOLE_SOURCE = "jenkins_console_full.log"
+REPORT_SECTION_NAMES = ("终端输出", "测试结果", "日志收集")
+RESULT_ATTACHMENT_NAMES = {
+    "报错日志",
+    "执行结果",
+    "FIO 故障摘要",
+    "FIO Failure Detail",
+    "测试结果汇总",
+}
 
 
 def _read_text(path):
@@ -600,95 +585,21 @@ def _read_text(path):
         return ""
 
 
-def split_item_console_chunks(text):
-    """Split nvme_raid_test output into per-item console slices."""
-    chunks = {}
-    current = None
-    buf = []
-    for line in (text or "").splitlines(keepends=True):
-        start = _ITEM_BOUNDARY_RE.search(line)
-        if start:
-            if current is not None:
-                chunks[current] = chunks.get(current, "") + "".join(buf)
-            current = start.group(1) or start.group(2)
-            buf = [line]
-            continue
-        ended = _ITEM_END_RE.search(line)
-        if ended and current is not None:
-            buf.append(line)
-            chunks[current] = chunks.get(current, "") + "".join(buf)
-            current = None
-            buf = []
-            continue
-        if current is not None:
-            buf.append(line)
-    if current is not None:
-        chunks[current] = chunks.get(current, "") + "".join(buf)
-    return chunks
-
-
-def collect_item_console_chunks(console_path="jenkins_console.log"):
-    chunks = {}
-    sources = sorted(glob.glob("test_execution_*.log"))
-    if os.path.isfile(console_path):
-        sources.append(console_path)
-    for path in sources:
-        for item, text in split_item_console_chunks(_read_text(path)).items():
-            if item not in chunks and text.strip():
-                chunks[item] = text
-    return chunks
-
-
-def matching_console_item(result, items):
-    labels = _result_labels(result)
-    run_key = labels.get("run_key") or labels.get("package")
-    if run_key and run_key in items:
-        return run_key
-    for item in sorted(items, key=len, reverse=True):
-        if result_matches_item(result, item, run_key=run_key):
-            return item
-    return None
-
-
 def _result_labels(result):
     return {label.get("name"): label.get("value") for label in result.get("labels") or []}
 
 
-def _is_execution_infra(result):
-    labels = _result_labels(result)
-    return labels.get("suite") in _INFRA_SUITES or labels.get("package") in _INFRA_SUITES
-
-
-def _build_text_attachments(allure_dir, text, constants):
-    name = constants.CONSOLE_ATTACHMENT_NAME
-    encoded = (text or "").encode("utf-8", errors="replace")
-    if len(encoded) > constants.TEXT_PREVIEW_LIMIT:
-        hint_source = f"{uuid.uuid4()}-terminal-hint.txt"
-        with open(os.path.join(allure_dir, hint_source), "w", encoding="utf-8") as handle:
-            handle.write(constants.LARGE_CONTENT_HINT + "\n")
-        full_source = f"{uuid.uuid4()}-terminal.log"
-        with open(os.path.join(allure_dir, full_source), "w", encoding="utf-8") as handle:
-            handle.write(text or "")
-        return [
-            {"name": name, "source": hint_source, "type": "text/plain"},
-            {"name": f"{name}.log", "source": full_source, "type": "text/plain"},
-        ]
-    source = f"{uuid.uuid4()}-terminal.log"
-    with open(os.path.join(allure_dir, source), "w", encoding="utf-8") as handle:
-        handle.write(text or "")
-    return [{"name": name, "source": source, "type": "text/plain"}]
-
-
 def attach_jenkins_console(allure_dir, console_path="jenkins_console.log"):
     result_paths = sorted(glob.glob(os.path.join(allure_dir, "*-result.json")))
-    if not result_paths:
+    if not result_paths or not os.path.isfile(console_path):
+        return 0
+    full_console = _read_text(console_path)
+    if not full_console.strip():
         return 0
 
-    constants = _fio_allure()
-    item_chunks = collect_item_console_chunks(console_path)
-    full_console = _read_text(console_path) if os.path.isfile(console_path) else ""
-    item_attachments = {}
-    infra_attachments = None
+    console_target = os.path.join(allure_dir, FULL_CONSOLE_SOURCE)
+    with open(console_path, "rb") as src, open(console_target, "wb") as dst:
+        dst.write(src.read())
     attached = 0
 
     for path in result_paths:
@@ -699,28 +610,174 @@ def attach_jenkins_console(allure_dir, console_path="jenkins_console.log"):
             continue
 
         attachments = result.setdefault("attachments", [])
-        if _has_console_attachment(attachments):
-            continue
-
-        to_add = None
-        item = matching_console_item(result, item_chunks)
-        if item:
-            to_add = item_attachments.get(item)
-            if to_add is None:
-                to_add = _build_text_attachments(allure_dir, item_chunks[item], constants)
-                item_attachments[item] = to_add
-        elif _is_execution_infra(result) and full_console.strip():
-            if infra_attachments is None:
-                infra_attachments = _build_text_attachments(allure_dir, full_console, constants)
-            to_add = infra_attachments
-
-        if not to_add:
-            continue
-        attachments.extend(to_add)
+        attachments = [
+            item
+            for item in attachments
+            if item.get("name") != FULL_CONSOLE_ATTACHMENT_NAME
+            and item.get("source") != FULL_CONSOLE_SOURCE
+        ]
+        attachments.append(
+            {
+                "name": FULL_CONSOLE_ATTACHMENT_NAME,
+                "source": FULL_CONSOLE_SOURCE,
+                "type": "text/plain",
+            }
+        )
+        result["attachments"] = attachments
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(result, handle, ensure_ascii=False)
         attached += 1
     return attached
+
+
+def _dedupe_attachments(attachments):
+    unique = []
+    seen = set()
+    for attachment in attachments:
+        key = (attachment.get("source"), attachment.get("name"))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(attachment)
+    return unique
+
+
+def _write_section_text(allure_dir, source, text):
+    with open(os.path.join(allure_dir, source), "w", encoding="utf-8") as handle:
+        handle.write(text)
+        if text and not text.endswith("\n"):
+            handle.write("\n")
+
+
+def _result_attachment(allure_dir, result):
+    status = result.get("status") or "unknown"
+    details = result.get("statusDetails") or {}
+    message = details.get("message") or ("Test passed" if status == "passed" else status)
+    trace = details.get("trace") or ""
+    lines = [f"status={status}", f"message={message}"]
+    if trace and trace.strip() != str(message).strip():
+        lines.extend(["", "error_log:", trace])
+    source = f"{result.get('uuid') or uuid.uuid4()}-test-result.log"
+    _write_section_text(allure_dir, source, "\n".join(lines))
+    return {
+        "name": "报错日志" if status in {"failed", "broken"} else "执行结果",
+        "source": source,
+        "type": "text/plain",
+    }
+
+
+def _placeholder_attachment(allure_dir, result, suffix, name, text):
+    source = f"{result.get('uuid') or uuid.uuid4()}-{suffix}.txt"
+    _write_section_text(allure_dir, source, text)
+    return {"name": name, "source": source, "type": "text/plain"}
+
+
+def _is_result_attachment(attachment):
+    name = str(attachment.get("name") or "")
+    return name in RESULT_ATTACHMENT_NAMES or name.startswith(("测试结果", "数据一致性结果"))
+
+
+def _section_step(name, status, attachments, result):
+    stop = result.get("stop") or int(time.time() * 1000)
+    return {
+        "name": name,
+        "status": status,
+        "stage": "finished",
+        "start": stop,
+        "stop": stop,
+        "attachments": attachments,
+    }
+
+
+def organize_result_sections(allure_dir):
+    """Render console, result and debug artifacts as three sibling Allure steps."""
+    organized = 0
+    for path in sorted(glob.glob(os.path.join(allure_dir, "*-result.json"))):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                result = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+
+        pool = list(result.pop("attachments", []) or [])
+        retained_steps = []
+        for step in result.get("steps") or []:
+            if step.get("name") in REPORT_SECTION_NAMES:
+                pool.extend(step.get("attachments") or [])
+            else:
+                retained_steps.append(step)
+
+        terminal = []
+        result_logs = []
+        debug_logs = []
+        for attachment in _dedupe_attachments(pool):
+            name = attachment.get("name")
+            source = attachment.get("source")
+            if (
+                name in {FULL_CONSOLE_ATTACHMENT_NAME, "Console 采集说明"}
+                or source == FULL_CONSOLE_SOURCE
+                or str(source or "").endswith("-jenkins-console-missing.txt")
+            ):
+                terminal.append(attachment)
+            elif name in CONSOLE_ATTACHMENT_ALIASES:
+                # Legacy pytest attachments used this misleading name. A fresh run
+                # writes them as "FIO 执行日志"; do not show them as Jenkins Console.
+                renamed = dict(attachment)
+                renamed["name"] = "FIO 执行日志（旧版）"
+                debug_logs.append(renamed)
+            elif _is_result_attachment(attachment):
+                result_logs.append(attachment)
+            else:
+                debug_logs.append(attachment)
+
+        if not terminal:
+            terminal.append(
+                _placeholder_attachment(
+                    allure_dir,
+                    result,
+                    "jenkins-console-missing",
+                    "Console 采集说明",
+                    "Jenkins Console was not available when the Allure report was assembled.",
+                )
+            )
+        elif any(
+            item.get("name") == FULL_CONSOLE_ATTACHMENT_NAME for item in terminal
+        ):
+            terminal = [item for item in terminal if item.get("name") != "Console 采集说明"]
+        result_logs.insert(0, _result_attachment(allure_dir, result))
+        real_debug_logs = [
+            item for item in debug_logs if item.get("name") != "日志收集说明"
+        ]
+        if real_debug_logs:
+            debug_logs = real_debug_logs
+        else:
+            debug_logs = []
+            debug_logs.append(
+                _placeholder_attachment(
+                    allure_dir,
+                    result,
+                    "debug-log-empty",
+                    "日志收集说明",
+                    "No related debug log was collected for this test case.",
+                )
+            )
+
+        status = result.get("status") or "unknown"
+        managed_steps = [
+            _section_step("终端输出", "passed" if terminal else "skipped", terminal, result),
+            _section_step("测试结果", status, _dedupe_attachments(result_logs), result),
+            _section_step(
+                "日志收集",
+                "passed" if debug_logs else "skipped",
+                _dedupe_attachments(debug_logs),
+                result,
+            ),
+        ]
+        result["steps"] = managed_steps + retained_steps
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(result, handle, ensure_ascii=False)
+        organized += 1
+    return organized
 
 
 def main():
@@ -759,13 +816,15 @@ def main():
     console_fallback = write_console_fallback_result(allure_dir, existing_ids)
     attached = attach_pending_monitor_logs(allure_dir)
     console_attached = attach_jenkins_console(allure_dir)
+    organized = organize_result_sections(allure_dir)
     print(
         f"generated allure result files from junit: {generated}, "
         f"environment prepare results: {env_generated}, "
         f"physical restore results: {restore_generated}, "
         f"failed execution results: {execution_generated}, "
         f"console fallback results: {console_fallback}, attached monitor logs: {attached}, "
-        f"attached Jenkins console to results: {console_attached}"
+        f"attached Jenkins console to results: {console_attached}, "
+        f"organized report sections: {organized}"
     )
     return 0
 

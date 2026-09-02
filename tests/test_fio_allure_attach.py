@@ -78,7 +78,7 @@ def test_attach_case_fio_summary_uses_this_case_output_only(monkeypatch):
     assert attach_case_fio_summary("no jobs here") is False
 
 
-def test_attach_case_terminal_output_uses_console_attachment_name(monkeypatch):
+def test_attach_case_terminal_output_uses_fio_command_log_name(monkeypatch):
     attached = []
 
     class FakeAllure:
@@ -92,12 +92,12 @@ def test_attach_case_terminal_output_uses_console_attachment_name(monkeypatch):
     monkeypatch.setattr(allure, "attach", FakeAllure.attach)
     monkeypatch.setattr(allure, "attachment_type", FakeAllure.attachment_type)
 
-    from test_items.fio_allure import CONSOLE_ATTACHMENT_NAME, attach_case_terminal_output
+    from test_items.fio_allure import FIO_COMMAND_LOG_NAME, attach_case_terminal_output
 
     assert attach_case_terminal_output("  \n") is False
     assert attached == []
     assert attach_case_terminal_output("[12:00:00] Job 1/4 is Running..\n") is True
-    assert attached[0]["name"] == CONSOLE_ATTACHMENT_NAME
+    assert attached[0]["name"] == FIO_COMMAND_LOG_NAME
     assert attached[0]["body"] == "[12:00:00] Job 1/4 is Running..\n"
 
 
@@ -119,11 +119,11 @@ def test_attach_case_terminal_output_prefers_persistent_log(tmp_path, monkeypatc
     monkeypatch.setattr(allure, "attach", FakeAttach())
     monkeypatch.setattr(allure, "attachment_type", AttachmentType)
 
-    from test_items.fio_allure import CONSOLE_ATTACHMENT_NAME, attach_case_terminal_output
+    from test_items.fio_allure import FIO_COMMAND_LOG_NAME, attach_case_terminal_output
 
     assert attach_case_terminal_output("short fallback", output_path=str(output_path)) is True
     assert attached == [
-        {"kind": "file", "name": CONSOLE_ATTACHMENT_NAME, "source": str(output_path)}
+        {"kind": "file", "name": FIO_COMMAND_LOG_NAME, "source": str(output_path)}
     ]
 
 
