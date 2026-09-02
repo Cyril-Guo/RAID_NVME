@@ -15,6 +15,7 @@ LARGE_CONTENT_HINT = "Content is too large, please refer to the attachment."
 CONSOLE_ATTACHMENT_NAME = "终端输出"
 RESULT_SUMMARY_NAME = "测试结果汇总"
 MACHINECHECK_ATTACHMENT_NAME = "MachineCheck 差异记录"
+FIO_FAILURE_SUMMARY_NAME = "FIO 故障摘要"
 
 
 def extract_fio_job_summary(text):
@@ -72,7 +73,25 @@ def attach_named_text(content, name):
     )
 
 
-def attach_case_terminal_output(output_text):
+def attach_named_file(path, name):
+    import allure
+
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        allure.attach.file(
+            path,
+            name=name,
+            attachment_type=allure.attachment_type.TEXT,
+        )
+    except (OSError, RuntimeError):
+        return False
+    return True
+
+
+def attach_case_terminal_output(output_text, output_path=None):
+    if attach_named_file(output_path, CONSOLE_ATTACHMENT_NAME):
+        return True
     if not (output_text or "").strip():
         return False
     attach_named_text(output_text, CONSOLE_ATTACHMENT_NAME)
@@ -106,6 +125,8 @@ def _read_text_file(path):
 def attach_machinecheck_records(stress_dir, text="", ignore_error=False):
     from datetime import datetime
 
+    from test_items.command_output import safe_console_print
+
     detail = _read_text_file(os.path.join(stress_dir, _MACHINECHECK_DETAIL))
     if not detail and text:
         markers = (
@@ -126,9 +147,9 @@ def attach_machinecheck_records(stress_dir, text="", ignore_error=False):
 
     attach_named_text(detail, MACHINECHECK_ATTACHMENT_NAME)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"{ts} [INFO] MachineCheck differences recorded")
+    safe_console_print(f"{ts} [INFO] MachineCheck differences recorded")
     if ignore_error:
-        print(f"{ts} [WARN] IGNORE_ERROR=yes, record MachineCheck without failing")
+        safe_console_print(f"{ts} [WARN] IGNORE_ERROR=yes, record MachineCheck without failing")
     else:
-        print(f"{ts} [INFO] IGNORE_ERROR=no, MachineCheck differences will fail the case")
+        safe_console_print(f"{ts} [INFO] IGNORE_ERROR=no, MachineCheck differences will fail the case")
     return True

@@ -1,13 +1,17 @@
 """Per-case FIO launch helpers. Each CI test supplies its own CSV and mode."""
 import os
-import sys
+import re
 import subprocess
+import sys
+import time
 from datetime import datetime
 
 import pytest
 
 from test_items.case_paths import io_stress_dir, stress_monitor_dir
+from test_items.command_output import CommandOutputCapture, safe_console_print
 from test_items.fio_allure import (
+    FIO_FAILURE_SUMMARY_NAME,
     RESULT_SUMMARY_NAME,
     attach_case_fio_summary,
     attach_case_terminal_output,
@@ -162,7 +166,9 @@ def maybe_start_monitor():
     monitor_disks = os.environ.get("FIO_DISKS", "").strip()
     if monitor_disks:
         monitor_cmd.extend(["-d", monitor_disks])
-    print(f"[{_ts()}] Start Stress_Monitor in background (Runtime: {runtime or 'Default'})...")
+    safe_console_print(
+        f"[{_ts()}] Start Stress_Monitor in background (Runtime: {runtime or 'Default'})..."
+    )
     subprocess.Popen(
         monitor_cmd,
         cwd=monitor_dir,
@@ -184,39 +190,56 @@ def run_and_check_fio(fio_args, extra_output=""):
 
 def run_and_check_argv(argv, cwd, extra_output="", use_result_log=False, attach=True):
     ignore_error = ignore_error_enabled()
-    cmd_str = " ".join(argv)
-    print(f"{_ts()} [START] cwd={cwd} {cmd_str}")
-    process = subprocess.Popen(
-        argv,
-        cwd=cwd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        universal_newlines=True,
-    )
-    full_output = []
+    capture = CommandOutputCapture(cwd, argv, extra_output=extra_output)
+    started = time.monotonic()
+    try:
+        process = subprocess.Popen(
+            argv,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            errors="replace",
+            bufsize=1,
+        )
+    except OSError as exc:
+        capture.record(f"[{_ts()}] [LAUNCH_ERROR] {type(exc).__name__}: {exc}\n")
+        capture.finish("not-started", time.monotonic() - started)
+        output_text = capture.output_text()
+        output_path = capture.path
+        capture.close()
+        attach_case_terminal_output(output_text, output_path=output_path)
+        message = _failure_message(
+            "FIO 启动失败",
+            capture,
+            exit_code="not-started",
+            failures=[f"{type(exc).__name__}: {exc}"],
+        )
+        attach_named_text(message, FIO_FAILURE_SUMMARY_NAME)
+        pytest.fail(message, pytrace=False)
+
     for line in process.stdout:
-        timed_line = f"[{_ts()}] {line}"
-        print(timed_line, end="")
-        full_output.append(timed_line)
+        capture.record_child_line(line)
     process.wait()
     exit_code = process.returncode
-    output_text = extra_output + "".join(full_output)
+    capture.finish(exit_code, time.monotonic() - started)
+    output_text = capture.output_text()
+    output_path = capture.path
+    capture.close()
     output_failures = collect_failure_lines(
         output_text,
         ignore_machinecheck=ignore_error,
         ignore_fio_job_errors=(exit_code == 0),
     )
     if attach or exit_code != 0 or output_failures:
-        attach_case_terminal_output(output_text)
+        attach_case_terminal_output(output_text, output_path=output_path)
         attach_case_fio_summary(output_text)
 
     res_content = ""
     if use_result_log:
         result_log = os.path.join(cwd, "log", "ResultLog", "fio_result", "result.log")
         if os.path.exists(result_log):
-            with open(result_log, "r") as handle:
+            with open(result_log, "r", encoding="utf-8", errors="replace") as handle:
                 res_content = handle.read()
             attach_named_text(res_content, RESULT_SUMMARY_NAME)
     attach_machinecheck_records(
@@ -226,13 +249,24 @@ def run_and_check_argv(argv, cwd, extra_output="", use_result_log=False, attach=
     )
 
     if exit_code != 0:
-        print(f"{_ts()} [ERROR] 脚本执行失败，退出码: {exit_code}")
-        detail = ""
-        if output_failures:
-            detail = "\n" + "\n".join(output_failures[:50])
-        pytest.fail(f"FIO 脚本执行失败，返回码: {exit_code}{detail}")
+        message = _failure_message(
+            "FIO 脚本执行失败",
+            capture,
+            exit_code=exit_code,
+            failures=output_failures,
+        )
+        attach_named_text(message, FIO_FAILURE_SUMMARY_NAME)
+        safe_console_print(f"{_ts()} [ERROR] FIO script failed, rc={exit_code}")
+        pytest.fail(message, pytrace=False)
     if output_failures:
-        pytest.fail("FIO 输出中检测到失败关键字:\n" + "\n".join(output_failures[:50]))
+        message = _failure_message(
+            "FIO 输出中检测到失败关键字",
+            capture,
+            exit_code=exit_code,
+            failures=output_failures,
+        )
+        attach_named_text(message, FIO_FAILURE_SUMMARY_NAME)
+        pytest.fail(message, pytrace=False)
     if use_result_log:
         result_failures = collect_failure_lines(
             res_content,
@@ -240,8 +274,45 @@ def run_and_check_argv(argv, cwd, extra_output="", use_result_log=False, attach=
             ignore_fio_job_errors=(exit_code == 0),
         )
         if result_failures:
-            pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50]))
+            message = _failure_message(
+                "FIO 结果日志中检测到失败关键字",
+                capture,
+                exit_code=exit_code,
+                failures=result_failures,
+            )
+            attach_named_text(message, FIO_FAILURE_SUMMARY_NAME)
+            pytest.fail(message, pytrace=False)
         if res_content and (not ignore_error) and "Fail" in res_content:
-            pytest.fail("测试结果中检测到失败关键字:\n" + "\n".join(result_failures[:50] or ["Fail"]))
-    print(f"{_ts()} [SUCCESS] {cmd_str}")
+            message = _failure_message(
+                "FIO 结果日志中检测到 Fail",
+                capture,
+                exit_code=exit_code,
+                failures=result_failures or ["Fail"],
+            )
+            attach_named_text(message, FIO_FAILURE_SUMMARY_NAME)
+            pytest.fail(message, pytrace=False)
+    safe_console_print(f"{_ts()} [SUCCESS] {capture.command}")
     return output_text
+
+
+def _failure_message(title, capture, exit_code, failures):
+    details = [_clean_failure_line(line) for line in list(failures or [])[:20]]
+    lines = [
+        title,
+        f"exit_code={exit_code}",
+        f"command={capture.command}",
+        f"cwd={capture.cwd}",
+        f"console_mirror={'available' if capture.console_available else 'closed'}",
+        f"full_log={capture.path or 'Allure 终端输出（内存回退）'}",
+    ]
+    if details:
+        lines.extend([f"primary_error={details[0]}", "detected_errors:"])
+        lines.extend(f"- {line}" for line in details)
+    else:
+        lines.append("primary_error=子进程返回非零，但未匹配到已知 FIO 错误行；请查看完整日志。")
+    return "\n".join(lines)
+
+
+def _clean_failure_line(line):
+    """Remove capture timestamps from the summary; the full log keeps them."""
+    return re.sub(r"^(?:\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\]\s*)+", "", line)

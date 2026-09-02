@@ -101,6 +101,32 @@ def test_attach_case_terminal_output_uses_console_attachment_name(monkeypatch):
     assert attached[0]["body"] == "[12:00:00] Job 1/4 is Running..\n"
 
 
+def test_attach_case_terminal_output_prefers_persistent_log(tmp_path, monkeypatch):
+    attached = []
+    output_path = tmp_path / "fio_command_output_mix.log"
+    output_path.write_text("full persisted fio output\n", encoding="utf-8")
+
+    class FakeAttach:
+        def __call__(self, body, name=None, attachment_type=None, extension=None):
+            attached.append({"kind": "text", "name": name, "body": body})
+
+        def file(self, source, name=None, attachment_type=None, extension=None):
+            attached.append({"kind": "file", "name": name, "source": source})
+
+    class AttachmentType:
+        TEXT = "text/plain"
+
+    monkeypatch.setattr(allure, "attach", FakeAttach())
+    monkeypatch.setattr(allure, "attachment_type", AttachmentType)
+
+    from test_items.fio_allure import CONSOLE_ATTACHMENT_NAME, attach_case_terminal_output
+
+    assert attach_case_terminal_output("short fallback", output_path=str(output_path)) is True
+    assert attached == [
+        {"kind": "file", "name": CONSOLE_ATTACHMENT_NAME, "source": str(output_path)}
+    ]
+
+
 def test_attach_machinecheck_records_always_attaches_detail_log(tmp_path, monkeypatch, capsys):
     attached = []
 
