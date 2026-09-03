@@ -36,11 +36,11 @@ except ImportError:
     sys.modules["allure"] = allure
 
 
-@pytest.fixture(autouse=True)
-def raid_nvme_run_context(record_xml_attribute):
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
     run_key = os.environ.get("RAID_NVME_RUN_KEY", "").strip()
     order = os.environ.get("RAID_NVME_RUN_ORDER", "").strip()
-    item = os.environ.get("RAID_NVME_ITEM", "").strip()
+    case_item = os.environ.get("RAID_NVME_ITEM", "").strip()
 
     allure.dynamic.parent_suite("测试日志")
     if run_key:
@@ -49,8 +49,6 @@ def raid_nvme_run_context(record_xml_attribute):
         allure.dynamic.suite(run_key)
         if order:
             allure.dynamic.label("order", order)
-        record_xml_attribute("classname", f"test_items.{run_key}")
-    elif item:
-        record_xml_attribute("classname", f"test_items.{item}")
-
-    yield
+        item.user_properties.append(("run_key", run_key))
+    elif case_item:
+        item.user_properties.append(("run_key", case_item))

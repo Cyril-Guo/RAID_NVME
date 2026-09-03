@@ -10,10 +10,16 @@ try:
     from ci.build_status import console_was_manually_aborted
     from ci.extract_failure_summary import extract_failure_lines
     from ci.report_metrics import execution_log_has_explicit_failure, is_node_junit_report
+    from ci.report_identity import native_case_exists, normalize_results, discard_junit_placeholders, case_run_key
+    from ci.allure_fixture_cleanup import flatten_fixtures
+    from ci.report_artifacts import attach_workspace_artifacts
 except ModuleNotFoundError:
     from build_status import console_was_manually_aborted
     from extract_failure_summary import extract_failure_lines
     from report_metrics import execution_log_has_explicit_failure, is_node_junit_report
+    from report_identity import native_case_exists, normalize_results, discard_junit_placeholders, case_run_key
+    from allure_fixture_cleanup import flatten_fixtures
+    from report_artifacts import attach_workspace_artifacts
 
 
 def normalize_root(root):
@@ -63,23 +69,6 @@ def apply_result_timing(result, duration_seconds=0.0):
     return result
 
 
-def has_pytest_allure_results(allure_dir, target_node=""):
-    for path in glob.glob(os.path.join(allure_dir, "*-result.json")):
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                result = json.load(handle)
-        except (OSError, json.JSONDecodeError):
-            continue
-        labels = _result_labels(result)
-        if labels.get("framework") != "pytest":
-            continue
-        host = labels.get("host", "")
-        if target_node and host not in ("", target_node):
-            continue
-        return True
-    return False
-
-
 def report_context(junit_file):
     base = os.path.basename(junit_file)
     stem = base.removeprefix("report_").removesuffix(".xml").removesuffix("_physical")
@@ -116,8 +105,13 @@ def existing_history_ids(allure_dir):
 def result_matches_item(result, item, run_key=None):
     if run_key:
         labels = _result_labels(result)
-        labeled = labels.get("run_key") or labels.get("package") or labels.get("suite")
-        if labeled and labeled != run_key:
+        labeled = labels.get("run_key")
+        if labeled:
+            return labeled == run_key
+        candidates = [labels.get("package", ""), labels.get("suite", "")]
+        if run_key in candidates:
+            return True
+        if any("__" in value for value in candidates):
             return False
     parts = [
         str(result.get(key, "")).lower()
@@ -140,7 +134,11 @@ def result_matches_item(result, item, run_key=None):
 
 
 def attach_pending_monitor_logs(allure_dir):
-    sidecar = os.path.join(allure_dir, "monitor_attachments.json")
+    return sum(_attach_monitor_sidecar(allure_dir, path) for path in
+               glob.glob(os.path.join(allure_dir, "*monitor_attachments.json")))
+
+
+def _attach_monitor_sidecar(allure_dir, sidecar):
     try:
         with open(sidecar, "r", encoding="utf-8") as handle:
             pending = json.load(handle)
@@ -164,7 +162,7 @@ def attach_pending_monitor_logs(allure_dir):
                 continue
             if entry_target and labels.get("target") != entry_target:
                 continue
-            if not result_matches_item(result, entry.get("item", "")):
+            if entry.get("scope") != "node" and not result_matches_item(result, entry.get("item", ""), run_key=entry.get("run_key")):
                 continue
             attachment = entry.get("attachment")
             if not attachment:
@@ -245,6 +243,7 @@ def write_result(allure_dir, suite_name, case, target_node="", target_kind="", s
         "stage": "finished",
         "labels": [
             {"name": "suite", "value": suite_name or "unknown"},
+            {"name": "run_key", "value": case_run_key(case)},
             {"name": "package", "value": classname},
             {"name": "testClass", "value": classname},
             {"name": "host", "value": target_node or "jenkins"},
@@ -569,6 +568,8 @@ FULL_CONSOLE_ATTACHMENT_NAME = "完整 Jenkins Console"
 FULL_CONSOLE_SOURCE = "jenkins_console_full.log"
 REPORT_SECTION_NAMES = ("终端输出", "测试结果", "日志收集")
 RESULT_ATTACHMENT_NAMES = {
+    "准备/收尾异常",
+    "测试步骤明细",
     "报错日志",
     "执行结果",
     "FIO 故障摘要",
@@ -700,19 +701,28 @@ def organize_result_sections(allure_dir):
             continue
 
         pool = list(result.pop("attachments", []) or [])
-        retained_steps = []
-        for step in result.get("steps") or []:
-            if step.get("name") in REPORT_SECTION_NAMES:
-                pool.extend(step.get("attachments") or [])
-            else:
-                retained_steps.append(step)
+        def drain(step):
+            pool.extend(step.get("attachments") or [])
+            for child in step.get("steps") or []:
+                drain(child)
+        original_steps = result.get("steps") or []
+        for step in original_steps:
+            drain(step)
+        unmanaged = [step for step in original_steps if step.get("name") not in REPORT_SECTION_NAMES]
+        if unmanaged:
+            pool.append(_placeholder_attachment(allure_dir, result, "original-steps", "测试步骤明细",
+                        json.dumps(unmanaged, ensure_ascii=False, indent=2)))
 
         terminal = []
         result_logs = []
         debug_logs = []
+        missing = []
         for attachment in _dedupe_attachments(pool):
             name = attachment.get("name")
             source = attachment.get("source")
+            if not source or "/" in source or "\\" in source or not os.path.isfile(os.path.join(allure_dir, source)):
+                missing.append(f"{name}: source={source}")
+                continue
             if (
                 name in {FULL_CONSOLE_ATTACHMENT_NAME, "Console 采集说明"}
                 or source == FULL_CONSOLE_SOURCE
@@ -729,6 +739,11 @@ def organize_result_sections(allure_dir):
                 result_logs.append(attachment)
             else:
                 debug_logs.append(attachment)
+
+        if missing:
+            debug_logs.append(_placeholder_attachment(allure_dir, result, "missing-artifacts", "附件缺失说明",
+                "Referenced files were not recovered from the target. They are not downloadable.\n"
+                "Check the node collection log for timeout / SCP errors.\n\n" + "\n".join(missing)))
 
         if not terminal:
             terminal.append(
@@ -758,22 +773,26 @@ def organize_result_sections(allure_dir):
                     result,
                     "debug-log-empty",
                     "日志收集说明",
-                    "No related debug log was collected for this test case.",
+                    "No related debug log was recovered for this test case.\n"
+                    "Collection may have been interrupted or copying may have failed; "
+                    "this is not evidence that no device error occurred.\n"
+                    "Check the node execution / collection log and Jenkins Console.",
                 )
             )
 
         status = result.get("status") or "unknown"
+        has_debug_files = any(a.get("name") not in {"日志收集说明", "附件缺失说明"} for a in debug_logs)
         managed_steps = [
             _section_step("终端输出", "passed" if terminal else "skipped", terminal, result),
             _section_step("测试结果", status, _dedupe_attachments(result_logs), result),
             _section_step(
                 "日志收集",
-                "passed" if debug_logs else "skipped",
+                "passed" if has_debug_files else "skipped",
                 _dedupe_attachments(debug_logs),
                 result,
             ),
         ]
-        result["steps"] = managed_steps + retained_steps
+        result["steps"] = managed_steps
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(result, handle, ensure_ascii=False)
         organized += 1
@@ -783,6 +802,9 @@ def organize_result_sections(allure_dir):
 def main():
     allure_dir = "allure-results"
     ensure_dir(allure_dir)
+    flatten_fixtures(allure_dir)
+    normalize_results(allure_dir)
+    discard_junit_placeholders(allure_dir)
 
     existing_ids = existing_history_ids(allure_dir)
     junit_files = sorted(
@@ -795,8 +817,6 @@ def main():
         except ET.ParseError:
             continue
         target_node, target_kind = report_context(junit_file)
-        if has_pytest_allure_results(allure_dir, target_node):
-            continue
 
         for suite in normalize_root(root):
             suite_name = suite.attrib.get("name", "unknown")
@@ -804,7 +824,7 @@ def main():
                 name = case.attrib.get("name", "unknown")
                 classname = case.attrib.get("classname", suite_name or "unknown")
                 key = result_key(classname, name, target_node, target_kind)
-                if key in existing_ids:
+                if key in existing_ids or native_case_exists(allure_dir, case, target_node):
                     continue
                 write_result(allure_dir, suite_name, case, target_node, target_kind, suite=suite)
                 existing_ids.add(key)
@@ -814,6 +834,8 @@ def main():
     restore_generated = write_physical_restore_results(allure_dir, existing_ids)
     execution_generated = write_failed_execution_results(allure_dir, existing_ids)
     console_fallback = write_console_fallback_result(allure_dir, existing_ids)
+    normalize_results(allure_dir)
+    workspace_attached = attach_workspace_artifacts(allure_dir)
     attached = attach_pending_monitor_logs(allure_dir)
     console_attached = attach_jenkins_console(allure_dir)
     organized = organize_result_sections(allure_dir)
@@ -823,6 +845,7 @@ def main():
         f"physical restore results: {restore_generated}, "
         f"failed execution results: {execution_generated}, "
         f"console fallback results: {console_fallback}, attached monitor logs: {attached}, "
+        f"attached downloaded bundles: {workspace_attached}, "
         f"attached Jenkins console to results: {console_attached}, "
         f"organized report sections: {organized}"
     )

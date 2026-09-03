@@ -101,7 +101,8 @@ def test_wiring_references_failure_bundle():
     assert "enable_draid_pending_debug.sh" in remote
     assert "failure_bundle_*.tar.gz" not in remote
     assert "failure_bundle_*.tar.gz" in jenkins
-    assert "allure-results/failure_bundle_*.tar.gz" in jenkins
+    assert "allure-results/*failure_bundle_*.tar.gz" in jenkins
+    assert "allure-results/*case_debug_*.tar.gz" in jenkins
     assert "enable_failure_coredumps.sh" in prepare
     assert "enable_draid_pending_debug.sh" in prepare
     assert "enable_failure_coredumps_early" in install

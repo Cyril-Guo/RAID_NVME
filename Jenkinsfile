@@ -478,7 +478,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                     results: [[path: 'allure-results']]
                 )
 
-                archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, allure-results/monitor_log_*.tar.gz, allure-results/failure_bundle_*.tar.gz, failure_bundle_*.tar.gz', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, allure-results/*monitor*.tar.gz, allure-results/*case_debug_*.tar.gz, allure-results/*failure_bundle_*.tar.gz, failure_bundle_*.tar.gz', allowEmptyArchive: true
 
                 def metricsOutput = sh(script: "python3 ci/report_metrics.py", returnStdout: true).trim()
                 sh 'python3 ci/extract_failure_summary.py --output failure_summary.txt || true'

@@ -681,26 +681,8 @@ def _attach_named_file_to_allure(item, base_dir, source_name, display_name, mime
 
 def collect_case_outputs(case_dir, repo_root, run_key):
     """Copy per-case junit/allure artifacts back to the build root for Jenkins collect."""
-    src_report = os.path.join(case_dir, f"report_{run_key}.xml")
-    dst_report = os.path.join(repo_root, f"report_{run_key}.xml")
-    if os.path.isfile(src_report):
-        shutil.copy2(src_report, dst_report)
-
-    src_allure = os.path.join(case_dir, ALLURE_DIR)
-    dst_allure = os.path.join(repo_root, ALLURE_DIR)
-    if not os.path.isdir(src_allure):
-        return
-    os.makedirs(dst_allure, exist_ok=True)
-    for name in os.listdir(src_allure):
-        src = os.path.join(src_allure, name)
-        dst = os.path.join(dst_allure, name)
-        # Allure artifact names are UUID-based; keep names so attachment links stay valid.
-        if os.path.exists(dst):
-            continue
-        if os.path.isdir(src):
-            shutil.copytree(src, dst)
-        else:
-            shutil.copy2(src, dst)
+    from ci.case_artifacts import copy_case_outputs
+    copy_case_outputs(case_dir, repo_root, run_key)
 
 
 def run_single_item(
@@ -785,6 +767,10 @@ def merge_junit_reports(items, out_path):
             root = ET.parse(part).getroot()
         except ET.ParseError:
             continue
+
+        for case in root.iter("testcase"):
+            if case.get("name", "").startswith("test_"):
+                case.set("classname", f"test_items.{item}")
 
         if root.tag == "testsuites":
             for suite in root.findall("testsuite"):
@@ -871,8 +857,13 @@ def _result_label_map(result):
 def result_matches_item(result, item, run_key=None):
     if run_key:
         labels = _result_label_map(result)
-        labeled = labels.get("run_key") or labels.get("package") or labels.get("suite")
-        if labeled and labeled != run_key:
+        labeled = labels.get("run_key")
+        if labeled:
+            return labeled == run_key
+        candidates = [labels.get("package", ""), labels.get("suite", "")]
+        if run_key in candidates:
+            return True
+        if any("__" in value for value in candidates):
             return False
     text = " ".join(
         str(result.get(key, "")).lower()
@@ -925,7 +916,7 @@ def attach_monitor_archive_to_result(item, base_dir, archive_name, run_key=None)
             pending = json.load(handle)
     except (OSError, json.JSONDecodeError):
         pending = []
-    pending.append({"item": item, "attachment": attachment})
+    pending.append({"item": item, "attachment": attachment, "run_key": run_key})
     with open(sidecar, "w", encoding="utf-8") as handle:
         json.dump(pending, handle, ensure_ascii=False)
     return False
