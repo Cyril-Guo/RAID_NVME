@@ -74,7 +74,7 @@ def test_mark_allure_target_context_marks_pending_monitor_sidecar(tmp_path):
 
     assert mark_allure_target_context.main([str(allure_dir), "192.168.22.134", "_physical", "0"]) == 0
 
-    pending = json.loads((allure_dir / "monitor_attachments.json").read_text(encoding="utf-8"))
+    pending = json.loads((allure_dir / "physical_192_168_22_134_monitor_attachments.json").read_text(encoding="utf-8"))
     assert pending[0]["item"] == "basic_io"
     assert pending[0]["host"] == "192.168.22.134"
     assert pending[0]["target"] == "physical"

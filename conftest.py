@@ -1,4 +1,5 @@
 import sys
+import os
 
 import pytest
 
@@ -37,4 +38,9 @@ except ImportError:
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
     allure.dynamic.parent_suite("测试日志")
+    run_key = os.environ.get("RAID_NVME_ITEM")
+    if run_key:
+        allure.dynamic.label("run_key", run_key)
+        allure.dynamic.suite(run_key)
+        item.user_properties.append(("run_key", run_key))
 

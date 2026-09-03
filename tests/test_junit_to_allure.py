@@ -30,6 +30,7 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
         ),
         encoding="utf-8",
     )
+    (allure_dir / "monitor_log_lawdisk.tar.gz").write_bytes(b"monitor archive")
 
     assert junit_to_allure.main() == 0
 
@@ -37,7 +38,7 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
     assert len(results) == 1
     result = json.loads(results[0].read_text(encoding="utf-8"))
     assert result["name"] == "[QEMU 192.168.22.134] test_lawdiskstress"
-    assert result["attachments"][0]["source"] == "monitor_log_lawdisk.tar.gz"
+    assert result["steps"][2]["attachments"][0]["source"] == "monitor_log_lawdisk.tar.gz"
 
     assert junit_to_allure.main() == 0
     assert len(list(allure_dir.glob("*-result.json"))) == 1
@@ -65,7 +66,7 @@ def test_junit_to_allure_attaches_console_snapshot(tmp_path, monkeypatch):
     result_path = next(allure_dir.glob("*-result.json"))
     result = json.loads(result_path.read_text(encoding="utf-8"))
     console_attachment = next(
-        item for item in result["attachments"] if item["name"] == "Jenkins Console Output"
+        item for item in result["steps"][0]["attachments"] if item["name"] == "Jenkins Console Output"
     )
     assert "all console output" in (allure_dir / console_attachment["source"]).read_text(encoding="utf-8")
     assert "links" not in result
@@ -88,7 +89,7 @@ def test_junit_to_allure_generates_environment_prepare_result(tmp_path, monkeypa
     env_result = next(result for result in results if result["name"] == "Environment_Prepare_192.168.22.134")
     assert env_result["status"] == "broken"
     assert env_result["labels"][0] == {"name": "suite", "value": "Environment_Prepare"}
-    attachment = allure_dir / env_result["attachments"][0]["source"]
+    attachment = allure_dir / env_result["steps"][2]["attachments"][0]["source"]
     assert "insmod ./draid.ko failed" in attachment.read_text(encoding="utf-8")
 
 
@@ -161,7 +162,7 @@ def test_junit_to_allure_generates_broken_result_for_hung_test_without_junit(tmp
     assert result["name"] == "Test_Execution_QEMU_192.168.22.134"
     assert result["status"] == "broken"
     assert "idle watchdog fired" in result["statusDetails"]["message"]
-    attachment = allure_dir / result["attachments"][0]["source"]
+    attachment = allure_dir / result["steps"][2]["attachments"][0]["source"]
     assert attachment.read_text(encoding="utf-8") == execution_log.read_text(encoding="utf-8")
 
     assert junit_to_allure.main() == 0

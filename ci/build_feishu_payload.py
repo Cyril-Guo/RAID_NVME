@@ -3,6 +3,13 @@ import json
 import os
 from urllib.parse import quote
 
+try:
+    from ci.report_metrics import failed_case_names
+    from ci.build_status import console_was_manually_aborted
+except ModuleNotFoundError:
+    from report_metrics import failed_case_names
+    from build_status import console_was_manually_aborted
+
 
 def env(name, default=""):
     return os.environ.get(name, default)
@@ -56,6 +63,10 @@ def kernel_driver_code_url():
 
 
 def main():
+    if console_was_manually_aborted("jenkins_console.log"):
+        remove_stale_payload()
+        print("NO_FEISHU_PAYLOAD=manual_abort")
+        return
     total = int(env("TOTAL", "0"))
     report_kind = env("REPORT_KIND", "tests").strip().lower() or "tests"
     failure_summary = load_failure_summary()
@@ -142,6 +153,12 @@ def main():
         },
         {"tag": "action", "actions": actions},
     ]
+
+    failed_cases = failed_case_names()
+    if failed_cases:
+        elements.insert(-1, {"tag": "div", "text": {
+            "tag": "lark_md", "content": "**失败/异常用例:**\n" + "\n".join(failed_cases),
+        }})
 
     payload = {
         "msg_type": "interactive",

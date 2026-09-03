@@ -4,6 +4,11 @@ import os
 import re
 import xml.etree.ElementTree as ET
 
+try:
+    from ci.execution_failure import unreported_failures, execution_context
+except ModuleNotFoundError:
+    from execution_failure import unreported_failures, execution_context
+
 
 STAT_KEYS = ("tests", "failures", "errors", "skipped")
 INFRA_SUITES = frozenset({"Environment_Prepare", "Test_Execution", "Physical_Restore"})
@@ -124,38 +129,25 @@ def _read_text(path):
         return ""
 
 
-def report_has_testcases(target_node, target_kind):
-    suffix = "_physical" if target_kind == "physical" else ""
-    path = f"report_{target_node}{suffix}.xml"
-    try:
-        root = ET.parse(path).getroot()
-    except (OSError, ET.ParseError):
-        return False
-    return root.find(".//testcase") is not None or root.tag == "testcase"
-
-
-def status_log_infra_metrics():
+def status_log_infra_metrics(seen=None):
     """Count each failed env/execution/restore log as one execution item."""
     stats = empty_stats()
+    seen = seen or set()
 
     for path in sorted(glob.glob("environment_prepare_*.log")):
         text = _read_text(path)
-        if "ENVIRONMENT_PREPARE_STATUS=failed" in text:
+        node = os.path.basename(path).removeprefix("environment_prepare_").removesuffix(".log")
+        if "ENVIRONMENT_PREPARE_STATUS=failed" in text and f"Environment_Prepare_{node}" not in seen:
             stats["tests"] += 1
             stats["errors"] += 1
-        if "PHYSICAL_RESTORE_STATUS=failed" in text:
+        if "PHYSICAL_RESTORE_STATUS=failed" in text and f"Physical_Restore_{node}" not in seen:
             stats["tests"] += 1
             stats["errors"] += 1
 
-    for path in sorted(glob.glob("test_execution_*.log")):
-        text = _read_text(path)
-        if "TEST_EXECUTION_STATUS=failed" not in text:
-            continue
-        stem = os.path.basename(path).removeprefix("test_execution_").removesuffix(".log")
-        target_kind = "physical" if stem.endswith("_physical") else "qemu"
-        target_node = stem.removesuffix("_physical")
-        # When junit already has cases, that node is counted via tests, not as infra.
-        if report_has_testcases(target_node, target_kind):
+    for path, _context in unreported_failures():
+        node, kind = execution_context(path)
+        label = "Physical" if kind == "physical" else "QEMU"
+        if f"Test_Execution_{label}_{node}" in seen:
             continue
         stats["tests"] += 1
         stats["errors"] += 1
@@ -166,9 +158,16 @@ def status_log_infra_metrics():
 def infra_metrics():
     """Prefer Allure infra results; fall back to status logs so each node/step counts."""
     infra_allure = allure_metrics(infra_only=True)
-    if infra_allure["tests"] > 0:
-        return infra_allure
-    return status_log_infra_metrics()
+    seen = set()
+    for path in glob.glob("allure-results/*-result.json"):
+        try:
+            result = json.loads(_read_text(path))
+        except ValueError:
+            continue
+        if is_infra_result(result):
+            seen.add(result.get("name", ""))
+    add_stats(infra_allure, status_log_infra_metrics(seen))
+    return infra_allure
 
 
 def report_metrics():
@@ -198,6 +197,31 @@ def main():
         f"{stats['tests']} {stats['failures']} {stats['errors']} {stats['skipped']} {stats['kind']}"
     )
     return 0
+
+
+def failed_case_names(limit=6):
+    names = []
+    for path in sorted(glob.glob("report_*.xml")):
+        if not is_node_junit_report(path):
+            continue
+        try:
+            root = ET.parse(path).getroot()
+        except (ET.ParseError, OSError):
+            continue
+        node = os.path.basename(path).removeprefix("report_").removesuffix(".xml")
+        for case in root.iter("testcase"):
+            if case.find("failure") is not None or case.find("error") is not None:
+                names.append(f"{node}: {case.get('name', 'unknown')}")
+    if not names:
+        for path in sorted(glob.glob("allure-results/*-result.json")):
+            try:
+                result = json.loads(_read_text(path))
+            except ValueError:
+                continue
+            if result.get("status") in ("failed", "broken"):
+                names.append(result.get("name", "unknown"))
+    names = list(dict.fromkeys(names))
+    return names[:limit] + ([f"... {len(names) - limit} more; see report"] if len(names) > limit else [])
 
 
 if __name__ == "__main__":

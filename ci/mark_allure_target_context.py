@@ -38,6 +38,14 @@ def rename_attachment(allure_dir, attachment, prefix):
     attachment["source"] = new_source
 
 
+def normalize_attachments(container, allure_dir, prefix):
+    for attachment in container.get("attachments") or []:
+        rename_attachment(allure_dir, attachment, prefix)
+    for key in ("steps", "befores", "afters"):
+        for child in container.get(key) or []:
+            normalize_attachments(child, allure_dir, prefix)
+
+
 def normalize_result(path, allure_dir, node, kind):
     with open(path, "r", encoding="utf-8") as handle:
         result = json.load(handle)
@@ -46,7 +54,8 @@ def normalize_result(path, allure_dir, node, kind):
     original_name = result.get("name") or "unknown"
     display_name = original_name if original_name.startswith(prefix_text) else f"{prefix_text}{original_name}"
     base_full_name = result.get("fullName") or result.get("historyId") or original_name
-    context_key = f"{kind}:{node}:{base_full_name}"
+    context_prefix = f"{kind}:{node}:"
+    context_key = base_full_name if base_full_name.startswith(context_prefix) else context_prefix + base_full_name
 
     result["name"] = display_name
     result["fullName"] = context_key
@@ -58,8 +67,7 @@ def normalize_result(path, allure_dir, node, kind):
     result["labels"] = labels
 
     attachment_prefix = f"{kind}_{node.replace('.', '_')}_"
-    for attachment in result.get("attachments") or []:
-        rename_attachment(allure_dir, attachment, attachment_prefix)
+    normalize_attachments(result, allure_dir, attachment_prefix)
 
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(result, handle, ensure_ascii=False)
@@ -96,10 +104,26 @@ def main(argv=None):
 
     updated = 0
     for path in glob.glob(os.path.join(allure_dir, "*-result.json")):
-        normalize_result(path, allure_dir, node, kind)
-        updated += 1
+        try:
+            normalize_result(path, allure_dir, node, kind)
+            updated += 1
+        except (OSError, ValueError) as exc:
+            print(f"[COLLECTION_WARNING] Incomplete Allure result {os.path.basename(path)}: {exc}")
 
-    normalize_sidecar(os.path.join(allure_dir, "monitor_attachments.json"), allure_dir, node, kind)
+    prefix = f"{kind}_{node.replace('.', '_')}_"
+    for path in glob.glob(os.path.join(allure_dir, "*-container.json")):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                container = json.load(handle)
+            normalize_attachments(container, allure_dir, prefix)
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(container, handle, ensure_ascii=False)
+        except (OSError, ValueError) as exc:
+            print(f"[COLLECTION_WARNING] Incomplete Allure container {os.path.basename(path)}: {exc}")
+    for sidecar in glob.glob(os.path.join(allure_dir, "*monitor_attachments.json")):
+        normalize_sidecar(sidecar, allure_dir, node, kind)
+        if not os.path.basename(sidecar).startswith(prefix):
+            os.replace(sidecar, os.path.join(allure_dir, prefix + os.path.basename(sidecar)))
     print(f"marked allure target context: {updated} result files as {kind} on {node}")
     return 0
 

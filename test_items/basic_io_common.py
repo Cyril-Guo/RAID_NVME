@@ -8,6 +8,7 @@ from decimal import Decimal, ROUND_FLOOR
 from pathlib import Path
 
 import allure
+from test_items.execution_log import emit
 
 
 @dataclass
@@ -147,8 +148,8 @@ class CommandLog:
 
     def write(self, line):
         text = f"[{ts()}] {line}"
-        print(text)
         self.lines.append(text)
+        emit(text)
 
     def attach(self, name):
         allure.attach("\n".join(self.lines), name=name, attachment_type=allure.attachment_type.TEXT)
@@ -156,7 +157,7 @@ class CommandLog:
 
 def run_cmd(cmd, log, check=True, shell=False, env=None):
     display = cmd if isinstance(cmd, str) else " ".join(cmd)
-    log.write(f"$ {display}")
+    log.write(f"[CMD_START] {display}")
     result = subprocess.run(
         cmd,
         shell=shell,
@@ -168,9 +169,10 @@ def run_cmd(cmd, log, check=True, shell=False, env=None):
     if result.stdout:
         for line in result.stdout.rstrip("\n").splitlines():
             log.write(line)
-    log.write(f"[exit] {result.returncode}")
+    log.write(f"[CMD_END] rc={result.returncode} command={display}")
     if check and result.returncode != 0:
-        raise AssertionError(f"Command failed rc={result.returncode}: {display}")
+        tail = "\n".join((result.stdout or "").splitlines()[-30:])
+        raise AssertionError(f"Command failed rc={result.returncode}: {display}\n{tail}")
     return result
 
 

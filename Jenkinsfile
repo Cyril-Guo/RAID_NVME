@@ -1112,7 +1112,7 @@ PY
                     results: [[path: 'allure-results']]
                 )
 
-                archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, allure-results/monitor_log_*.tar.gz', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, debug_*.log, environment_prepare_*.log, allure-results/*monitor_log_*.tar.gz, allure-results/*case_debug_*.tar.gz', allowEmptyArchive: true
 
                 if (manuallyAborted) {
                     echo 'Manual abort detected; keep ABORTED and skip Feishu notification.'

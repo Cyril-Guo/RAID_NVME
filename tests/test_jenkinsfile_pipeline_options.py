@@ -61,7 +61,8 @@ def test_failure_logs_are_added_to_allure_and_feishu_report():
     jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
 
     assert "TEST_EXECUTION_STATUS=failed" in source
-    assert "TEST_EXECUTION_EXIT_CODE=${test_rc}" in source
+    assert 'record_failure "${test_rc}"' in source
+    assert 'echo "TEST_EXECUTION_EXIT_CODE=$1"' in source
     assert "python3 ci/collect_console_output.py" in source
     assert "jenkins_console.log" in source
     assert "Jenkins Console Output" in source

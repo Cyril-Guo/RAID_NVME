@@ -20,6 +20,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 import nvme_raid_test
+from ci.salvage_case_artifacts import recover_case_artifacts
 
 # Bracket trick so `pkill -f` does not match the shell/python cmdline that embeds this text.
 MONITOR_PKILL_PATTERN = "[S]tress_Monitor/main.py"
@@ -89,6 +90,7 @@ def main(argv=None):
     if args.stop_monitor:
         stop_monitor()
 
+    recover_case_artifacts(args.from_dir, nvme_raid_test.TEST_ITEMS)
     merge_from_directory(args.from_dir, args.output)
     return 0
 

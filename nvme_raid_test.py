@@ -170,7 +170,7 @@ def collect_case_outputs(case_dir, repo_root, item):
     os.makedirs(dst_allure, exist_ok=True)
     for name in os.listdir(src_allure):
         src = os.path.join(src_allure, name)
-        dst = os.path.join(dst_allure, name)
+        dst = os.path.join(dst_allure, f"{item}_{name}" if name.endswith("monitor_attachments.json") else name)
         # Allure artifact names are UUID-based; keep names so attachment links stay valid.
         if os.path.exists(dst):
             continue
@@ -205,7 +205,8 @@ def run_single_item(item, params, clean_allure, work_dir=None):
         os.chdir(work_dir)
         from test_items.basic_io_common import CommandLog, release_and_clear_csd
 
-        print(f"[ITEM] ===== CSD refresh before case: {item} =====")
+        print(f"[PHASE] item={item} stage=csd_refresh", flush=True)
+        print(f"[ITEM] ===== CSD refresh before case: {item} =====", flush=True)
         print("[ITEM] steps: 1 rmmod | 2 insmod | 3 flash-clear | 4 rmmod | 5 insmod")
         release_and_clear_csd([], CommandLog())
         print(f"[ITEM] ===== CSD refresh before {item}: OK =====")
@@ -225,6 +226,7 @@ def run_single_item(item, params, clean_allure, work_dir=None):
     previous = os.getcwd()
     try:
         os.chdir(work_dir)
+        print(f"[PHASE] item={item} stage=pytest", flush=True)
         return int(pytest.main(pytest_args))
     finally:
         os.chdir(previous)
@@ -413,16 +415,29 @@ def main():
     for index, item in enumerate(run_order):
         params = params_map.get(item, {})
         monitor_enabled = stress_monitor_enabled(params)
-        print(f"[ITEM_START] {item}")
+        print(f"[ITEM_START] {item} started_at_ms={int(time.time() * 1000)}", flush=True)
+        print(f"[PHASE] item={item} stage=workspace_prepare", flush=True)
         exit_code = 2
         case_dir = prepare_case_workdir(base_dir, item)
         print(f"[ITEM] case workspace: {case_dir}")
+        previous_case_env = {key: os.environ.get(key) for key in ("RAID_NVME_CASE_ROOT", "RAID_NVME_ITEM")}
+        os.environ["RAID_NVME_CASE_ROOT"] = case_dir
+        os.environ["RAID_NVME_ITEM"] = item
         try:
             if monitor_enabled:
                 clean_monitor_log(case_dir)
             exit_code = run_single_item(item, params, clean_allure=True, work_dir=case_dir)
-            print(f"[ITEM_END] {item} exit_code={exit_code}")
+            print(f"[ITEM_END] {item} exit_code={exit_code}", flush=True)
+        except Exception as exc:
+            print(f"[ITEM_FAILED] {item} error={type(exc).__name__}: {exc}", flush=True)
+            raise
         finally:
+            for key, value in previous_case_env.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+            print(f"[PHASE] item={item} stage=log_collection", flush=True)
             if monitor_enabled:
                 stop_monitor_for_item(case_dir)
                 try:
@@ -442,6 +457,7 @@ def main():
                 merge_junit_reports(executed_items, junit_final)
             finally:
                 os.chdir(previous)
+            print(f"[ITEM_END] {item} exit_code={exit_code} collected=yes", flush=True)
 
         if exit_code != 0:
             print(f"[FAIL_FAST] Stop after {item} failed with exit_code={exit_code}")

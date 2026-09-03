@@ -14,6 +14,7 @@ from datetime import datetime
 
 import pytest
 import allure
+from test_items.execution_log import emit
 
 
 def _ts():
@@ -72,7 +73,8 @@ def test_lawdiskstress():
         fio_args.extend(["-u", fio_disks])
 
     # ---------- 4. Allure 报告标题与描述 ----------
-    allure.dynamic.title("FIO 测试: lawdiskstress")
+    run_key = os.environ.get("RAID_NVME_ITEM", "lawdisk")
+    allure.dynamic.title(f"FIO 测试: {run_key}")
     allure.dynamic.description(
         f"裸盘 FIO 压力测试；"
         f"出现 MachineCheck 错误时{'不停止' if ignore_error else '停止'}。"
@@ -83,10 +85,11 @@ def test_lawdiskstress():
         pytest.skip("ALLOW_DESTRUCTIVE_FIO 未开启，跳过破坏性 IO 测试")
 
     # ---------- 6. 同步执行并实时透传输出 ----------
-    io_stress_dir = os.path.join(os.path.dirname(__file__), "..", "IO_Stress")
+    case_root = os.environ.get("RAID_NVME_CASE_ROOT") or os.path.join(os.path.dirname(__file__), "..")
+    io_stress_dir = os.path.join(case_root, "IO_Stress")
     cmd_str = f"bash ./Fio_All.sh {' '.join(fio_args)}"
     with allure.step(f"执行 FIO 指令: {cmd_str}"):
-        print(f"{_ts()} [START] {cmd_str}")
+        emit(f"[{_ts()}] [CMD_START] {cmd_str}")
         process = subprocess.Popen(
             ["bash", "./Fio_All.sh"] + fio_args,
             cwd=io_stress_dir,
@@ -96,10 +99,11 @@ def test_lawdiskstress():
         full_output = []
         for line in process.stdout:
             timed_line = f"[{_ts()}] {line}"
-            print(timed_line, end="")
             full_output.append(timed_line)
+            emit(timed_line, end="")
         process.wait()
         exit_code = process.returncode
+        emit(f"[{_ts()}] [CMD_END] rc={exit_code} command={cmd_str}")
         output_text = "".join(full_output)
         output_failures = _collect_failure_lines(output_text)
 
@@ -109,7 +113,8 @@ def test_lawdiskstress():
         )
         if exit_code != 0:
             print(f"{_ts()} [ERROR] 脚本执行失败，退出码: {exit_code}")
-            pytest.fail(f"FIO 脚本执行失败，返回码: {exit_code}")
+            pytest.fail(f"FIO command failed rc={exit_code}: {cmd_str}\n" +
+                        "\n".join(output_failures[:10] or output_text.splitlines()[-30:]))
         if output_failures:
             pytest.fail("FIO 输出中检测到失败关键字:\n" + "\n".join(output_failures[:10]))
         print(f"{_ts()} [SUCCESS] 脚本执行完成")
