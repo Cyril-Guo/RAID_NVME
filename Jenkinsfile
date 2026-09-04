@@ -41,6 +41,22 @@ def dutLockResource(ip) {
     return "RAID_NVME_DUT_${sanitizePathSegment(ip)}"
 }
 
+def withDutLock(ip, Closure body) {
+    // Lockable Resources plugin provides the lock step. Some Jenkins masters do not
+    // install it; fall back to unlocked execution so the pipeline still runs.
+    try {
+        lock(resource: dutLockResource(ip)) {
+            body.call()
+        }
+    } catch (NoSuchMethodError ignored) {
+        echo "WARN: lock step unavailable (install Lockable Resources plugin); continue without DUT lock for ${ip}"
+        body.call()
+    } catch (MissingMethodException ignored) {
+        echo "WARN: lock step unavailable (install Lockable Resources plugin); continue without DUT lock for ${ip}"
+        body.call()
+    }
+}
+
 def isManualInterruption(interruption) {
     // CPS Groovy cannot resolve CauseOfInterruption$UserInterruption at compile time.
     // Match by runtime class name instead of instanceof.
@@ -711,7 +727,7 @@ pipeline {
                                     """
                                 }
 
-                                readFile('kernel_driver_manual_mr.properties').split('\\r?\\n').each { line ->
+                                readFile('kernel_driver_manual_mr.properties').split('\\n?\\n').each { line ->
                                     if (line.contains('=')) {
                                         def parts = line.split('=', 2)
                                         mrProps[parts[0]] = parts[1]
@@ -779,7 +795,7 @@ pipeline {
                                 '''
                             }
 
-                            readFile('kernel_driver_mr.properties').split('\\r?\\n').each { line ->
+                            readFile('kernel_driver_mr.properties').split('\\n?\\n').each { line ->
                                 if (line.contains('=')) {
                                     def parts = line.split('=', 2)
                                     mrProps[parts[0]] = parts[1]
@@ -961,7 +977,7 @@ PY
                     }
 
                     def ipContent = (params.TARGET_IPS ?: '').trim()
-                    targetIPs = ipContent.split('\\r?\\n')
+                    targetIPs = ipContent.split('\\n?\\n')
                         .collect { it.trim() }
                         .findAll { it != '' && !it.startsWith('#') }
                         .unique()
@@ -1009,7 +1025,7 @@ PY
 
                         restoreTasks["Restore_${ip}"] = {
                             stage("Restore on ${ip}") {
-                                lock(resource: dutLockResource(ip)) {
+                                withDutLock(ip) {
                                     def remoteDir = remoteWorkspaceRoot('restore')
 
                                     def restoreSsh = hostSshCmd(ip)
@@ -1102,7 +1118,7 @@ PY
 
                         parallelTasks["Node_${ip}"] = {
                             stage("Test on ${ip}") {
-                                lock(resource: dutLockResource(ip)) {
+                                withDutLock(ip) {
                                     runSmokeNodeTest(ip, raidCliDpraidPathForRun, qemuVmForRun, physicalAfterQemuForRun)
                                 }
                             }
