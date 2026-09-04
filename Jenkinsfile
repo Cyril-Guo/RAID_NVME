@@ -95,10 +95,20 @@ def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
 }
 
 def isManualInterruption(interruption) {
-    // CPS Groovy cannot resolve nested classes with '.'; use '$' form.
-    return interruption.getCauses()?.any { cause ->
-        cause instanceof hudson.model.CauseOfInterruption$UserInterruption
-    } ?: false
+    // CPS Groovy cannot resolve CauseOfInterruption$UserInterruption at compile time.
+    // Match by runtime class name instead of instanceof.
+    try {
+        def causes = interruption?.getCauses()
+        if (!causes) {
+            return false
+        }
+        return causes.any { cause ->
+            def name = cause?.getClass()?.getName() ?: ''
+            return name.endsWith('UserInterruption')
+        }
+    } catch (Exception ignored) {
+        return false
+    }
 }
 
 def runTimedEnvironmentStep(ip, label, envPrepareLog, timeoutMinutes, scriptText) {
