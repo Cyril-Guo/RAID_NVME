@@ -802,3 +802,19 @@ def test_degrade_non_raid0_groups_only_power_cycles_non_raid0(monkeypatch):
     basic_io_common.degrade_non_raid0_groups(group_specs, CommandLog())
 
     assert calls == [[[3, 4], [5, 6, 7, 8], [9, 10, 11, 12, 13, 14]]]
+
+
+def test_run_cmd_emits_heartbeat_while_command_blocks():
+    log = CommandLog()
+    result = basic_io_common.run_cmd(
+        ["python", "-c", "import time; time.sleep(1.2)"],
+        log,
+        check=True,
+        heartbeat_seconds=1,
+    )
+
+    assert result.returncode == 0
+    text = "\n".join(log.lines)
+    assert "[CMD_START]" in text
+    assert "[CMD_WAIT] still running" in text
+    assert "[CMD_END] rc=0 elapsed=" in text
