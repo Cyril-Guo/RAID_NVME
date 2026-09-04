@@ -258,6 +258,15 @@ def validate_selection(selected):
     return invalid, missing
 
 
+def validate_powercycle_selection(selected):
+    powercycle = [item for item in selected if item in {"reboot", "dc"}]
+    if powercycle and len(selected) != 1:
+        raise ValueError(
+            "reboot/DC power-cycle test must run alone; split it into a separate Jenkins build: "
+            + ", ".join(selected)
+        )
+
+
 def stress_monitor_enabled(params):
     return params.get("STRESS_MONITOR", "").strip().lower() == "yes"
 
@@ -397,6 +406,12 @@ def main():
 
     if missing:
         print(f"[ERROR] Missing test files: {missing}")
+        sys.exit(2)
+
+    try:
+        validate_powercycle_selection(selected)
+    except ValueError as exc:
+        print(f"[ERROR] {exc}")
         sys.exit(2)
 
     selected_set = set(selected)

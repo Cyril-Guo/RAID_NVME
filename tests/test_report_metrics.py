@@ -191,3 +191,38 @@ def test_report_metrics_does_not_double_count_execution_when_junit_exists(tmp_pa
         "skipped": 0,
         "kind": "tests",
     }
+
+
+def test_report_metrics_uses_worst_status_across_junit_and_native_allure(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        '<testsuite><testcase classname="x" name="test_basic_io" /></testsuite>',
+        encoding="utf-8",
+    )
+    (tmp_path / "test_execution_192.168.22.134.log").write_text(
+        "TEST_EXECUTION_TARGET=physical\n", encoding="utf-8"
+    )
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (allure_dir / "native-result.json").write_text(
+        json.dumps(
+            {
+                "name": "basic_io",
+                "fullName": "physical:192.168.22.134:x#test_basic_io",
+                "status": "failed",
+                "labels": [
+                    {"name": "host", "value": "192.168.22.134"},
+                    {"name": "target", "value": "physical"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert report_metrics.report_metrics() == {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "kind": "tests",
+    }

@@ -165,27 +165,26 @@ run_vfio_bind_action() {
 }
 
 protected_names=$(
-    {
-        findmnt -nvo SOURCE / /boot /boot/efi 2>/dev/null || true
-        lsblk -nP -o NAME,PKNAME,MOUNTPOINT 2>/dev/null |
-            while read -r lsblk_line; do
-                NAME=""
-                PKNAME=""
-                MOUNTPOINT=""
-                eval "$lsblk_line"
-                if [ -n "$MOUNTPOINT" ]; then
-                    printf "/dev/%s\n" "$NAME"
-                    [ -n "$PKNAME" ] && printf "/dev/%s\n" "$PKNAME"
-                fi
-            done
-    } |
-    while read -r source; do
-        [ -n "$source" ] || continue
-        source="${source#/dev/}"
-        printf "%s\n" "$source"
-        pk=$(lsblk -npo PKNAME "/dev/$source" 2>/dev/null | sed "s#^/dev/##" || true)
-        [ -n "$pk" ] && printf "%s\n" "$pk"
-    done | sort -u
+    lsblk -nr -o NAME,PKNAME,MOUNTPOINT 2>/dev/null | awk '
+        {
+            parent[$1]=$2
+            if ($3 != "") protected[$1]=1
+        }
+        END {
+            changed=1
+            while (changed) {
+                changed=0
+                for (name in protected) {
+                    p=parent[name]
+                    if (p != "" && !protected[p]) {
+                        protected[p]=1
+                        changed=1
+                    }
+                }
+            }
+            for (name in protected) print name
+        }
+    ' | sort -u
 )
 
 vfio_candidates=""

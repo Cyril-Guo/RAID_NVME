@@ -6,8 +6,10 @@ import xml.etree.ElementTree as ET
 
 try:
     from ci.execution_failure import unreported_failures, execution_context
+    from ci.report_test_records import merged_test_metrics
 except ModuleNotFoundError:
     from execution_failure import unreported_failures, execution_context
+    from report_test_records import merged_test_metrics
 
 
 STAT_KEYS = ("tests", "failures", "errors", "skipped")
@@ -171,17 +173,11 @@ def infra_metrics():
 
 
 def report_metrics():
-    junit_stats = junit_metrics()
+    test_stats = merged_test_metrics(is_node_junit_report, is_infra_result)
     infra_stats = infra_metrics()
-    test_allure = allure_metrics(infra_only=False)
 
-    if junit_stats["tests"] > 0:
-        stats = dict(junit_stats)
-        add_stats(stats, infra_stats)
-        return {**stats, "kind": "tests"}
-
-    if test_allure["tests"] > 0:
-        stats = dict(test_allure)
+    if test_stats["tests"] > 0:
+        stats = dict(test_stats)
         add_stats(stats, infra_stats)
         return {**stats, "kind": "tests"}
 
@@ -212,14 +208,22 @@ def failed_case_names(limit=6):
         for case in root.iter("testcase"):
             if case.find("failure") is not None or case.find("error") is not None:
                 names.append(f"{node}: {case.get('name', 'unknown')}")
-    if not names:
-        for path in sorted(glob.glob("allure-results/*-result.json")):
-            try:
-                result = json.loads(_read_text(path))
-            except ValueError:
+    for path in sorted(glob.glob("allure-results/*-result.json")):
+        try:
+            result = json.loads(_read_text(path))
+        except ValueError:
+            continue
+        if not is_infra_result(result) and result.get("status") in ("failed", "broken"):
+            display = str(result.get("name") or "unknown")
+            base_name = re.sub(r"^\[(?:QEMU|Physical)\s+[^\]]+\]\s*", "", display)
+            meta = {
+                str(label.get("name") or ""): str(label.get("value") or "")
+                for label in result.get("labels") or []
+            }
+            host = meta.get("host", "")
+            if any(existing.endswith(f": {base_name}") and (not host or host in existing) for existing in names):
                 continue
-            if result.get("status") in ("failed", "broken"):
-                names.append(result.get("name", "unknown"))
+            names.append(display)
     names = list(dict.fromkeys(names))
     return names[:limit] + ([f"... {len(names) - limit} more; see report"] if len(names) > limit else [])
 

@@ -182,12 +182,17 @@ collect_log()
 
 test_end()
 {
+    local rc="${1:-0}"
     echo ""
     echo "=========================================="
-    echo "********** ALL TESTS COMPLETE **********"
+    if [ "$rc" -eq 0 ]; then
+        echo "********** ALL TESTS COMPLETE **********"
+    else
+        echo "********** TEST FAILED rc=${rc} **********"
+    fi
     echo "=========================================="
     echo "********** NVME RAID Test Engine Exit **********"
-    exit 0
+    exit "$rc"
 }
 
 bmc_reset()
@@ -250,21 +255,51 @@ do_dc()
 
 
 
+FILESYSTEM_PARTITIONS_PER_DISK=8
+
+refresh_partition_devices()
+{
+    local device="$1"
+
+    partprobe "$device" >/dev/null 2>&1 || true
+    if command -v partx >/dev/null 2>&1; then
+        partx -a "$device" >/dev/null 2>&1 ||
+            partx -u "$device" >/dev/null 2>&1 || true
+    fi
+    udevadm settle --timeout=30 >/dev/null 2>&1 || true
+}
+
 function partition(){
-    disk_partition=$1
-    totoal_num=$2
-    disk_size=$3
+    local disk_partition=$1
+    local total_num=$2
+    local device="/dev/${disk_partition}"
+    local alignment_sectors=2048
+    local first_sector=$alignment_sectors
+    local total_sectors last_sector usable_sectors partition_sectors
+    local partition_start partition_end i
+
     assert_not_system_disk "$disk_partition" "partition" || return $?
-    for ((i=1; i<=$totoal_num; i++));do
-        fdisk /dev/$disk_partition  <<eof
-n
+    total_sectors=$(blockdev --getsz "$device") || return $?
+    last_sector=$((total_sectors - alignment_sectors - 1))
+    usable_sectors=$((last_sector - first_sector + 1))
+    partition_sectors=$((usable_sectors / total_num / alignment_sectors * alignment_sectors))
+    if (( partition_sectors <= 0 )); then
+        echo "ERROR: ${device} is too small for ${total_num} aligned partitions."
+        return 1
+    fi
 
-
-+${disk_size}G
-w
-eof
-    partprobe /dev/${disk_partition}
+    parted -s "$device" mklabel gpt || return $?
+    for ((i=1; i<=total_num; i++)); do
+        partition_start=$((first_sector + (i - 1) * partition_sectors))
+        if (( i == total_num )); then
+            partition_end=$last_sector
+        else
+            partition_end=$((partition_start + partition_sectors - 1))
+        fi
+        parted -s -a none "$device" unit s mkpart primary \
+            "${partition_start}s" "${partition_end}s" || return $?
     done
+    refresh_partition_devices "$device"
 }
 
 function del_partition(){
@@ -288,6 +323,10 @@ function mount_disk(){
 
 
 function prepare_filesystem(){
+    local hd pid part_path partition_attempt actual_partition_count
+    local -a partition_pids=()
+    local -a disk_partitions=()
+
     if [ -d /tmp/fiotest/ ]; then
         mount | grep "/tmp/fiotest/" | awk '{print $3}' | xargs umount -l 2>/dev/null
     fi
@@ -298,53 +337,63 @@ function prepare_filesystem(){
         assert_not_system_disk "$hd" "prepare filesystem" || return $?
 	    del_partition $hd
     done
-    wait
-    sleep 10
-    partprobe
-    lsblk | awk '{print $1}' > before.disk
     for hd in ${disk[*]};do
         assert_not_system_disk "$hd" "create filesystem partitions" || return $?
-        disk_capacit_B=$(fdisk -l | grep "/dev/${hd}" | sed -n '1p' | awk '{print $5}')
-        disk_capacit_G=`echo "$disk_capacit_B/1024/1024/1024" | bc`
-        partition_num=8
-        partition_size=`echo "scale=0;$disk_capacit_G/8" | bc`
-        partition $hd $partition_num $partition_size &
+        partition "$hd" "$FILESYSTEM_PARTITIONS_PER_DISK" &
+        partition_pids+=("$!")
     done
-    wait
-    partprobe
-    sleep 60
+    for pid in "${partition_pids[@]}"; do
+        wait "$pid" || return $?
+    done
     for hd in ${disk[*]};do
         assert_not_system_disk "$hd" "partprobe" || return $?
-        partprobe /dev/$hd
-    done
-    sleep 10
-    lsblk | awk '{print $1}' > after.disk
-    add_disk=(`sort before.disk after.disk | uniq -u | sed 's/.*\([sn][dv].*\)/\1/'`)
-    for hd in ${add_disk[*]};do
-        add_disks[${#add_disks[*]}]=$hd
+        disk_partitions=()
+        actual_partition_count=0
+        for ((partition_attempt=1; partition_attempt<=15; partition_attempt++)); do
+            refresh_partition_devices "/dev/$hd"
+            mapfile -t disk_partitions < <(
+                lsblk -lnpo NAME,TYPE "/dev/$hd" |
+                    awk '$2 == "part" {print $1}' |
+                    sort -V
+            )
+            actual_partition_count=${#disk_partitions[@]}
+            (( actual_partition_count == FILESYSTEM_PARTITIONS_PER_DISK )) && break
+            sleep 1
+        done
+        if (( actual_partition_count != FILESYSTEM_PARTITIONS_PER_DISK )); then
+            echo "ERROR: /dev/$hd has ${actual_partition_count} partitions; expected ${FILESYSTEM_PARTITIONS_PER_DISK}."
+            return 1
+        fi
+        for part_path in "${disk_partitions[@]}"; do
+            add_disks+=("$(basename "$part_path")")
+        done
     done
         	
     echo ${add_disks[*]} 
     add_file=()
     mkdir -p /tmp/fiotest
+    partition_pids=()
     for ((i=0; i<${#add_disks[*]}; i++));do
         assert_not_system_disk "${add_disks[$i]}" "mkfs" || return $?
         mkfs.xfs /dev/${add_disks[$i]} -f &
+        partition_pids+=("$!")
     done
-    wait
-    sleep 10
+    for pid in "${partition_pids[@]}"; do
+        wait "$pid" || return $?
+    done
     for ((i=0; i<${#add_disks[*]}; i++));do
-	    mount_disk ${add_disks[$i]} &
+	    mount_disk "${add_disks[$i]}" || return $?
     done
-    wait
-    sleep 10
     echo "try to generate file for fio"
+    partition_pids=()
     for ((i=0; i<${#add_disks[*]}; i++));do
         dd if=/dev/zero of=/tmp/fiotest/${add_disks[$i]}/test_${add_disks[$i]} bs=1G count=10 conv=fsync &
+	partition_pids+=("$!")
 	add_file[$i]="/tmp/fiotest/${add_disks[$i]}/test_${add_disks[$i]}"
     done
-    wait
-    sleep 20
+    for pid in "${partition_pids[@]}"; do
+        wait "$pid" || return $?
+    done
     echo ${add_file[*]}
 }
 
@@ -1204,18 +1253,29 @@ fio_idle_timeout_seconds()
 
 fio_io_progress_signature()
 {
-    lsblk -dn -o NAME,TYPE 2>/dev/null | awk '$2=="disk"{print $1}' | while read -r disk_name; do
+    local configuration="${1:-}"
+    [[ -f "$configuration" ]] || return 0
+    awk -F= '
+        /^[[:space:]]*filename[[:space:]]*=/ {
+            value=$0
+            sub(/^[^=]*=/, "", value)
+            count=split(value, paths, ":")
+            for (i=1; i<=count; i++) print paths[i]
+        }
+    ' "$configuration" 2>/dev/null | while read -r device_path; do
+        local disk_name source_path stat_file
+        device_path=$(echo "$device_path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        source_path="$device_path"
+        if [[ "$device_path" != /dev/* ]]; then
+            source_path=$(findmnt -nvo SOURCE --target "$device_path" 2>/dev/null | head -n 1)
+        fi
+        disk_name=$(basename "$source_path")
         [[ -z "$disk_name" ]] && continue
-        case "$disk_name" in
-            loop*|ram*|sr*|fd*|md*|dm-*|zram*)
-                continue
-                ;;
-        esac
-        disk_is_system "$disk_name" && continue
-        stat_file="/sys/block/${disk_name}/stat"
+        assert_not_system_disk "$disk_name" "monitor fio IO" >/dev/null 2>&1 || continue
+        stat_file="/sys/class/block/${disk_name}/stat"
         [[ -r "$stat_file" ]] || continue
         awk -v dev="$disk_name" '{ print dev ":" $3 ":" $7 }' "$stat_file"
-    done | sort
+    done | sort -u
 }
 
 run_fio_with_watchdog()
@@ -1239,15 +1299,17 @@ run_fio_with_watchdog()
     echo "$(date '+%F %T') [FIO] start config=${configuration} idle_watchdog=${idle_timeout_seconds}s" >> "$output_file"
     setsid bash -c 'fio "$@"' fio_runner "$configuration" "$@" >> "$output_file" 2>&1 &
     fio_pid=$!
+    trap 'victim_pid="${fio_pid:-}"; fio_pid=""; if [[ -n "$victim_pid" ]]; then kill -TERM "-${victim_pid}" 2>/dev/null || kill -TERM "${victim_pid}" 2>/dev/null || true; sleep 1; kill -KILL "-${victim_pid}" 2>/dev/null || kill -KILL "${victim_pid}" 2>/dev/null || true; wait "${victim_pid}" 2>/dev/null || true; fi; exit 143' TERM INT HUP
+    trap 'if [[ -n "${fio_pid:-}" ]]; then kill -TERM "-${fio_pid}" 2>/dev/null || kill -TERM "${fio_pid}" 2>/dev/null || true; wait "${fio_pid}" 2>/dev/null || true; fi' EXIT
     last_progress_ts=$(date +%s)
     last_output_size=$(wc -c < "$output_file" 2>/dev/null || echo 0)
-    last_io_signature=$(fio_io_progress_signature | sha256sum | awk '{print $1}')
+    last_io_signature=$(fio_io_progress_signature "$configuration" | sha256sum | awk '{print $1}')
 
     while kill -0 "$fio_pid" 2>/dev/null; do
         sleep "$watch_interval_seconds"
         now_ts=$(date +%s)
         current_output_size=$(wc -c < "$output_file" 2>/dev/null || echo 0)
-        current_io_signature=$(fio_io_progress_signature | sha256sum | awk '{print $1}')
+        current_io_signature=$(fio_io_progress_signature "$configuration" | sha256sum | awk '{print $1}')
 
         if [[ "$current_output_size" != "$last_output_size" ]]; then
             last_progress_ts=$now_ts
@@ -1274,6 +1336,8 @@ run_fio_with_watchdog()
         wait "$fio_pid"
         fio_rc=$?
     fi
+    fio_pid=""
+    trap - TERM INT HUP EXIT
     echo "$(date '+%F %T') [FIO] finish config=${configuration} rc=${fio_rc}" >> "$output_file"
     return $fio_rc
 }
@@ -1313,15 +1377,13 @@ do
 
       run_fio_with_watchdog "$configuration" "$Result_Dir/detresult/${loop}_$jobnum.txt"
       local fio_rc=$?
+      sed -i '$d' "$configuration"
+      sed -i '$d' "$configuration"
+      sed -i '$d' "$configuration"
       if [[ $fio_rc -ne 0 ]]; then
           echo "FIO command failed on disk ${str1}, config ${configuration}, rc=${fio_rc}" | tee -a $Result_Dir/result.log
           return $fio_rc
       fi
-
-
-      sed -i '$d' $configuration
-      sed -i '$d' $configuration
-
       result_handle_pre
       if [[ $jobnum == 1 ]];then
           printf "%-25s %-12s %-10s %-6s %-11s %-10s %-11s %-6s %-8s %-10s %-11s %-10s %-10s %-10s\n" sn, rw, iodepth, size, jobs_run, readiops, writeiops, iops, readbw, writebw, bw, Lat, CPUusr, CPUsys >> $Result_Dir/${str1}_${loop}.csv
@@ -1657,7 +1719,7 @@ single()
           echo "End" >>$File_Dir/$a
           configure
           #single_config
-          run_single $a
+          run_single "$a" || return $?
       done
 cd $Result_Dir
 for file in `ls *.csv|grep -v "result*.csv"`
@@ -1680,7 +1742,7 @@ all()
             echo "" >>$File_Dir/$b
             echo "End" >>$File_Dir/$b
             configure
-            run_all $b
+            run_all "$b" || return $?
         done
         if [[ -n "$loop" ]] && [ "$loop" -gt 1 ]; then
             comparebw
@@ -1696,7 +1758,7 @@ all()
             printf "%-10s %-12s %-10s %-12s %-10s %-10s %-8s %-18s %-18s %-12s %-11s %-10s %-10s\n" Test-Mode, Queue-Depth, Blocksize, NumJbs, ReadIOPS, WriteIOPS, IOPS, Read_Bandwidth, Write_Bandwindth, Bandwidth, Latency, CPUusr%, CPUsys% >>$Result_Dir/MIX$i/result.csv
             configure_mixio $i
 	done
-        run_all
+        run_all || return $?
     fi
 }
 
@@ -1716,7 +1778,7 @@ sub_all()
           echo "" >>$File_Dir/$b
           echo "End" >>$File_Dir/$b
           configure
-          run_suball $b
+          run_suball "$b" || return $?
       done
 #      if [ "$loop" -gt 1 ]; then
 #        comparebw

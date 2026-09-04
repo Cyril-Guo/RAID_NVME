@@ -36,8 +36,7 @@ if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
     if [ $fio_rc -ne 0 ]; then
         echo "FIO stage failed in $item_ mode, rc=$fio_rc"
         collect_log
-        test_end
-        exit $fio_rc
+        test_end "$fio_rc"
     fi
 
     info_diff
@@ -53,7 +52,7 @@ if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
             rm -f "$Cur_Dir/powercycle_resume.sh"
             systemctl daemon-reload >/dev/null 2>&1
         fi
-        test_end
+        test_end 0
     elif [ $reboot_rc -ne 0 ]; then
         exit $reboot_rc
     fi
@@ -65,8 +64,7 @@ elif [ "$item_" = "LAWDISKSTRESS" ] || [ "$item_" = "FILESYSTEMSTRESS" ];then
     if [ $fio_rc -ne 0 ]; then
         echo "FIO stage failed in $item_ mode, rc=$fio_rc"
         collect_log
-        test_end
-        exit $fio_rc
+        test_end "$fio_rc"
     fi
 
     info_diff
@@ -82,4 +80,4 @@ fi
 
 collect_log
 
-test_end
+test_end 0

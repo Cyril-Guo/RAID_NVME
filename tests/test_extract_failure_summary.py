@@ -1,3 +1,5 @@
+import json
+
 from ci import extract_failure_summary
 
 
@@ -41,3 +43,24 @@ def test_main_writes_summary_file(tmp_path, monkeypatch):
 
     assert extract_failure_summary.main([]) == 0
     assert "insmod ./draid.ko failed" in (tmp_path / "failure_summary.txt").read_text(encoding="utf-8")
+
+
+def test_failure_summary_includes_native_allure_failure(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (allure_dir / "native-result.json").write_text(
+        json.dumps(
+            {
+                "name": "test_mix_stress",
+                "status": "broken",
+                "statusDetails": {"message": "BrokenPipeError: fio output pipe closed"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = extract_failure_summary.failure_summary()
+
+    assert "test_mix_stress" in summary
+    assert "BrokenPipeError" in summary

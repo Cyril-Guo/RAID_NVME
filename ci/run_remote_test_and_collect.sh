@@ -19,6 +19,7 @@ report_file="report_${NODE_IP}${report_suffix}.xml"
 idle_timeout_seconds=$((TEST_IDLE_TIMEOUT_MINUTES * 60))
 watch_interval_seconds=30
 diagnostics_collected=0
+failure_recorded=0
 target_kind=physical
 [ "${qemu_target}" != "1" ] || target_kind=qemu
 [ "${report_suffix}" != "_physical" ] || target_kind=physical
@@ -34,6 +35,8 @@ bounded() {
 }
 
 record_failure() {
+    [ "${failure_recorded}" = "0" ] || return 0
+    failure_recorded=1
     {
         echo "[${NODE_IP}] ERROR: ${test_label} failed with exit code $1"
         echo "TEST_EXECUTION_STATUS=failed"
@@ -64,13 +67,40 @@ collect_io_signature() {
     printf '%s' "${snapshot}" | sha256sum | awk '{ print $1 }'
 }
 
+selected_powercycle_item() {
+    awk -F= '
+        /^[[:space:]]*\[selection\][[:space:]]*$/ { selected=1; next }
+        /^[[:space:]]*\[/ { selected=0 }
+        selected {
+            key=$1; value=$2
+            gsub(/[[:space:]]/, "", key)
+            sub(/[[:space:]]*[#;].*$/, "", value)
+            gsub(/[[:space:]]/, "", value)
+            value=tolower(value)
+            if ((key == "reboot" || key == "dc") && (value == "yes" || value == "true" || value == "1" || value == "on")) print key
+        }
+    ' test_items.txt | head -n 1
+}
+
+cleanup_remote_processes() {
+    timeout --kill-after=5s 30s bash -c \
+        "${REMOTE_SSH_COMMAND} \"pkill -TERM -f '[n]vme_raid_test.py' 2>/dev/null || true; pkill -TERM -f '[r]un_fio.sh' 2>/dev/null || true; pkill -TERM -f '[p]owercycle_direct.sh' 2>/dev/null || true; pkill -TERM -x fio 2>/dev/null || true; systemctl disable --now raid-nvme-powercycle-resume.service >/dev/null 2>&1 || true; rm -f /etc/systemd/system/raid-nvme-powercycle-resume.service '${REMOTE_DIR}/IO_Stress/powercycle_resume.sh'; systemctl daemon-reload >/dev/null 2>&1 || true\"" \
+        >/dev/null 2>&1 || true
+}
+
+cancel_remote_test() {
+    kill -TERM "-${test_pid}" 2>/dev/null || kill -TERM "${test_pid}" 2>/dev/null || true
+    cleanup_remote_processes
+    exit 143
+}
+
 echo "[${NODE_IP}] run ${test_label}"
 set +e
 remote_test_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && QEMU_VM_TARGET=${qemu_target} ALLOW_DESTRUCTIVE_FIO=${allow_fio} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} sudo -E python3 -u nvme_raid_test.py\""
 setsid bash -c "set -o pipefail; ${remote_test_command} 2>&1 | awk '{ print strftime(\"[%Y-%m-%d %H:%M:%S]\"), \$0; fflush() }' | tee -a '${execution_log}'" &
 test_pid=$!
 # Cancellation is not a test failure; Jenkins retains ABORTED notification policy.
-trap 'kill -TERM "-${test_pid}" 2>/dev/null || true; exit 143' TERM INT
+trap cancel_remote_test TERM INT
 last_progress_ts=$(date +%s)
 last_log_size=0
 last_io_signature="$(collect_io_signature || true)"
@@ -114,6 +144,30 @@ else
 fi
 set -e
 
+powercycle_item="$(selected_powercycle_item || true)"
+if [ -n "${powercycle_item}" ]; then
+    if [ "${test_rc}" = "0" ] || [ "${test_rc}" = "255" ]; then
+        echo "[${NODE_IP}] initial ${powercycle_item} trigger ended rc=${test_rc}; wait for all reboot/DC loops" | tee -a "${execution_log}"
+        set +e
+        NODE_IP="${NODE_IP}" \
+        TARGET_USER="${TARGET_USER}" \
+        REMOTE_DIR="${REMOTE_DIR}" \
+        REMOTE_SSH_COMMAND="${REMOTE_SSH_COMMAND}" \
+        TEST_ITEMS_FILE="test_items.txt" \
+        bash ci/wait_powercycle_completion.sh 2>&1 | tee -a "${execution_log}"
+        powercycle_wait_rc=${PIPESTATUS[0]}
+        set -e
+        test_rc="${powercycle_wait_rc}"
+    else
+        echo "[${NODE_IP}] skip power-cycle wait because trigger failed rc=${test_rc}" | tee -a "${execution_log}"
+    fi
+fi
+
+if [ "${test_rc}" != "0" ]; then
+    cleanup_remote_processes
+fi
+trap - TERM INT
+
 if [ "${idle_timed_out}" = "1" ]; then
     echo "[${NODE_IP}] ERROR: ${test_label} idle watchdog fired after ${TEST_IDLE_TIMEOUT_MINUTES} minutes without progress, target may be hung." | tee -a "${execution_log}"
 fi
@@ -136,6 +190,7 @@ if [ -d "${tmp_results}/results" ]; then
     python3 ci/mark_allure_target_context.py "${tmp_results}/results" "${NODE_IP}" "${report_suffix}" "${qemu_target}" || true
     cp -R "${tmp_results}/results/." ./allure-results/ || true
 fi
+rm -rf "${tmp_results}"
 bounded junit_scp 60 "${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report.xml ./${report_file}" || true
 if [ ! -f "${report_file}" ]; then
     # Fallback: pull only known per-item reports into an isolated temporary directory.
@@ -145,6 +200,7 @@ if [ ! -f "${report_file}" ]; then
         bounded "junit_${item}" 10 "${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report_${item}.xml '${item_dir}/'" || true
     done
     PYTHONPATH=. python3 ci/salvage_junit_reports.py --from-dir "${item_dir}" --output "$(pwd)/${report_file}" || true
+    rm -rf "${item_dir}"
 fi
 
 if [ "${test_rc}" != "0" ]; then

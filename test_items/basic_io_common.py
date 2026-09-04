@@ -46,6 +46,7 @@ MULTI_RAID_LEVELS = [0, 0, 1, 10, 50]
 MULTI_RAID_DISK_COUNTS = [1, 2, 2, 4, 6]
 MIN_MULTI_RAID_DISKS = sum(MULTI_RAID_DISK_COUNTS)
 MULTI_RAID_VD_COUNT = len(MULTI_RAID_LEVELS) * VDS_PER_GROUP
+MIN_BASIC_RAID5_DISKS = 6
 
 
 def resolve_logical_block_size(value=None):
@@ -239,11 +240,14 @@ def protected_system_devices(log):
 
 def mounted_devices(log):
     mounted = set()
-    for name, pkname, mount_point in lsblk_rows(log):
+    rows = lsblk_rows(log)
+    parent = {name: pkname for name, pkname, _ in rows}
+    for name, _pkname, mount_point in rows:
         if mount_point:
-            mounted.add(name)
-            if pkname:
-                mounted.add(pkname)
+            current = name
+            while current:
+                mounted.add(current)
+                current = parent.get(current, "")
     log.write(f"Mounted block devices: {sorted(mounted)}")
     return mounted
 
@@ -296,16 +300,27 @@ def discover_nvme_data_disks(log, inventory_disks=None):
     protected = protected_system_devices(log)
     mounted = mounted_devices(log)
     result = run_cmd(["nvme", "list"], log, check=True)
+    inventory = parse_nvme_list(result.stdout)
+    protected_controllers = {
+        disk.controller
+        for disk in inventory
+        if disk.namespace in protected or disk.controller in protected
+    }
+    mounted_controllers = {
+        disk.controller
+        for disk in inventory
+        if disk.namespace in mounted or disk.controller in mounted
+    }
     disks = []
-    for disk in parse_nvme_list(result.stdout):
+    for disk in inventory:
         if is_excluded_nvme_model(disk.model):
             log.write(f"Skip excluded NVMe model: {disk.namespace} {disk.model}")
             continue
-        if disk.namespace in protected or disk.controller in protected:
-            log.write(f"Skip system NVMe: {disk.namespace}")
+        if disk.controller in protected_controllers:
+            log.write(f"Skip system NVMe controller: {disk.namespace} ({disk.controller})")
             continue
-        if disk.namespace in mounted or disk.controller in mounted:
-            log.write(f"Skip mounted NVMe: {disk.namespace}")
+        if disk.controller in mounted_controllers:
+            log.write(f"Skip mounted NVMe controller: {disk.namespace} ({disk.controller})")
             continue
         if disk.size_gb <= 0:
             log.write(f"Skip NVMe with invalid size: {disk.namespace} {disk.size_gb}GB")
@@ -778,6 +793,17 @@ def prepare_basic_raid5_vds(log, logical_block_size=None):
         if disk.size_gb > 0:
             query_bdf(disk, log)
     nvme_disks = discover_nvme_data_disks(log, nvme_inventory_disks)
+    if len(nvme_disks) < MIN_BASIC_RAID5_DISKS:
+        raise AssertionError(
+            f"Need at least {MIN_BASIC_RAID5_DISKS} non-system NVMe disks "
+            f"for two RAID5 groups, got {len(nvme_disks)}"
+        )
+    nvme_groups = split_groups(nvme_disks)
+    if any(len(group) < 3 for group in nvme_groups):
+        raise AssertionError(
+            "Each RAID5 group needs at least 3 disks: "
+            + ", ".join(str(len(group)) for group in nvme_groups)
+        )
     format_nvme_disks(nvme_disks, log)
     add_physical_disks(nvme_disks, log)
     physical_output = show_physical_devices(log)
@@ -787,11 +813,19 @@ def prepare_basic_raid5_vds(log, logical_block_size=None):
             log.write(f"Skip excluded dpraid physical model: DID{disk.did} {disk.model}")
             continue
         disks.append(disk)
-    if len(disks) < 2:
-        raise AssertionError(f"Need at least 2 dpraid physical disks, got {len(disks)}")
+    if len(disks) < MIN_BASIC_RAID5_DISKS:
+        raise AssertionError(
+            f"Need at least {MIN_BASIC_RAID5_DISKS} dpraid physical disks "
+            f"for two RAID5 groups, got {len(disks)}"
+        )
     apply_bdf_from_nvme_inventory(disks, nvme_inventory_disks, log)
     log.write("Assigned DID by dpraid show: " + ", ".join(f"{d.namespace}->DID{d.did}" for d in disks))
     groups = split_groups(disks)
+    if any(len(group) < 3 for group in groups):
+        raise AssertionError(
+            "Each RAID5 group needs at least 3 dpraid disks: "
+            + ", ".join(str(len(group)) for group in groups)
+        )
     log.write("Disk groups: " + " | ".join(",".join(f"DID{d.did}" for d in group) for group in groups))
     log.write(f"Create RAID5 VDs with LogicalBlockSize={logical_block_size}")
     create_raid5_vds(groups, log, logical_block_size=logical_block_size)

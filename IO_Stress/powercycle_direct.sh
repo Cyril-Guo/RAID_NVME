@@ -47,8 +47,7 @@ fio_rc=$?
 echo "$(date '+%F %T') [DIRECT] do_fio rc=$fio_rc" | tee -a "$command_log"
 if [[ $fio_rc -ne 0 ]]; then
     collect_log
-    test_end
-    exit $fio_rc
+    test_end "$fio_rc"
 fi
 
 do_reboot
@@ -56,6 +55,6 @@ reboot_rc=$?
 echo "$(date '+%F %T') [DIRECT] do_reboot rc=$reboot_rc" | tee -a "$command_log"
 if [[ $reboot_rc -eq 2 ]]; then
     collect_log
-    test_end
+    test_end 0
 fi
 exit $reboot_rc

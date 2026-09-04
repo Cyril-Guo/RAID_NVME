@@ -37,6 +37,16 @@ def sanitizePathSegment(value) {
     return text
 }
 
+def dutLockResource(ip) {
+    return "RAID_NVME_DUT_${sanitizePathSegment(ip)}"
+}
+
+def isManualInterruption(interruption) {
+    return interruption.getCauses()?.any { cause ->
+        cause instanceof hudson.model.CauseOfInterruption.UserInterruption
+    } ?: false
+}
+
 def resolveRaidNvmeBranch() {
     // Prefer Jenkins-provided branch envs, then scm config, then git, then job name.
     // Freestyle/Pipeline jobs often lack BRANCH_NAME and check out detached HEAD.
@@ -153,6 +163,10 @@ def runTimedEnvironmentStep(ip, label, envPrepareLog, timeoutMinutes, scriptText
             stepStatus = sh(returnStatus: true, script: scriptText)
         }
     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+        if (isManualInterruption(e)) {
+            echo "[${ip}] ${label} manually aborted; keep Jenkins result ABORTED"
+            throw e
+        }
         sh "printf '%s\\n%s\\n' '[${ip}] ERROR: ${label} timed out after ${timeoutMinutes} minutes' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
         error "[${ip}] ${label} timed out after ${timeoutMinutes} minutes"
     }
@@ -203,6 +217,10 @@ ci/qemu_vfio_cleanup.sh 2>&1 | tee -a ${envPrepareLog}
             )
         }
     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+        if (isManualInterruption(e)) {
+            echo "[${ip}] QEMU pre-test cleanup manually aborted; keep Jenkins result ABORTED"
+            throw e
+        }
         sh "printf '%s\n%s\n' '[${ip}] ERROR: QEMU pre-test cleanup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
         error "[${ip}] QEMU pre-test cleanup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes"
     }
@@ -236,6 +254,10 @@ ci/qemu_vm_prepare.sh 2>&1 | tee -a ${envPrepareLog}
             )
         }
     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+        if (isManualInterruption(e)) {
+            echo "[${ip}] QEMU VM startup manually aborted; keep Jenkins result ABORTED"
+            throw e
+        }
         sh "printf '%s\n%s\n' '[${ip}] ERROR: QEMU VM startup timed out after ${env.ENVIRONMENT_STEP_TIMEOUT_MINUTES} minutes' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
         sh(
             returnStatus: true,
@@ -459,6 +481,9 @@ def runSmokeNodeTest(ip, raidCliDpraidPathForRun, qemuVmForNode, runPhysicalAfte
             ip, remoteDir, targetSsh, targetScp, qemuEnv, qemuVmForNode, raidCliDpraidPathForRun, runPhysicalAfterQemu
         )
     } catch (Exception e) {
+        if (e instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(e)) {
+            throw e
+        }
         def reason = (e?.message ?: e?.toString() ?: 'unknown error').toString().take(300)
         def alreadyMarked = fileExists(envPrepareLog) &&
             readFile(envPrepareLog).contains('ENVIRONMENT_PREPARE_STATUS=')
@@ -973,34 +998,36 @@ PY
 
                         restoreTasks["Restore_${ip}"] = {
                             stage("Restore on ${ip}") {
-                                def remoteDir = remoteWorkspaceRoot('restore')
+                                lock(resource: dutLockResource(ip)) {
+                                    def remoteDir = remoteWorkspaceRoot('restore')
 
-                                def restoreSsh = hostSshCmd(ip)
+                                    def restoreSsh = hostSshCmd(ip)
 
-                                echo "[${ip}] stop running test processes"
-                                sh """
-                                ${restoreSsh} '
-                                    pkill -9 -f nvme_raid_test.py 2>/dev/null || true
-                                    pkill -2 -f Stress_Monitor/main.py 2>/dev/null || true
-                                    pkill -9 -f run_fio.sh 2>/dev/null || true
-                                    pkill -9 -f Fio_All.sh 2>/dev/null || true
-                                    pkill -9 fio 2>/dev/null || true
-                                ' || true
-                                """
+                                    echo "[${ip}] stop running test processes"
+                                    sh """
+                                    ${restoreSsh} '
+                                        pkill -9 -f nvme_raid_test.py 2>/dev/null || true
+                                        pkill -2 -f Stress_Monitor/main.py 2>/dev/null || true
+                                        pkill -9 -f run_fio.sh 2>/dev/null || true
+                                        pkill -9 -f Fio_All.sh 2>/dev/null || true
+                                        pkill -9 fio 2>/dev/null || true
+                                    ' || true
+                                    """
 
-                                echo "[${ip}] deploy restore scripts"
-                                sh "${restoreSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
-                                copyWorkspaceToRemote(ip, remoteDir, env.TARGET_USER, env.SSH_OPTS)
+                                    echo "[${ip}] deploy restore scripts"
+                                    sh "${restoreSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
+                                    copyWorkspaceToRemote(ip, remoteDir, env.TARGET_USER, env.SSH_OPTS)
 
-                                echo "[${ip}] execute restore"
-                                sh """
-                                ${restoreSsh} '
-                                    cd ${remoteDir}/IO_Stress && bash ./Fio_All.sh -i restore || true
-                                '
-                                """
+                                    echo "[${ip}] execute restore"
+                                    sh """
+                                    ${restoreSsh} '
+                                        cd ${remoteDir}/IO_Stress && bash ./Fio_All.sh -i restore || true
+                                    '
+                                    """
 
-                                echo "[${ip}] clean temporary directory"
-                                sh "${restoreSsh} 'rm -rf ${remoteDir}' || true"
+                                    echo "[${ip}] clean temporary directory"
+                                    sh "${restoreSsh} 'rm -rf ${remoteDir}' || true"
+                                }
                             }
                         }
                     }
@@ -1064,7 +1091,9 @@ PY
 
                         parallelTasks["Node_${ip}"] = {
                             stage("Test on ${ip}") {
-                                runSmokeNodeTest(ip, raidCliDpraidPathForRun, qemuVmForRun, physicalAfterQemuForRun)
+                                lock(resource: dutLockResource(ip)) {
+                                    runSmokeNodeTest(ip, raidCliDpraidPathForRun, qemuVmForRun, physicalAfterQemuForRun)
+                                }
                             }
                         }
                     }
@@ -1100,7 +1129,8 @@ PY
                 python3 ci/junit_to_allure.py
                 '''
 
-                def manuallyAborted = fileExists('manual_abort.txt') && readFile('manual_abort.txt').trim() == 'true'
+                def manuallyAborted = currentBuild.currentResult == 'ABORTED' ||
+                    (fileExists('manual_abort.txt') && readFile('manual_abort.txt').trim() == 'true')
 
                 // Node-level reports only; skip leftover per-item report_<case>.xml files.
                 junit testResults: 'report_*.*.*.*.xml,report_*_physical.xml', allowEmptyResults: true
@@ -1193,7 +1223,13 @@ PY
                 if (params.DEBUG_NO_FEISHU) {
                     echo 'DEBUG_NO_FEISHU=true, skip Feishu notification.'
                 } else {
-                    sh "curl -s -X POST -H 'Content-Type: application/json' -d @feishu_payload.json ${env.FEISHU_WEBHOOK}"
+                    def feishuStatus = sh(
+                        returnStatus: true,
+                        script: "curl --fail --show-error --silent --connect-timeout 10 --max-time 30 --retry 2 -X POST -H 'Content-Type: application/json' -d @feishu_payload.json ${env.FEISHU_WEBHOOK}"
+                    )
+                    if (feishuStatus != 0) {
+                        echo "WARN: Feishu notification failed with exit code ${feishuStatus}; test result is unchanged."
+                    }
                 }
             }
         }

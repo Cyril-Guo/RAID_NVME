@@ -142,6 +142,61 @@ Node             SN                   Model                                    N
     assert [disk.controller for disk in disks] == ["nvme23", "nvme24"]
 
 
+def test_discover_excludes_every_namespace_on_system_controller(monkeypatch):
+    text = """
+/dev/nvme0n1 SN0A DAPUSTOR DATA 1 0.00 B / 6.40 TB 512 B + 0 B 1.0
+/dev/nvme0n2 SN0B DAPUSTOR DATA 2 0.00 B / 6.40 TB 512 B + 0 B 1.0
+/dev/nvme1n1 SN1 DAPUSTOR DATA 1 0.00 B / 6.40 TB 512 B + 0 B 1.0
+/dev/nvme2n1 SN2 DAPUSTOR DATA 1 0.00 B / 6.40 TB 512 B + 0 B 1.0
+"""
+
+    class Result:
+        stdout = text
+        returncode = 0
+
+    monkeypatch.setattr(basic_io_common, "protected_system_devices", lambda log: {"nvme0n1"})
+    monkeypatch.setattr(basic_io_common, "mounted_devices", lambda log: set())
+    monkeypatch.setattr(basic_io_common, "run_cmd", lambda *args, **kwargs: Result())
+
+    disks = basic_io_common.discover_nvme_data_disks(CommandLog())
+
+    assert [disk.controller for disk in disks] == ["nvme1", "nvme2"]
+
+
+def test_mounted_devices_walks_full_parent_chain(monkeypatch):
+    monkeypatch.setattr(
+        basic_io_common,
+        "lsblk_rows",
+        lambda log: [
+            ("nvme3n1", "", ""),
+            ("nvme3n1p3", "nvme3n1", ""),
+            ("dm-0", "nvme3n1p3", "/data"),
+        ],
+    )
+
+    assert basic_io_common.mounted_devices(CommandLog()) == {"dm-0", "nvme3n1p3", "nvme3n1"}
+
+
+def test_basic_raid5_rejects_too_few_disks_before_format_or_add(monkeypatch):
+    disks = [
+        NvmeDisk(namespace=f"nvme{i}n1", controller=f"nvme{i}", size_gb=Decimal("6400"))
+        for i in range(5)
+    ]
+    touched = []
+    monkeypatch.setattr(basic_io_common, "delete_existing_vds", lambda log: None)
+    monkeypatch.setattr(basic_io_common, "delete_existing_pds", lambda log: None)
+    monkeypatch.setattr(basic_io_common, "nvme_inventory", lambda log: disks)
+    monkeypatch.setattr(basic_io_common, "query_bdf", lambda disk, log: None)
+    monkeypatch.setattr(basic_io_common, "discover_nvme_data_disks", lambda log, inventory=None: disks)
+    monkeypatch.setattr(basic_io_common, "format_nvme_disks", lambda selected, log: touched.append("format"))
+    monkeypatch.setattr(basic_io_common, "add_physical_disks", lambda selected, log: touched.append("add"))
+
+    with pytest.raises(AssertionError, match="at least 6"):
+        prepare_basic_raid5_vds(CommandLog())
+
+    assert touched == []
+
+
 def test_nvme_inventory_excludes_qemu_nvme_ctrl(monkeypatch):
     text = """
 Node             SN                   Model                                    Namespace Usage                      Format           FW Rev
