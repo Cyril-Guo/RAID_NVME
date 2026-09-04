@@ -2,6 +2,8 @@ import os
 import random
 import re
 import subprocess
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, ROUND_FLOOR
@@ -9,6 +11,9 @@ from pathlib import Path
 
 import allure
 from test_items.execution_log import emit
+
+
+CMD_HEARTBEAT_SECONDS = 30
 
 
 @dataclass
@@ -156,10 +161,17 @@ class CommandLog:
         allure.attach("\n".join(self.lines), name=name, attachment_type=allure.attachment_type.TEXT)
 
 
-def run_cmd(cmd, log, check=True, shell=False, env=None):
+def run_cmd(cmd, log, check=True, shell=False, env=None, heartbeat_seconds=None):
+    """Run a command and emit periodic [CMD_WAIT] heartbeats while it blocks.
+
+    rmmod/insmod can take minutes with no stdout; without heartbeats Jenkins
+    console looks like logs were truncated between CMD_START and CMD_END.
+    """
     display = cmd if isinstance(cmd, str) else " ".join(cmd)
+    heartbeat = CMD_HEARTBEAT_SECONDS if heartbeat_seconds is None else int(heartbeat_seconds)
     log.write(f"[CMD_START] {display}")
-    result = subprocess.run(
+    started = time.monotonic()
+    proc = subprocess.Popen(
         cmd,
         shell=shell,
         text=True,
@@ -167,13 +179,35 @@ def run_cmd(cmd, log, check=True, shell=False, env=None):
         stderr=subprocess.STDOUT,
         env=env,
     )
-    if result.stdout:
-        for line in result.stdout.rstrip("\n").splitlines():
+    chunks = []
+
+    def _drain_stdout():
+        try:
+            data = proc.stdout.read() if proc.stdout is not None else ""
+            if data:
+                chunks.append(data)
+        finally:
+            if proc.stdout is not None:
+                proc.stdout.close()
+
+    reader = threading.Thread(target=_drain_stdout, name="run_cmd-stdout", daemon=True)
+    reader.start()
+    while reader.is_alive():
+        reader.join(timeout=max(1, heartbeat) if heartbeat > 0 else None)
+        if reader.is_alive():
+            elapsed = int(time.monotonic() - started)
+            log.write(f"[CMD_WAIT] still running ({elapsed}s): {display}")
+    returncode = proc.wait()
+    stdout = "".join(chunks)
+    if stdout:
+        for line in stdout.rstrip("\n").splitlines():
             log.write(line)
-    log.write(f"[CMD_END] rc={result.returncode} command={display}")
-    if check and result.returncode != 0:
-        tail = "\n".join((result.stdout or "").splitlines()[-30:])
-        raise AssertionError(f"Command failed rc={result.returncode}: {display}\n{tail}")
+    elapsed = int(time.monotonic() - started)
+    log.write(f"[CMD_END] rc={returncode} elapsed={elapsed}s command={display}")
+    result = subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr=None)
+    if check and returncode != 0:
+        tail = "\n".join(stdout.splitlines()[-30:])
+        raise AssertionError(f"Command failed rc={returncode}: {display}\n{tail}")
     return result
 
 
