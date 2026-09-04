@@ -42,8 +42,9 @@ def dutLockResource(ip) {
 }
 
 def isManualInterruption(interruption) {
+    // CPS Groovy cannot resolve nested classes with '.'; use '$' form.
     return interruption.getCauses()?.any { cause ->
-        cause instanceof hudson.model.CauseOfInterruption.UserInterruption
+        cause instanceof hudson.model.CauseOfInterruption$UserInterruption
     } ?: false
 }
 
