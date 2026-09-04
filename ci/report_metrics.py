@@ -6,8 +6,10 @@ import xml.etree.ElementTree as ET
 
 try:
     from ci.build_status import console_was_manually_aborted
+    from ci.report_test_records import merged_test_metrics
 except ModuleNotFoundError:
     from build_status import console_was_manually_aborted
+    from report_test_records import merged_test_metrics
 
 
 STAT_KEYS = ("tests", "failures", "errors", "skipped")
@@ -218,17 +220,11 @@ def infra_metrics():
 
 
 def report_metrics():
-    junit_stats = junit_metrics()
+    test_stats = merged_test_metrics(is_node_junit_report, is_infra_result)
     infra_stats = infra_metrics()
-    test_allure = allure_metrics(infra_only=False)
 
-    if junit_stats["tests"] > 0:
-        stats = dict(junit_stats)
-        add_stats(stats, infra_stats)
-        return {**stats, "kind": "tests"}
-
-    if test_allure["tests"] > 0:
-        stats = dict(test_allure)
+    if test_stats["tests"] > 0:
+        stats = dict(test_stats)
         add_stats(stats, infra_stats)
         return {**stats, "kind": "tests"}
 

@@ -8,6 +8,8 @@ def test_wait_powercycle_completion_script_exists_and_checks_markers():
     assert "Power-cycle test completed all" in source
     assert "request start" in source
     assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES" in source
+    assert 'selected_run_keys+=("${name}__${order}")' in source
+    assert '"${REMOTE_DIR}/cases/${run_key}/${RESULT_REL}"' in source
 
 
 def test_powercycle_direct_extends_reboot_grace_for_clean_ssh_exit():

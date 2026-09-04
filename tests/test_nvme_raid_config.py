@@ -299,6 +299,28 @@ IGNORE_ERROR = no
     assert plan == [{"item": "lawdisk", "order": 3, "run_key": "lawdisk__3"}]
 
 
+def test_validate_powercycle_plan_rejects_mixed_or_multiple_powercycle_runs():
+    nvme_raid_test.validate_powercycle_plan(
+        [{"item": "reboot", "order": 1, "run_key": "reboot__1"}]
+    )
+
+    with pytest.raises(ValueError, match="must run alone"):
+        nvme_raid_test.validate_powercycle_plan(
+            [
+                {"item": "reboot", "order": 1, "run_key": "reboot__1"},
+                {"item": "mix", "order": 2, "run_key": "mix__2"},
+            ]
+        )
+
+    with pytest.raises(ValueError, match="must run alone"):
+        nvme_raid_test.validate_powercycle_plan(
+            [
+                {"item": "reboot", "order": 1, "run_key": "reboot__1"},
+                {"item": "dc", "order": 2, "run_key": "dc__2"},
+            ]
+        )
+
+
 def test_run_single_item_omits_allure_args_without_plugin(monkeypatch, tmp_path):
     captured = {}
 

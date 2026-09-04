@@ -12,6 +12,7 @@ import hashlib
 import os
 import random
 import re
+import shlex
 import subprocess
 
 LBA_SIZE = 512
@@ -300,6 +301,61 @@ def write_plan_csv(plan, path, disk_sizes=None):
     return path
 
 
+def block_device_has_holders(name):
+    holder_dir = os.path.join("/sys/class/block", name, "holders")
+    try:
+        with os.scandir(holder_dir) as entries:
+            return any(entries)
+    except OSError:
+        # DUT runs on Linux; an unreadable/missing sysfs node must not make a
+        # destructive raw-IO target look safe. Unit tests on Windows have no sysfs.
+        return os.name == "posix"
+
+
+def _lsblk_inventory():
+    try:
+        result = subprocess.run(
+            [
+                "lsblk",
+                "-nr",
+                "-b",
+                "-P",
+                "-o",
+                "NAME,TYPE,SIZE,PKNAME,MOUNTPOINTS",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return []
+    if result.returncode != 0:
+        return []
+
+    rows = []
+    for line in (result.stdout or "").splitlines():
+        try:
+            values = dict(token.split("=", 1) for token in shlex.split(line))
+        except ValueError:
+            return []
+        if values.get("NAME"):
+            rows.append(values)
+    return rows
+
+
+def _unsafe_block_devices(rows):
+    parent = {row.get("NAME", ""): row.get("PKNAME", "") for row in rows}
+    unsafe = set()
+    for row in rows:
+        if not row.get("MOUNTPOINTS"):
+            continue
+        current = row.get("NAME", "")
+        while current and current not in unsafe:
+            unsafe.add(current)
+            current = parent.get(current, "")
+    return unsafe
+
+
 def list_test_disks():
     """
     Return {disk_name: size_bytes} for dp*-vd* devices.
@@ -315,29 +371,20 @@ def list_test_disks():
             if part.strip()
         }
 
-    try:
-        # -b makes SIZE in bytes.
-        result = subprocess.run(
-            ["lsblk", "-dn", "-b", "-o", "NAME,TYPE,SIZE"],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-    except OSError:
-        return {}
-
+    rows = _lsblk_inventory()
+    unsafe = _unsafe_block_devices(rows)
     disk_sizes: dict[str, int] = {}
-    for line in (result.stdout or "").splitlines():
-        parts = line.split()
-        if len(parts) < 3:
-            continue
-        name, typ, size_str = parts[0], parts[1], parts[2]
+    for row in rows:
+        name = row.get("NAME", "")
+        typ = row.get("TYPE", "")
+        size_str = row.get("SIZE", "")
         # Safety: random_io should target only dp*-vd* VD devices.
-        if not _DRAID_VD.match(name):
+        if not _DRAID_VD.fullmatch(name) or typ != "disk":
             continue
         if desired is not None and name not in desired:
             continue
-        if desired is None and (typ != "disk" or not _DRAID_VD.match(name)):
+        if name in unsafe or block_device_has_holders(name):
+            print(f"[RANDOM_IO] skip active block device: /dev/{name}")
             continue
         try:
             size_bytes = int(size_str)

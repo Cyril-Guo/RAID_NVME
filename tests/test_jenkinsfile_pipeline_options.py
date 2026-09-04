@@ -132,8 +132,21 @@ def test_manual_abort_is_not_converted_to_failure_or_feishu_notification():
     source = pipeline_sources()
 
     assert "ci/build_status.py --manual-abort jenkins_console.log" in source
+    assert "isManualInterruption" in source
+    assert "throw e" in source
+    assert "currentBuild.currentResult == 'ABORTED'" in source
     assert "Manual abort detected without real test failures" in source
     assert "keep ABORTED and skip Feishu notification" in source
+
+
+def test_report_publication_failures_do_not_skip_notification_finalization():
+    source = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "def publicationErrors = []" in source
+    assert "JUnit publication failed" in source
+    assert "Allure publication failed" in source
+    assert "Artifact archive failed" in source
+    assert "Continue to Feishu finalization" in source
 
 
 def test_environment_prepare_hang_times_out_after_15_minutes():
@@ -177,6 +190,8 @@ def test_test_idle_watchdog_tracks_non_system_disk_io_progress():
     assert "loop*|ram*|sr*|fd*|md*|dm-*|zram*" in source
     assert 'if is_protected "${dev}"; then' in source
     assert 'awk -v dev="${dev}"' in source
+    assert "active_fio_devices" in source
+    assert "/^dp[0-9]+-vd[0-9]+$/" in source
 
 
 def test_ci_is_manual_only_without_cron_or_auto_mr_trigger():

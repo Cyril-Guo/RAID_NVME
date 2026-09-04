@@ -3,7 +3,9 @@ import argparse
 import re
 
 
-_MANUAL_ABORT_RE = re.compile(r"(?mi)^\s*Aborted by\s+\S.*$")
+_MANUAL_ABORT_RE = re.compile(
+    r"(?mi)^\s*(?:\[[^\]\r\n]+\]\s*)*Aborted by\s+\S.*$"
+)
 
 
 def is_manual_abort_text(text):

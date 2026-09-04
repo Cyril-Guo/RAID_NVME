@@ -1,5 +1,6 @@
 import pytest
 
+from test_items import random_io_plan
 from test_items import test_ci_08_random_io as random_io_case
 from test_items.random_io_plan import (
     DEFAULT_DURATION_SECONDS,
@@ -176,6 +177,26 @@ def test_format_consistency_result_is_explicit_for_pass_and_fail():
     )
 
 
+def test_list_test_disks_rejects_mounted_and_held_virtual_disks(monkeypatch, tmp_path):
+    class Result:
+        returncode = 0
+        stdout = (
+            'NAME="dp0-vd1" TYPE="disk" SIZE="1000" PKNAME="" MOUNTPOINTS=""\n'
+            'NAME="dp0-vd1p1" TYPE="part" SIZE="900" PKNAME="dp0-vd1" MOUNTPOINTS="/data"\n'
+            'NAME="dp0-vd2" TYPE="disk" SIZE="2000" PKNAME="" MOUNTPOINTS=""\n'
+            'NAME="dp0-vd3" TYPE="disk" SIZE="3000" PKNAME="" MOUNTPOINTS=""\n'
+        )
+
+    monkeypatch.setattr(random_io_plan.subprocess, "run", lambda *args, **kwargs: Result())
+    monkeypatch.setattr(
+        random_io_plan,
+        "block_device_has_holders",
+        lambda name: name == "dp0-vd2",
+    )
+
+    assert random_io_plan.list_test_disks() == {"dp0-vd3": 3000}
+
+
 def _configure_single_round_case(monkeypatch, tmp_path, runner, attachments):
     ticks = iter((0.0, 0.0, 0.0, 2.0))
     monkeypatch.setattr(random_io_case, "io_stress_dir", lambda: str(tmp_path))
@@ -197,8 +218,10 @@ def _configure_single_round_case(monkeypatch, tmp_path, runner, attachments):
 
 def test_random_io_prints_and_attaches_consistency_pass(monkeypatch, tmp_path, capsys):
     attachments = []
+    calls = []
 
-    def runner(argv, cwd, extra_output="", **_kwargs):
+    def runner(argv, cwd, extra_output="", **kwargs):
+        calls.append(kwargs)
         return extra_output + " ".join(argv) + "\n"
 
     _configure_single_round_case(monkeypatch, tmp_path, runner, attachments)
@@ -210,6 +233,7 @@ def test_random_io_prints_and_attaches_consistency_pass(monkeypatch, tmp_path, c
     )
     assert status in capsys.readouterr().out
     assert (status + "\n", "数据一致性结果 (round 1)") in attachments
+    assert calls[-1]["attach_persistent_log"] is False
 
 
 def test_random_io_prints_consistency_fail_and_preserves_failure(

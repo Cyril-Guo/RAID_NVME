@@ -45,7 +45,7 @@ def test_downloaded_fallback_bundle_attaches_to_matching_case(tmp_path, monkeypa
             "status": "failed", "labels": [{"name": "framework", "value": "pytest"},
             {"name": "host", "value": "192.168.22.134"}, {"name": "run_key", "value": key}]}))
     (tmp_path / "test_execution_192.168.22.134.log").write_text("[ITEM_START] mix__2\n[ITEM_END] mix__2 exit_code=1\n")
-    bundle = tmp_path / "failure_bundle_192.168.22.134_remote_runner_20260903_204500.tar.gz"
+    bundle = tmp_path / "failure_bundle_192.168.22.134_remote_runner_20260903_204500_1234_5678.tar.gz"
     bundle.write_bytes(b"copied gcore archive")
     junit_to_allure.main()
     for key in ("mix__2", "random_io__5"):

@@ -150,6 +150,57 @@ def test_report_metrics_includes_infra_allure_alongside_junit(tmp_path, monkeypa
     }
 
 
+def test_report_metrics_merges_native_allure_failure_missing_from_junit(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="test_items.test_ci_06_basic_io" name="test_basic_io">
+    <properties><property name="run_key" value="basic_io__1" /></properties>
+  </testcase>
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (allure_dir / "basic-result.json").write_text(
+        json.dumps(
+            {
+                "name": "[Physical 192.168.22.134] test_basic_io",
+                "fullName": "physical:192.168.22.134:test_items.test_ci_06_basic_io#test_basic_io",
+                "status": "passed",
+                "labels": [
+                    {"name": "host", "value": "192.168.22.134"},
+                    {"name": "run_key", "value": "basic_io__1"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (allure_dir / "mix-result.json").write_text(
+        json.dumps(
+            {
+                "name": "[Physical 192.168.22.134] test_mix_stress",
+                "fullName": "physical:192.168.22.134:test_items.test_ci_05_mix#test_mix_stress",
+                "status": "failed",
+                "labels": [
+                    {"name": "host", "value": "192.168.22.134"},
+                    {"name": "run_key", "value": "mix__2"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert report_metrics.report_metrics() == {
+        "tests": 2,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "kind": "tests",
+    }
+
+
 def test_report_metrics_counts_each_failed_env_log_as_one_item(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "environment_prepare_192.168.22.125.log").write_text(

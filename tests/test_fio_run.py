@@ -79,6 +79,23 @@ def test_ci_cases_use_own_csv_and_do_not_import_siblings():
         assert Path("IO_Stress", f"Input_Config_{item}.csv").is_file()
 
 
+def test_single_mode_propagates_run_single_failure():
+    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+    single_body = source.split("single()", 1)[1].split("\nall()", 1)[0]
+
+    assert 'run_single "$a" || return $?' in single_body
+
+
+def test_inner_watchdog_reads_only_devices_from_current_fio_config():
+    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
+
+    assert 'fio_io_progress_signature "$configuration"' in source
+    signature_body = source.split("fio_io_progress_signature()", 1)[1].split(
+        "fio_output_has_successful_io()", 1
+    )[0]
+    assert "filename[[:space:]]*=" in signature_body
+
+
 class _FakeProcess:
     def __init__(self, lines, returncode):
         self.stdout = iter(lines)

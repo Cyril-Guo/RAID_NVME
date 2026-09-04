@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import glob
+import json
 import os
 import re
 import xml.etree.ElementTree as ET
@@ -107,8 +108,26 @@ def log_failure_lines(paths=None):
     return lines
 
 
+def allure_failure_lines(paths=None):
+    lines = []
+    candidates = paths or glob.glob("allure-results/*-result.json")
+    for path in sorted(candidates):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                result = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+        if result.get("status") not in ("failed", "broken"):
+            continue
+        details = result.get("statusDetails") or {}
+        message = clean_line(details.get("message", "") or details.get("trace", ""))
+        name = clean_line(str(result.get("name") or "unknown"))
+        lines.append(f"{os.path.basename(path)}: {name}: {message or result['status']}")
+    return lines
+
+
 def failure_summary(limit=8):
-    combined = junit_failure_lines() + log_failure_lines()
+    combined = junit_failure_lines() + allure_failure_lines() + log_failure_lines()
     unique = []
     seen = set()
     for line in combined:

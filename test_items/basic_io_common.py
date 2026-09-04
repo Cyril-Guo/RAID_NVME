@@ -294,16 +294,27 @@ def discover_nvme_data_disks(log, inventory_disks=None):
     protected = protected_system_devices(log)
     mounted = mounted_devices(log)
     result = run_cmd(["nvme", "list"], log, check=True)
+    inventory = parse_nvme_list(result.stdout)
+    protected_controllers = {
+        disk.controller
+        for disk in inventory
+        if disk.namespace in protected or disk.controller in protected
+    }
+    mounted_controllers = {
+        disk.controller
+        for disk in inventory
+        if disk.namespace in mounted or disk.controller in mounted
+    }
     disks = []
-    for disk in parse_nvme_list(result.stdout):
+    for disk in inventory:
         if is_excluded_nvme_model(disk.model):
             log.write(f"Skip excluded NVMe model: {disk.namespace} {disk.model}")
             continue
-        if disk.namespace in protected or disk.controller in protected:
-            log.write(f"Skip system NVMe: {disk.namespace}")
+        if disk.controller in protected_controllers:
+            log.write(f"Skip system NVMe controller: {disk.namespace} ({disk.controller})")
             continue
-        if disk.namespace in mounted or disk.controller in mounted:
-            log.write(f"Skip mounted NVMe: {disk.namespace}")
+        if disk.controller in mounted_controllers:
+            log.write(f"Skip mounted NVMe controller: {disk.namespace} ({disk.controller})")
             continue
         if disk.size_gb <= 0:
             log.write(f"Skip NVMe with invalid size: {disk.namespace} {disk.size_gb}GB")

@@ -42,6 +42,17 @@ def test_remote_test_no_longer_gates_on_allow_destructive_fio():
     assert "TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES}" in source
 
 
+def test_remote_cleanup_is_bounded_and_failure_is_recorded_before_copy():
+    source = RUN_SCRIPT.read_text(encoding="utf-8")
+
+    assert 'cleanup_timeout_seconds="${CLEANUP_TIMEOUT_SECONDS:-900}"' in source
+    assert "run_cleanup_command" in source
+    assert "REPORT_COPY_TIMEOUT_SECONDS" in source
+    failed_marker = source.index('echo "TEST_EXECUTION_STATUS=failed"')
+    report_copy = source.index('echo "[${NODE_IP}] copy back reports"')
+    assert failed_marker < report_copy
+
+
 @pytest.mark.parametrize("reuse_live_bundle", [True, False])
 def test_failed_remote_test_copies_one_live_or_fallback_bundle(tmp_path, reuse_live_bundle):
     fake_ssh = tmp_path / "fake-ssh"

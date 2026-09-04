@@ -188,7 +188,14 @@ def run_and_check_fio(fio_args, extra_output=""):
     )
 
 
-def run_and_check_argv(argv, cwd, extra_output="", use_result_log=False, attach=True):
+def run_and_check_argv(
+    argv,
+    cwd,
+    extra_output="",
+    use_result_log=False,
+    attach=True,
+    attach_persistent_log=True,
+):
     ignore_error = ignore_error_enabled()
     capture = CommandOutputCapture(cwd, argv, extra_output=extra_output)
     started = time.monotonic()
@@ -232,7 +239,12 @@ def run_and_check_argv(argv, cwd, extra_output="", use_result_log=False, attach=
         ignore_fio_job_errors=(exit_code == 0),
     )
     if attach or exit_code != 0 or output_failures:
-        attach_case_terminal_output(output_text, output_path=output_path)
+        # Repeated random_io rounds share one persistent log. Attach only the
+        # current command on successful rounds; attach the full log once on failure.
+        attachment_path = output_path if (
+            attach_persistent_log or exit_code != 0 or output_failures
+        ) else None
+        attach_case_terminal_output(output_text, output_path=attachment_path)
         attach_case_fio_summary(output_text)
 
     res_content = ""

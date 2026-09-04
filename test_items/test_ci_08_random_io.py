@@ -87,6 +87,7 @@ def test_random_io():
                     extra_output=output
                     + f"[RANDOM_IO round {round_idx}] PHASE={phase} all 16 models together\n",
                     attach=attach,
+                    attach_persistent_log=False,
                 )
             except pytest.fail.Exception:
                 if phase == "VERIFY":

@@ -1,3 +1,5 @@
+import json
+
 from ci import extract_failure_summary
 
 
@@ -24,6 +26,30 @@ def test_failure_summary_collects_junit_and_watchdog_errors(tmp_path, monkeypatc
     assert "test_basic_io: FIO verification failed" in summary
     assert "idle watchdog fired after 15 minutes" in summary
     assert "TEST_EXECUTION_STATUS" not in summary
+
+
+def test_failure_summary_includes_native_allure_failure(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (allure_dir / "mix-result.json").write_text(
+        json.dumps(
+            {
+                "name": "[Physical 192.168.22.134] FIO test: mix",
+                "status": "failed",
+                "statusDetails": {
+                    "message": "FIO stage failed in MIX mode",
+                    "trace": "fio: io_u error on /dev/dp0-vd2",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    summary = extract_failure_summary.failure_summary()
+
+    assert "mix-result.json" in summary
+    assert "FIO stage failed in MIX mode" in summary
 
 
 def test_failure_summary_ignores_zero_failure_counters():

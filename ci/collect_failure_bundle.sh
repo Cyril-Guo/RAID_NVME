@@ -3,8 +3,16 @@
 #   - gcore of still-living userspace fio / dpraid processes (primary)
 #   - snapshot of draid kernel threads (cannot gcore; stacks/status instead)
 #   - matching binaries, draid.ko, dmesg, RAID/NVMe snapshots, recent logs
-# Always exits 0 so collection never overrides the original test failure code.
+# The caller preserves the original test failure; this script may return 124 on timeout.
 set -uo pipefail
+
+FAILURE_BUNDLE_TOTAL_TIMEOUT_SECONDS=${FAILURE_BUNDLE_TOTAL_TIMEOUT_SECONDS:-600}
+FAILURE_BUNDLE_KILL_AFTER_SECONDS=${FAILURE_BUNDLE_KILL_AFTER_SECONDS:-30}
+if [[ "${FAILURE_BUNDLE_TIMEOUT_WRAPPED:-0}" != "1" ]] && command -v timeout >/dev/null 2>&1; then
+    exec timeout --kill-after="${FAILURE_BUNDLE_KILL_AFTER_SECONDS}s" \
+        "${FAILURE_BUNDLE_TOTAL_TIMEOUT_SECONDS}s" env \
+        FAILURE_BUNDLE_TIMEOUT_WRAPPED=1 bash "${BASH_SOURCE[0]}" "$@"
+fi
 
 NODE_IP=${NODE_IP:-unknown}
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -13,11 +21,12 @@ REMOTE_DIR=${REMOTE_DIR:-${REPO_ROOT}}
 RUN_KEY=${RUN_KEY:-unknown}
 BUNDLE_REASON=${BUNDLE_REASON:-test_failure}
 TS=$(date +%Y%m%d_%H%M%S)
+UNIQUE_ID="${TS}_$$_${RANDOM}"
 SAFE_IP=${NODE_IP//[^A-Za-z0-9._-]/_}
 SAFE_KEY=${RUN_KEY//[^A-Za-z0-9._-]/_}
 BUNDLE_ROOT="${REMOTE_DIR}/failure_bundles"
-WORK_DIR="${BUNDLE_ROOT}/${TS}_${SAFE_KEY}"
-ARCHIVE="${BUNDLE_ROOT}/failure_bundle_${SAFE_IP}_${SAFE_KEY}_${TS}.tar.gz"
+WORK_DIR=""
+ARCHIVE="${BUNDLE_ROOT}/failure_bundle_${SAFE_IP}_${SAFE_KEY}_${UNIQUE_ID}.tar.gz"
 CORE_PATTERN_DIR="${REMOTE_DIR}/failure_bundles/cores"
 
 log() {
@@ -34,6 +43,9 @@ safe_run() {
         "$@" 2>&1
     } >"${out}" 2>&1 || printf 'command failed rc=%s\n' "$?" >>"${out}"
 }
+
+mkdir -p "${BUNDLE_ROOT}"
+WORK_DIR=$(mktemp -d "${BUNDLE_ROOT}/${TS}_${SAFE_KEY}.XXXXXX") || exit 0
 
 # Ensure ptrace_scope / ulimit allow gcore before we try to attach.
 if [ -f "${SCRIPT_DIR}/enable_failure_coredumps.sh" ]; then

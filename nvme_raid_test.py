@@ -212,6 +212,16 @@ def build_run_plan(path, test_items=None):
     return plan
 
 
+def validate_powercycle_plan(run_plan):
+    powercycle = [entry for entry in run_plan if entry["item"] in {"reboot", "dc"}]
+    if powercycle and len(run_plan) != 1:
+        selected = ", ".join(entry["run_key"] for entry in run_plan)
+        raise ValueError(
+            "reboot/DC power-cycle test must run alone; "
+            f"split this selection into separate Jenkins builds: {selected}"
+        )
+
+
 def build_synced_selection_order(existing_entries, catalog):
     """Keep known items' orders/enable state; assign numbers to new items; sort by order."""
     catalog_names = list(catalog)
@@ -444,6 +454,8 @@ def collect_failure_bundle(base_dir, run_key, reason="item_failure"):
     env["NODE_IP"] = env.get("NODE_IP") or env.get("TARGET_IP") or "local"
     env["RUN_KEY"] = str(run_key)
     env["BUNDLE_REASON"] = str(reason)
+    timeout_seconds = int(env.get("FAILURE_BUNDLE_TOTAL_TIMEOUT_SECONDS", "600"))
+    kill_after_seconds = int(env.get("FAILURE_BUNDLE_KILL_AFTER_SECONDS", "30"))
     try:
         print(f"[FAILURE_BUNDLE] collecting gcore/diagnostics for {run_key}")
         subprocess.run(
@@ -451,7 +463,14 @@ def collect_failure_bundle(base_dir, run_key, reason="item_failure"):
             cwd=base_dir,
             env=env,
             check=False,
+            timeout=timeout_seconds + kill_after_seconds,
         )
+    except subprocess.TimeoutExpired:
+        print(
+            f"[WARN] Failure bundle collection timed out for {run_key} "
+            f"after {timeout_seconds}s"
+        )
+        return None
     except Exception as exc:
         print(f"[WARN] Failure bundle collection failed for {run_key}: {exc}")
         return None
@@ -973,6 +992,12 @@ def main(argv=None):
             f"[ERROR] Uncomment `name <order> [<order> ...]` lines inside BEGIN/END SELECTION. "
             f"Available: {list(test_items.keys())}"
         )
+        sys.exit(2)
+
+    try:
+        validate_powercycle_plan(run_plan)
+    except ValueError as exc:
+        print(f"[ERROR] {exc}")
         sys.exit(2)
 
     run_order = [entry["item"] for entry in run_plan]

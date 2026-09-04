@@ -141,6 +141,29 @@ Node             SN                   Model                                    N
     assert [disk.controller for disk in disks] == ["nvme23", "nvme24"]
 
 
+def test_discover_nvme_data_disks_excludes_every_namespace_on_system_controller(monkeypatch):
+    text = """
+Node             SN                   Model                                    Namespace Usage                      Format           FW Rev
+---------------- -------------------- ---------------------------------------- --------- -------------------------- ---------------- --------
+/dev/nvme0n1     SYS                  Data NVMe                                1           1.00  TB /   1.00  TB    512   B +  0 B   1.0
+/dev/nvme0n2     DATA                 Data NVMe                                2           1.00  TB /   1.00  TB    512   B +  0 B   1.0
+/dev/nvme1n1     D1                   Data NVMe                                1           1.00  TB /   1.00  TB    512   B +  0 B   1.0
+/dev/nvme2n1     D2                   Data NVMe                                1           1.00  TB /   1.00  TB    512   B +  0 B   1.0
+"""
+
+    class Result:
+        stdout = text
+        returncode = 0
+
+    monkeypatch.setattr(basic_io_common, "protected_system_devices", lambda log: {"nvme0n1"})
+    monkeypatch.setattr(basic_io_common, "mounted_devices", lambda log: set())
+    monkeypatch.setattr(basic_io_common, "run_cmd", lambda cmd, log, check=True, shell=False: Result())
+
+    disks = basic_io_common.discover_nvme_data_disks(CommandLog())
+
+    assert [disk.namespace for disk in disks] == ["nvme1n1", "nvme2n1"]
+
+
 def test_nvme_inventory_excludes_qemu_nvme_ctrl(monkeypatch):
     text = """
 Node             SN                   Model                                    Namespace Usage                      Format           FW Rev

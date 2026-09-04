@@ -49,6 +49,9 @@ def test_collect_script_contains_gcore_and_bundle_paths():
     assert "latest_bundle_summary.txt" in source
     assert "enable_failure_coredumps.sh" in source
     assert "exit 0" in source
+    assert "FAILURE_BUNDLE_TIMEOUT_WRAPPED" in source
+    assert "FAILURE_BUNDLE_TOTAL_TIMEOUT_SECONDS" in source
+    assert "mktemp -d" in source
 
 
 def test_enable_draid_pending_debug_script_probes_module_params():
@@ -73,6 +76,8 @@ def test_fio_triggers_live_bundle_on_eio():
     assert "FIO_LIVE_BUNDLE_BG" in fio
     assert "live_collect_pending_" in fio
     assert "last_progress_ts=$(date +%s)" in fio
+    assert "flock -n" in fio
+    assert "live_collect_${safe_key}.lock" in fio
 
 
 def test_collect_script_prefers_primary_kworker_filter():

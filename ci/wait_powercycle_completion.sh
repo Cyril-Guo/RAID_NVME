@@ -14,17 +14,17 @@ RESULT_REL="IO_Stress/log/ResultLog"
 
 # Prefer per-case workdirs (cases/<item>/...), fall back to build-root IO_Stress.
 result_roots_for_item() {
-    local item="$1"
+    local run_key="$1"
     printf '%s\n' \
-        "${REMOTE_DIR}/cases/${item}/${RESULT_REL}" \
+        "${REMOTE_DIR}/cases/${run_key}/${RESULT_REL}" \
         "${REMOTE_DIR}/${RESULT_REL}"
 }
 
-selected_items=()
+selected_run_keys=()
 parse_selected_powercycle_items() {
     local in_selection=0
     local line name order
-    selected_items=()
+    selected_run_keys=()
     [[ -f "${ITEMS_FILE}" ]] || return 0
     while IFS= read -r line || [[ -n "${line}" ]]; do
         case "${line}" in
@@ -45,7 +45,9 @@ parse_selected_powercycle_items() {
         order="${2:-}"
         case "${name}" in
             reboot|dc)
-                selected_items+=("${name}")
+                if [[ "${order}" =~ ^[0-9]+$ ]]; then
+                    selected_run_keys+=("${name}__${order}")
+                fi
                 ;;
         esac
         : "${order}"
@@ -86,13 +88,13 @@ read_item_cycles() {
 
 remote_grep() {
     local pattern="$1"
-    local item="${2:-}"
+    local run_key="${2:-}"
     local root
-    if [[ -n "${item}" ]]; then
+    if [[ -n "${run_key}" ]]; then
         while IFS= read -r root; do
             # shellcheck disable=SC2086
             eval ${REMOTE_SSH_COMMAND} "grep -R -F -e $(printf '%q' "${pattern}") ${root} 2>/dev/null" || true
-        done < <(result_roots_for_item "${item}")
+        done < <(result_roots_for_item "${run_key}")
         return 0
     fi
     # shellcheck disable=SC2086
@@ -105,7 +107,8 @@ remote_reachable() {
 }
 
 item_completed() {
-    local item="$1"
+    local run_key="$1"
+    local item="${run_key%%__*}"
     local log_name text root
     if [[ "${item}" == "reboot" ]]; then
         log_name="reboot_command.log"
@@ -124,12 +127,13 @@ item_completed() {
         if [[ -n "${text}" ]]; then
             return 0
         fi
-    done < <(result_roots_for_item "${item}")
+    done < <(result_roots_for_item "${run_key}")
     return 1
 }
 
 item_triggered() {
-    local item="$1"
+    local run_key="$1"
+    local item="${run_key%%__*}"
     local log_name pattern text root
     if [[ "${item}" == "reboot" ]]; then
         log_name="reboot_command.log"
@@ -143,12 +147,13 @@ item_triggered() {
         if [[ -n "${text}" ]]; then
             return 0
         fi
-    done < <(result_roots_for_item "${item}")
+    done < <(result_roots_for_item "${run_key}")
     return 1
 }
 
 wait_one_item() {
-    local item="$1"
+    local run_key="$1"
+    local item="${run_key%%__*}"
     local cycles timeout_min deadline now remaining
     cycles="$(read_item_cycles "${item}")"
     # Default budget: each loop can include long FIO (CSV 3600s) + reboot/boot margin.
@@ -161,11 +166,11 @@ wait_one_item() {
     local saw_trigger=0
     local trigger_deadline=$(( $(date +%s) + 600 ))
     while [ "$(date +%s)" -lt "${trigger_deadline}" ]; do
-        if remote_reachable && item_triggered "${item}"; then
+        if remote_reachable && item_triggered "${run_key}"; then
             saw_trigger=1
             break
         fi
-        if item_completed "${item}"; then
+        if item_completed "${run_key}"; then
             echo "[${NODE_IP}] ${item} already completed"
             return 0
         fi
@@ -178,7 +183,7 @@ wait_one_item() {
     fi
 
     while [ "$(date +%s)" -lt "${deadline}" ]; do
-        if remote_reachable && item_completed "${item}"; then
+        if remote_reachable && item_completed "${run_key}"; then
             echo "[${NODE_IP}] ${item} powercycle completed"
             return 0
         fi
@@ -197,14 +202,14 @@ wait_one_item() {
 }
 
 parse_selected_powercycle_items
-if [[ "${#selected_items[@]}" -eq 0 ]]; then
+if [[ "${#selected_run_keys[@]}" -eq 0 ]]; then
     echo "[${NODE_IP}] no reboot/dc selected; skip powercycle completion wait"
     exit 0
 fi
 
 rc=0
-for item in "${selected_items[@]}"; do
-    if ! wait_one_item "${item}"; then
+for run_key in "${selected_run_keys[@]}"; do
+    if ! wait_one_item "${run_key}"; then
         rc=1
     fi
 done

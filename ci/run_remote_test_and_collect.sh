@@ -20,15 +20,41 @@ failure_bundle_query_timeout_seconds="${FAILURE_BUNDLE_QUERY_TIMEOUT_SECONDS:-30
 failure_bundle_collect_timeout_seconds="${FAILURE_BUNDLE_COLLECT_TIMEOUT_SECONDS:-600}"
 failure_bundle_copy_timeout_seconds="${FAILURE_BUNDLE_COPY_TIMEOUT_SECONDS:-600}"
 failure_bundle_kill_after_seconds="${FAILURE_BUNDLE_KILL_AFTER_SECONDS:-30}"
+cleanup_timeout_seconds="${CLEANUP_TIMEOUT_SECONDS:-900}"
+report_command_timeout_seconds="${REPORT_COMMAND_TIMEOUT_SECONDS:-120}"
+report_copy_timeout_seconds="${REPORT_COPY_TIMEOUT_SECONDS:-300}"
+cleanup_deadline=0
+
+run_cleanup_command() {
+    local label="$1"
+    local requested_seconds="$2"
+    local now remaining timeout_seconds
+    shift 2
+    now=$(date +%s)
+    timeout_seconds="${requested_seconds}"
+    if [[ "${cleanup_deadline}" -gt 0 ]]; then
+        remaining=$((cleanup_deadline - now))
+        if [[ "${remaining}" -le 0 ]]; then
+            echo "[${NODE_IP}] WARN: cleanup budget exhausted before ${label}" >&2
+            return 124
+        fi
+        if [[ "${remaining}" -lt "${timeout_seconds}" ]]; then
+            timeout_seconds="${remaining}"
+        fi
+    fi
+    echo "[${NODE_IP}] cleanup ${label} (timeout=${timeout_seconds}s)" >&2
+    timeout --kill-after="${failure_bundle_kill_after_seconds}s" \
+        "${timeout_seconds}s" "$@"
+}
 
 read_remote_bundle_pointer() {
     local pointer_name="$1"
     local pointer_command
 
     pointer_command="${REMOTE_SSH_COMMAND} \"cat '${REMOTE_DIR}/failure_bundles/${pointer_name}' 2>/dev/null || true\""
-    timeout --kill-after="${failure_bundle_kill_after_seconds}s" \
-        "${failure_bundle_query_timeout_seconds}s" \
-        bash -c "${pointer_command}" 2>/dev/null | tr -d '\r' | tail -n 1
+    run_cleanup_command "read failure bundle pointer" \
+        "${failure_bundle_query_timeout_seconds}" bash -c "${pointer_command}" \
+        2>/dev/null | tr -d '\r' | tail -n 1
 }
 
 is_expected_failure_bundle_path() {
@@ -52,9 +78,9 @@ remote_bundle_exists() {
     local exists_command
 
     exists_command="${REMOTE_SSH_COMMAND} \"test -f '${bundle_path}'\""
-    timeout --kill-after="${failure_bundle_kill_after_seconds}s" \
-        "${failure_bundle_query_timeout_seconds}s" \
-        bash -c "${exists_command}" >/dev/null 2>&1
+    run_cleanup_command "verify failure bundle" \
+        "${failure_bundle_query_timeout_seconds}" bash -c "${exists_command}" \
+        >/dev/null 2>&1
 }
 
 find_remote_failure_bundle() {
@@ -76,9 +102,8 @@ collect_fallback_failure_bundle() {
     transport_timeout_seconds=$((failure_bundle_collect_timeout_seconds + failure_bundle_kill_after_seconds + 30))
     collect_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x ci/collect_failure_bundle.sh ci/enable_failure_coredumps.sh && timeout --kill-after=${failure_bundle_kill_after_seconds}s ${failure_bundle_collect_timeout_seconds}s env NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} RUN_KEY=remote_runner BUNDLE_REASON=remote_test_rc_${test_rc} bash -c 'ci/enable_failure_coredumps.sh && ci/collect_failure_bundle.sh'\""
 
-    timeout --kill-after="${failure_bundle_kill_after_seconds}s" \
-        "${transport_timeout_seconds}s" \
-        bash -c "${collect_command}"
+    run_cleanup_command "fallback failure bundle" \
+        "${transport_timeout_seconds}" bash -c "${collect_command}"
 }
 
 copy_exact_failure_bundle() {
@@ -89,9 +114,8 @@ copy_exact_failure_bundle() {
     bundle_name="$(basename -- "${remote_bundle_path}")"
     echo "[${NODE_IP}] copy exact failure bundle ${bundle_name} (timeout=${failure_bundle_copy_timeout_seconds}s)"
     copy_command="${REMOTE_SCP_COMMAND} '${TARGET_USER}@${NODE_IP}:${remote_bundle_path}' ."
-    timeout --kill-after="${failure_bundle_kill_after_seconds}s" \
-        "${failure_bundle_copy_timeout_seconds}s" \
-        bash -c "${copy_command}"
+    run_cleanup_command "copy failure bundle" \
+        "${failure_bundle_copy_timeout_seconds}" bash -c "${copy_command}"
 }
 
 collect_io_signature() {
@@ -146,6 +170,15 @@ else
     test_rc=$?
 fi
 set -e
+cleanup_deadline=$(( $(date +%s) + cleanup_timeout_seconds ))
+
+if [ "${test_rc}" != "0" ]; then
+    {
+        echo "[${NODE_IP}] ERROR: ${test_label} failed with exit code ${test_rc}"
+        echo "TEST_EXECUTION_STATUS=failed"
+        echo "TEST_EXECUTION_EXIT_CODE=${test_rc}"
+    } | tee -a "${execution_log}"
+fi
 
 if [ "${test_rc}" = "124" ] || [ "${test_rc}" = "137" ]; then
     echo "[${NODE_IP}] ERROR: ${test_label} idle watchdog fired after ${TEST_IDLE_TIMEOUT_MINUTES} minutes without progress, target may be hung." | tee -a "${execution_log}"
@@ -153,7 +186,9 @@ fi
 
 # Best-effort remote cleanup/report salvage after kill or normal exit.
 # Keep the monitor pattern out of this SSH cmdline; salvage script uses a self-safe pkill pattern.
-eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && python3 ci/salvage_junit_reports.py --stop-monitor --output report.xml\"" || true
+salvage_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && python3 ci/salvage_junit_reports.py --stop-monitor --output report.xml\""
+run_cleanup_command "salvage remote reports" "${report_command_timeout_seconds}" \
+    bash -c "${salvage_command}" || true
 
 if [ "${test_rc}" != "0" ]; then
     remote_bundle_path="$(find_remote_failure_bundle preferred_live_bundle_path.txt || true)"
@@ -179,29 +214,33 @@ fi
 echo "[${NODE_IP}] copy back reports"
 mkdir -p allure-results
 rm -rf "${tmp_results}"
-eval "${REMOTE_SCP_COMMAND} -r ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/allure-results ./${tmp_results}" || true
+allure_copy_command="${REMOTE_SCP_COMMAND} -r ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/allure-results ./${tmp_results}"
+run_cleanup_command "copy Allure results" "${report_copy_timeout_seconds}" \
+    bash -c "${allure_copy_command}" || true
 if [ -d "${tmp_results}" ]; then
-    python3 ci/mark_allure_target_context.py "${tmp_results}" "${NODE_IP}" || true
-    cp -R "${tmp_results}/." ./allure-results/ || true
+    run_cleanup_command "mark Allure target context" "${report_command_timeout_seconds}" \
+        python3 ci/mark_allure_target_context.py "${tmp_results}" "${NODE_IP}" || true
+    run_cleanup_command "merge Allure results" "${report_copy_timeout_seconds}" \
+        cp -R "${tmp_results}/." ./allure-results/ || true
     rm -rf "${tmp_results}"
 fi
-eval "${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report.xml ./${report_file}" || true
+report_copy_command="${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report.xml ./${report_file}"
+run_cleanup_command "copy merged JUnit report" "${report_copy_timeout_seconds}" \
+    bash -c "${report_copy_command}" || true
 if [ ! -f "${report_file}" ]; then
     # Fallback: pull known per-item reports into a temp dir, merge, then delete temp files.
     item_dir="item-junit-${NODE_IP}${report_suffix}"
     rm -rf "${item_dir}"
     mkdir -p "${item_dir}"
-    eval "${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report_*.xml ${item_dir}/" 2>/dev/null || true
-    python3 ci/salvage_junit_reports.py --from-dir "${item_dir}" --output "${report_file}" || true
+    item_copy_command="${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report_*.xml ${item_dir}/"
+    run_cleanup_command "copy per-item JUnit reports" "${report_copy_timeout_seconds}" \
+        bash -c "${item_copy_command}" 2>/dev/null || true
+    run_cleanup_command "merge per-item JUnit reports" "${report_command_timeout_seconds}" \
+        python3 ci/salvage_junit_reports.py --from-dir "${item_dir}" --output "${report_file}" || true
     rm -rf "${item_dir}"
 fi
 
 if [ "${test_rc}" != "0" ]; then
-    {
-        echo "[${NODE_IP}] ERROR: ${test_label} failed with exit code ${test_rc}"
-        echo "TEST_EXECUTION_STATUS=failed"
-        echo "TEST_EXECUTION_EXIT_CODE=${test_rc}"
-    } | tee -a "${execution_log}"
     exit "${test_rc}"
 fi
 

@@ -10,7 +10,7 @@ except ModuleNotFoundError:
     from report_identity import host, read_json, run_key, save_json, set_label
 
 BUNDLE_NAME = re.compile(
-    r"failure_bundle_(\d+\.\d+\.\d+\.\d+)_(.+)_\d{8}_\d{6}\.tar\.gz\Z")
+    r"failure_bundle_(\d+\.\d+\.\d+\.\d+)_(.+)_\d{8}_\d{6}(?:_[A-Za-z0-9]+)*\.tar\.gz\Z")
 ITEM_EVENT = re.compile(r"\[ITEM_(START|END)\]\s+([A-Za-z0-9_]+)(?:\s+exit_code=(\d+))?")
 
 

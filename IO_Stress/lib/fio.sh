@@ -78,7 +78,7 @@ _fio_safe_token() {
 trigger_live_failure_bundle() {
     local reason="${1:-fio_eio_live}"
     local repo_root script run_key remote_dir node_ip
-    local safe_key log_file pending_file bg_mode collect_pid
+    local safe_key log_file pending_file lock_file lock_fd bg_mode collect_pid
 
     node_ip="${NODE_IP:-${TARGET_IP:-unknown}}"
 
@@ -100,6 +100,15 @@ trigger_live_failure_bundle() {
     mkdir -p "${remote_dir}/failure_bundles" 2>/dev/null || true
     log_file="${remote_dir}/failure_bundles/live_bundle_${safe_key}.log"
     pending_file="${remote_dir}/failure_bundles/live_collect_pending_${safe_key}.txt"
+    lock_file="${remote_dir}/failure_bundles/live_collect_${safe_key}.lock"
+    if command -v flock >/dev/null 2>&1; then
+        exec {lock_fd}>"${lock_file}" || return 0
+        if ! flock -n "${lock_fd}"; then
+            echo "$(date '+%F %T') [FIO] live failure bundle collection already active; skip (${reason})" \
+                | tee -a "${Result_Dir:-/tmp}/result.log" 2>/dev/null || true
+            return 0
+        fi
+    fi
     FIO_EIO_BUNDLE_TRIGGERED=1
     bg_mode="${FIO_LIVE_BUNDLE_BG:-1}"
 
@@ -1309,18 +1318,24 @@ fio_idle_timeout_seconds()
 
 fio_io_progress_signature()
 {
-    lsblk -dn -o NAME,TYPE 2>/dev/null | awk '$2=="disk"{print $1}' | while read -r disk_name; do
+    local configuration="${1:-}"
+    [[ -f "$configuration" ]] || return 0
+    awk -F= '
+        /^[[:space:]]*filename[[:space:]]*=/ {
+            value=$0
+            sub(/^[^=]*=/, "", value)
+            count=split(value, paths, ":")
+            for (i=1; i<=count; i++) print paths[i]
+        }
+    ' "$configuration" 2>/dev/null | while read -r device_path; do
+        local disk_name
+        disk_name=$(basename "$device_path")
         [[ -z "$disk_name" ]] && continue
-        case "$disk_name" in
-            loop*|ram*|sr*|fd*|md*|dm-*|zram*)
-                continue
-                ;;
-        esac
-        disk_is_system "$disk_name" && continue
-        stat_file="/sys/block/${disk_name}/stat"
+        assert_not_system_disk "$disk_name" "monitor fio IO" >/dev/null 2>&1 || continue
+        stat_file="/sys/class/block/${disk_name}/stat"
         [[ -r "$stat_file" ]] || continue
         awk -v dev="$disk_name" '{ print dev ":" $3 ":" $7 }' "$stat_file"
-    done | sort
+    done | sort -u
 }
 
 # True if FIO output shows any positive IOPS (at least one disk/job did IO).
@@ -1459,7 +1474,7 @@ run_fio_with_watchdog()
     last_progress_ts=$start_ts
     last_io_check_ts=$start_ts
     last_output_size=$(wc -c < "$output_file" 2>/dev/null || echo 0)
-    last_io_signature=$(fio_io_progress_signature | sha256sum | awk '{print $1}')
+    last_io_signature=$(fio_io_progress_signature "$configuration" | sha256sum | awk '{print $1}')
 
     while kill -0 "$fio_pid" 2>/dev/null; do
         sleep "$watch_interval_seconds"
@@ -1482,7 +1497,7 @@ run_fio_with_watchdog()
         fi
         if [[ $((now_ts - last_io_check_ts)) -ge $io_check_interval_seconds ]]; then
             last_io_check_ts=$now_ts
-            current_io_signature=$(fio_io_progress_signature | sha256sum | awk '{print $1}')
+            current_io_signature=$(fio_io_progress_signature "$configuration" | sha256sum | awk '{print $1}')
             if [[ -n "$current_io_signature" && "$current_io_signature" != "$last_io_signature" ]]; then
                 last_progress_ts=$now_ts
                 last_io_signature=$current_io_signature
@@ -1992,7 +2007,7 @@ single()
           echo "End" >>$File_Dir/$a
           configure
           #single_config
-          run_single $a
+           run_single "$a" || return $?
       done
 cd $Result_Dir
 for file in `ls *.csv|grep -v "result*.csv"`

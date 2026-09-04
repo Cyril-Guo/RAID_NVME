@@ -94,6 +94,12 @@ def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     """
 }
 
+def isManualInterruption(interruption) {
+    return interruption.getCauses()?.any { cause ->
+        cause instanceof hudson.model.CauseOfInterruption.UserInterruption
+    } ?: false
+}
+
 def runTimedEnvironmentStep(ip, label, envPrepareLog, timeoutMinutes, scriptText) {
     def stepStatus = 0
     try {
@@ -101,6 +107,10 @@ def runTimedEnvironmentStep(ip, label, envPrepareLog, timeoutMinutes, scriptText
             stepStatus = sh(returnStatus: true, script: scriptText)
         }
     } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+        if (isManualInterruption(e)) {
+            echo "[${ip}] ${label} manually aborted; preserve ABORTED without failure marker"
+            throw e
+        }
         sh "printf '%s\\n%s\\n' '[${ip}] ERROR: ${label} timed out after ${timeoutMinutes} minutes' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
         error "[${ip}] ${label} timed out after ${timeoutMinutes} minutes"
     }
@@ -409,10 +419,12 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
  ci/run_remote_test_and_collect.sh
  """
                                 )
-                                echo "[${ip}] wait powercycle completion if reboot/dc selected"
-                                def powercycleWaitStatus = sh(
-                                    returnStatus: true,
-                                    script: """#!/bin/bash
+                                def powercycleWaitStatus = 0
+                                if (testStatus == 0) {
+                                    echo "[${ip}] wait powercycle completion if reboot/dc selected"
+                                    powercycleWaitStatus = sh(
+                                        returnStatus: true,
+                                        script: """#!/bin/bash
  chmod +x ci/wait_powercycle_completion.sh
  NODE_IP='${ip}' \
  TARGET_USER='${env.TARGET_USER}' \
@@ -420,8 +432,11 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
  REMOTE_SSH_COMMAND="${targetSsh}" \
  TEST_ITEMS_FILE='test_items.txt' \
  ci/wait_powercycle_completion.sh
- """
-                                )
+  """
+                                    )
+                                } else {
+                                    echo "[${ip}] skip powercycle wait because test execution already failed rc=${testStatus}"
+                                }
                                 // Prefer the pytest/collection failure so fail-fast is not masked by
                                 // powercycle wait when reboot/dc never started.
                                 if (testStatus != 0) {
@@ -457,30 +472,73 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
 
                 sh 'sudo chown -R jenkins:jenkins . || true'
 
-                sh '''
-                mkdir -p allure-results
-                cat allure-results/environment_*.properties > allure-results/environment.properties 2>/dev/null || true
-                rm -f allure-results/environment_*.properties
-                python3 ci/collect_console_output.py
-                python3 ci/build_status.py --manual-abort jenkins_console.log > manual_abort.txt
-                python3 ci/junit_to_allure.py
-                '''
+                def publicationErrors = []
+                try {
+                    sh '''
+                    mkdir -p allure-results
+                    cat allure-results/environment_*.properties > allure-results/environment.properties 2>/dev/null || true
+                    rm -f allure-results/environment_*.properties
+                    python3 ci/collect_console_output.py
+                    python3 ci/build_status.py --manual-abort jenkins_console.log > manual_abort.txt
+                    python3 ci/junit_to_allure.py
+                    '''
+                } catch (Exception publishEx) {
+                    if (publishEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(publishEx)) {
+                        throw publishEx
+                    }
+                    publicationErrors << "Report preparation failed: ${publishEx}"
+                    echo "WARN: Report preparation failed: ${publishEx}. Continue to Feishu finalization."
+                }
 
-                def manuallyAborted = fileExists('manual_abort.txt') && readFile('manual_abort.txt').trim() == 'true'
+                def manuallyAborted = currentBuild.currentResult == 'ABORTED' ||
+                    (fileExists('manual_abort.txt') && readFile('manual_abort.txt').trim() == 'true')
 
                 // Node-level reports only; skip leftover per-item report_<case>.xml files.
-                junit testResults: 'report_*.*.*.*.xml', allowEmptyResults: true
+                try {
+                    junit testResults: 'report_*.*.*.*.xml', allowEmptyResults: true
+                } catch (Exception publishEx) {
+                    if (publishEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(publishEx)) {
+                        throw publishEx
+                    }
+                    publicationErrors << "JUnit publication failed: ${publishEx}"
+                    echo "WARN: JUnit publication failed: ${publishEx}. Continue to Feishu finalization."
+                }
 
-                allure(
-                    includeProperties: true,
-                    jdk: '',
-                    reportName: 'TEST REPORT',
-                    results: [[path: 'allure-results']]
-                )
+                try {
+                    allure(
+                        includeProperties: true,
+                        jdk: '',
+                        reportName: 'TEST REPORT',
+                        results: [[path: 'allure-results']]
+                    )
+                } catch (Exception publishEx) {
+                    if (publishEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(publishEx)) {
+                        throw publishEx
+                    }
+                    publicationErrors << "Allure publication failed: ${publishEx}"
+                    echo "WARN: Allure publication failed: ${publishEx}. Continue to Feishu finalization."
+                }
 
-                archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, allure-results/*monitor*.tar.gz, allure-results/*case_debug_*.tar.gz, allure-results/*failure_bundle_*.tar.gz, failure_bundle_*.tar.gz', allowEmptyArchive: true
+                try {
+                    archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, allure-results/*monitor*.tar.gz, allure-results/*case_debug_*.tar.gz, allure-results/*failure_bundle_*.tar.gz, failure_bundle_*.tar.gz', allowEmptyArchive: true
+                } catch (Exception publishEx) {
+                    if (publishEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(publishEx)) {
+                        throw publishEx
+                    }
+                    publicationErrors << "Artifact archive failed: ${publishEx}"
+                    echo "WARN: Artifact archive failed: ${publishEx}. Continue to Feishu finalization."
+                }
 
-                def metricsOutput = sh(script: "python3 ci/report_metrics.py", returnStdout: true).trim()
+                def metricsOutput = ''
+                try {
+                    metricsOutput = sh(script: "python3 ci/report_metrics.py", returnStdout: true).trim()
+                } catch (Exception metricsEx) {
+                    if (metricsEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(metricsEx)) {
+                        throw metricsEx
+                    }
+                    publicationErrors << "Report metrics failed: ${metricsEx}"
+                    echo "WARN: report_metrics failed: ${metricsEx}. Continue to Feishu finalization."
+                }
                 sh 'python3 ci/extract_failure_summary.py --output failure_summary.txt || true'
 
                 def metrics = metricsOutput ? metricsOutput.split(/\s+/) : [] as String[]
@@ -514,10 +572,29 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                     return
                 }
 
+                if (publicationErrors) {
+                    currentBuild.result = 'FAILURE'
+                    def publicationSummary = publicationErrors.join('\n') + '\n'
+                    writeFile file: 'report_publication_failure.txt', text: publicationSummary
+                    def existingSummary = fileExists('failure_summary.txt') ? readFile('failure_summary.txt') : ''
+                    writeFile file: 'failure_summary.txt', text: existingSummary + publicationSummary
+                    hasFailureSummary = true
+                    total = Math.max(total, 1)
+                    errors = Math.max(errors, 1)
+                    if (reportKind == 'empty') {
+                        reportKind = 'infra'
+                    }
+                }
+
                 def startStr = new Date(currentBuild.startTimeInMillis).format('yyyy-MM-dd HH:mm:ss')
                 def endStr = new Date().format('yyyy-MM-dd HH:mm:ss')
                 def ipListStr = targetIPs.join(', ')
                 def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'
+                if (failed + errors > 0 && buildResult in ['SUCCESS', 'UNKNOWN', '']) {
+                    echo "Report metrics contain failures; override BUILD_RESULT ${buildResult} -> FAILURE"
+                    currentBuild.result = 'FAILURE'
+                    buildResult = 'FAILURE'
+                }
                 // If JUnit stayed green but logs already captured hard FIO/env failures,
                 // force Jenkins + Feishu BUILD_RESULT to FAILURE before payload generation.
                 // Do not treat plain "FIO command failed" as hard: MIX_FAIL_ON_ANY=no records
