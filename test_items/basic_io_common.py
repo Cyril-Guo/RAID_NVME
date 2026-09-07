@@ -511,10 +511,11 @@ def load_draid_module(log):
 
 
 def clear_csd_flash_and_cache(disks, log, force=False):
-    """Clear CSD flash+cache via dpraid flash-clear on each controller.
+    """Clear CSD flash+cache via dpraid flash-clear on each ASIC/controller.
 
     Runs ci/clear_8p_csd_flash.sh: `dpraid show` then
-    `dpraid /cX flash-clear --with-cache --force` for every controller.
+    `dpraid /cX flash-clear --with-cache --force` for every ASIC id
+    (new CLI) or legacy controller id.
     Caller must ensure draid is loaded first.
     """
     del disks, force  # controller discovery is inside clear_8p_csd_flash.sh

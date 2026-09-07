@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Clear CSD flash+cache via dpraid on each controller reported by `dpraid show`.
-# Expected show table (header + rows):
+# Clear CSD flash+cache via dpraid on each target reported by `dpraid show`.
+#
+# New CLI (v1.6+): ASICs table — column ASIC is the /cX target id (was Ctrl/ID):
+#   Ctl ASIC BDF     PCIe slot FW       Status
+#   0   0    01:00.0 Slot 4    FH003104 Optimal
+#   0   1    02:00.0 Slot 4-1  FH003104 Optimal
+#   -> flash-clear /c0 and /c1
+#
+# Legacy CLI: controller table after CONTROLLER MODEL:
 #   ID CONTROLLER MODEL ... SERIAL NUMBER ... NUMA STAT FW_VER DRIVER_VER
 #   0  DAPUSTOR ...         SN-...            0    Optimal ...
-#   1  DAPUSTOR ...         SN-...            0    Optimal ...
-# One controller -> /c0; two -> /c0 and /c1.
+#   -> /c0 (and /c1 if present)
 #
 # Important: Jenkins agents often override HOME to the DUT workspace, while
 # dpraid typically resolves the passwd home (/root) for job artifacts. Force
@@ -270,33 +276,50 @@ if is_dpraid_workspace_error "${show_output}"; then
 fi
 ok "dpraid show finished"
 
-# Only parse the controller table after the "CONTROLLER MODEL" header.
-# Do not treat other numeric-leading rows (e.g. DID lists) as controllers.
-# Real dpraid show often inserts a ---/=== separator (or ANSI color) between
-# the header and ID rows; those must be skipped, not treated as end-of-table.
+# Parse flash-clear targets from dpraid show:
+#   1) Prefer ASICs table (header "Ctl ASIC ..." / "ASIC BDF ..."): use ASIC column.
+#   2) Else legacy "CONTROLLER MODEL" table: use first-column ID.
+# Skip ---/=== separators and strip ANSI. Do not treat DID lists as targets.
 mapfile -t controller_ids < <(
     printf '%s\n' "${show_output}" | awk '
         {
-            gsub(/\r/, "")
+            gsub(/\n/, "")
             gsub(/\033\[[0-9;]*[A-Za-z]/, "")
             $0 = $0
         }
-        BEGIN { in_table = 0 }
-        toupper($0) ~ /CONTROLLER[[:space:]]+MODEL/ {
-            in_table = 1
+        BEGIN { mode = "" }
+        # New format ASICs table (ASIC id == former Ctrl /cX id).
+        # Do not match Controllers header "Ctl Model ... ASICs Status".
+        toupper($0) ~ /(^|[[:space:]])CTL[[:space:]]+ASIC([[:space:]]|$)/ ||
+        toupper($0) ~ /ASIC[[:space:]]+BDF/ {
+            mode = "asic"
             next
         }
-        !in_table { next }
+        toupper($0) ~ /CONTROLLER[[:space:]]+MODEL/ {
+            if (mode == "") mode = "legacy"
+            next
+        }
+        mode == "" { next }
         NF == 0 { exit }
         $0 ~ /^[[:space:]\-_=]+$/ { next }
-        $1 ~ /^[0-9]+$/ { print $1 + 0; next }
+        mode == "asic" && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ {
+            print $2 + 0
+            next
+        }
+        mode == "legacy" && $1 ~ /^[0-9]+$/ {
+            print $1 + 0
+            next
+        }
         { exit }
     ' | sort -n -u
 )
 
 if [ "${#controller_ids[@]}" -eq 0 ]; then
-    fail "no controllers parsed from dpraid show (need header 'CONTROLLER MODEL' + ID rows)"
-    echo "[${NODE_IP}] hint: expected table like:" >&2
+    fail "no flash-clear targets parsed from dpraid show (need ASICs 'Ctl ASIC' rows or legacy 'CONTROLLER MODEL' ID rows)"
+    echo "[${NODE_IP}] hint: new CLI ASICs table:" >&2
+    echo "[${NODE_IP}]   Ctl ASIC BDF ... Status" >&2
+    echo "[${NODE_IP}]   0   0    01:00.0 ... Optimal" >&2
+    echo "[${NODE_IP}] hint: legacy controller table:" >&2
     echo "[${NODE_IP}]   ID CONTROLLER MODEL ... STAT ..." >&2
     echo "[${NODE_IP}]   0  DAPUSTOR ...        Optimal ..." >&2
     exit 1
@@ -306,7 +329,7 @@ targets=()
 for controller_id in "${controller_ids[@]}"; do
     targets+=("/c${controller_id}")
 done
-ok "found ${#controller_ids[@]} controller(s): ${targets[*]}"
+ok "found ${#controller_ids[@]} flash-clear target(s): ${targets[*]}"
 
 banner "2/2 flash-clear --with-cache --force"
 idx=0

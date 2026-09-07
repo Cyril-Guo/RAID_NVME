@@ -22,6 +22,15 @@ SHOW_C1 = (
     "0    Optimal  FH00310 2.8.1"
 )
 
+# New dpraid show (v1.6+): Controllers + ASICs; ASIC column is /cX target id.
+SHOW_NEW_CONTROLLERS_HEADER = "Ctl Model Serial NUMA ASICs Status"
+SHOW_NEW_CONTROLLER_ROW = (
+    "0 DAPUSTOR DPFP62AA0R1G0010SGU80 SN-07F502E9DE5613E7 0 2 Optimal"
+)
+SHOW_NEW_ASICS_HEADER = "Ctl ASIC BDF PCIe slot FW Status"
+SHOW_NEW_ASIC_0 = "0 0 01:00.0 Slot 4 FH003104 Optimal"
+SHOW_NEW_ASIC_1 = "0 1 02:00.0 Slot 4-1 FH003104 Optimal"
+
 
 def _bash():
     bash = shutil.which("bash")
@@ -31,7 +40,7 @@ def _bash():
 
 
 def _write_executable(path: Path, content: str):
-    path.write_text(content.replace("\r\n", "\n"), encoding="utf-8", newline="\n")
+    path.write_text(content.replace("\n", "\n"), encoding="utf-8", newline="\n")
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
@@ -91,7 +100,7 @@ def test_clear_runs_flash_clear_on_single_controller(tmp_path):
     assert result.returncode == 0, result.stderr + result.stdout
     assert "dpraid workspace ready" in result.stdout
     assert "dpraid show" in result.stdout
-    assert "found 1 controller(s): /c0" in result.stdout
+    assert "found 1 flash-clear target(s): /c0" in result.stdout
     assert "[OK] /c0 flash-clear --with-cache --force succeeded" in result.stdout
     assert "flash-clear /c1" not in result.stdout
     assert (tmp_path / "dpraid_home" / "jobs").is_dir()
@@ -127,7 +136,36 @@ def test_clear_runs_flash_clear_on_two_controllers(tmp_path):
     result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
 
     assert result.returncode == 0, result.stderr + result.stdout
-    assert "found 2 controller(s): /c0 /c1" in result.stdout
+    assert "found 2 flash-clear target(s): /c0 /c1" in result.stdout
+    assert "[OK] /c0 flash-clear --with-cache --force succeeded" in result.stdout
+    assert "[OK] /c1 flash-clear --with-cache --force succeeded" in result.stdout
+
+
+def test_clear_uses_asic_ids_from_new_dpraid_show_format(tmp_path):
+    fake_dpraid = tmp_path / "dpraid"
+    _write_executable(
+        fake_dpraid,
+        _fake_dpraid(
+            [
+                "CLI Version: v1.6.1",
+                "Controllers",
+                SHOW_NEW_CONTROLLERS_HEADER,
+                "-----------------------------------------------",
+                SHOW_NEW_CONTROLLER_ROW,
+                "",
+                "ASICs",
+                SHOW_NEW_ASICS_HEADER,
+                "-----------------------------------------------",
+                SHOW_NEW_ASIC_0,
+                SHOW_NEW_ASIC_1,
+            ]
+        ),
+    )
+
+    result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
+
+    assert result.returncode == 0, (result.stderr or "") + (result.stdout or "")
+    assert "found 2 flash-clear target(s): /c0 /c1" in result.stdout
     assert "[OK] /c0 flash-clear --with-cache --force succeeded" in result.stdout
     assert "[OK] /c1 flash-clear --with-cache --force succeeded" in result.stdout
 
@@ -151,7 +189,7 @@ def test_clear_ignores_numeric_rows_outside_controller_table(tmp_path):
     result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
 
     assert result.returncode == 0, result.stderr + result.stdout
-    assert "found 1 controller(s): /c0" in result.stdout
+    assert "found 1 flash-clear target(s): /c0" in result.stdout
     assert "/c1 flash-clear" not in result.stdout
 
 
@@ -171,7 +209,7 @@ def test_clear_parses_controller_when_show_has_separator_row(tmp_path):
     result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
 
     assert result.returncode == 0, (result.stderr or "") + (result.stdout or "")
-    assert "found 1 controller(s): /c0" in result.stdout
+    assert "found 1 flash-clear target(s): /c0" in result.stdout
 
 
 def test_clear_parses_controller_when_show_id_has_ansi_color(tmp_path):
@@ -185,7 +223,7 @@ def test_clear_parses_controller_when_show_id_has_ansi_color(tmp_path):
     result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
 
     assert result.returncode == 0, (result.stderr or "") + (result.stdout or "")
-    assert "found 1 controller(s): /c0" in result.stdout
+    assert "found 1 flash-clear target(s): /c0" in result.stdout
 
 
 def test_clear_fails_when_dpraid_show_fails(tmp_path):
@@ -220,7 +258,7 @@ exit 1
     result = _run_clear(tmp_path, {"DPRAID_BIN": str(fake_dpraid).replace("\\", "/")})
 
     assert result.returncode != 0
-    assert "no controllers parsed from dpraid show" in result.stderr
+    assert "no flash-clear targets parsed from dpraid show" in result.stderr
 
 
 def test_clear_retries_when_flash_clear_hits_workspace_write_error(tmp_path):
