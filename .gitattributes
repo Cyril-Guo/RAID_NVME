@@ -1,0 +1,38 @@
+* text=auto eol=lf
+*.sh text eol=lf
+*.bash text eol=lf
+*.py text eol=lf
+*.pyi text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.csv text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.cfg text eol=lf
+*.conf text eol=lf
+*.groovy text eol=lf
+Jenkinsfile text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Keep binaries untouched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.ko binary
+*.bin binary
+*.gz binary
+*.zip binary
+*.xz binary
+*.7z binary
+*.whl binary
+*.so binary
+*.dll binary
+*.exe binary
+*.pyc binary

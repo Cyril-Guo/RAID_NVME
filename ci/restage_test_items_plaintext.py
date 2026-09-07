@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rewrite test_items.txt git blob as plaintext via hash-object --stdin.
+"""Rewrite test_items.txt git blob as plaintext LF via hash-object --stdin.
 
 On some Windows hosts a transparent file-encryption agent (TSD) makes
 `git add/hash-object <path>` store ciphertext. Feeding bytes on stdin avoids that.
@@ -16,13 +16,19 @@ PATH = ROOT / "test_items.txt"
 
 def main() -> int:
     raw = PATH.read_bytes()
-    # Normalize to LF; drop UTF-8 BOM if present.
+    if raw.startswith(b"%TSD-Header-###%"):
+        print("ERROR: worktree read still looks encrypted", file=sys.stderr)
+        return 1
     if raw.startswith(b"\xef\xbb\xbf"):
         raw = raw[3:]
-    text = raw.decode("utf-8")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        print(f"ERROR: not utf-8: {exc}", file=sys.stderr)
+        return 1
     payload = text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
     if payload.startswith(b"%TSD-Header-###%"):
-        print("ERROR: worktree read still looks encrypted", file=sys.stderr)
+        print("ERROR: payload still looks encrypted", file=sys.stderr)
         return 1
     if not payload.lstrip().startswith(b"#"):
         print("ERROR: unexpected test_items.txt content", file=sys.stderr)
@@ -39,13 +45,13 @@ def main() -> int:
     )
 
     stored = subprocess.check_output(["git", "cat-file", "-p", sha], cwd=ROOT)
-    if stored.startswith(b"%TSD-Header-###%"):
-        print("ERROR: stored blob is still TSD ciphertext", file=sys.stderr)
+    if stored.startswith(b"%TSD-Header-###%") or b"\r" in stored:
+        print("ERROR: stored blob is still TSD/CRLF", file=sys.stderr)
         return 1
     if stored != payload:
         print("ERROR: stored blob mismatch", file=sys.stderr)
         return 1
-    print(f"OK staged plaintext test_items.txt sha={sha} bytes={len(payload)}")
+    print(f"OK staged plaintext LF test_items.txt sha={sha} bytes={len(payload)}")
     return 0
 
 

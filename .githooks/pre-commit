@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Keep text blobs LF/plaintext before commit (blocks pipefail CR and TSD ciphertext).
+# Run the checker from the git index (not the worktree): TSD may encrypt WT paths.
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+
+pick_python() {
+  local candidate
+  # Prefer `python` first: Windows Store `python3` stubs often exit 49.
+  for candidate in python python3; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      if "$candidate" -c "import sys; raise SystemExit(0 if sys.version_info[0] >= 3 else 1)" >/dev/null 2>&1; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    fi
+  done
+  return 1
+}
+
+PY="$(pick_python)" || {
+  echo "pre-commit: usable python3/python not found" >&2
+  exit 1
+}
+
+CHECKER_BLOB="ci/check_text_lf.py"
+TMP="$(mktemp "${TMPDIR:-/tmp}/check_text_lf.XXXXXX.py")"
+cleanup() { rm -f "$TMP"; }
+trap cleanup EXIT
+
+if git cat-file -e ":${CHECKER_BLOB}" 2>/dev/null; then
+  git cat-file -p ":${CHECKER_BLOB}" >"$TMP"
+elif git cat-file -e "HEAD:${CHECKER_BLOB}" 2>/dev/null; then
+  git cat-file -p "HEAD:${CHECKER_BLOB}" >"$TMP"
+elif [[ -f "$ROOT/$CHECKER_BLOB" ]]; then
+  # Bootstrap only: first add before the blob exists in git.
+  tr -d '\r' <"$ROOT/$CHECKER_BLOB" >"$TMP"
+else
+  echo "pre-commit: missing ${CHECKER_BLOB}" >&2
+  exit 1
+fi
+
+"$PY" "$TMP"
