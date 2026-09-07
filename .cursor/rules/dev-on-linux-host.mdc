@@ -1,0 +1,49 @@
+---
+description: 所有代码改动在 Linux 开发机完成，避免 Windows CRLF/TSD
+alwaysApply: true
+---
+
+# Linux 开发机工作流（强制）
+
+目的：避免 Windows 上的 CRLF 与 TSD 加密污染 git 对象。
+
+## 主机
+
+- Host: `192.168.22.226`
+- User: `root`
+- 工作目录: `/root/Cyril/Cursor/RAID_NVME`
+- 远程仓库: `git@github.com:Cyril-Guo/RAID_NVME.git`
+- 密码：**不要写入仓库**；本机用环境变量 `DEV_HOST_PASS`，并尽快改用 SSH key
+
+## 标准流程（每次改代码）
+
+1. **在 226 上**拉取远端最新分支（通常 `SMOKE` 或当前分支）
+2. **只在 226 上**编辑、测试、`git commit`、`git push`
+3. **再在 Windows 本地** `git fetch && git pull --ff-only`，仅作只读同步/查看
+4. Windows **禁止**作为主要编辑与 commit 环境（紧急除外）
+
+## Agent 行为约束
+
+- 需要改仓库文件时：经 SSH 在 `192.168.22.226` 的 `/root/Cyril/Cursor/RAID_NVME` 操作，不要在 Windows worktree 里直接改业务代码再 commit
+- Windows 侧允许：写/更新本规则、只读排查、`git pull` 同步、以及 `ci/dev_host.py` 这类同步辅助脚本
+- 推送后必须确认 Windows 已 `git pull` 到同一 SHA
+- Shell 文本、`.sh`、`.py` 的换行以 Linux LF 为准；226 上不要启用会制造 CRLF 的设置
+
+## 辅助命令
+
+```bash
+# Windows（密码仅经环境变量）
+$env:DEV_HOST_PASS='...'
+python ci/dev_host.py bootstrap   # 首次：装 git、authorized_keys、clone
+python ci/dev_host.py pull SMOKE  # 远端机拉取
+
+# 226 上日常
+cd /root/Cyril/Cursor/RAID_NVME
+git fetch origin && git checkout SMOKE && git pull --ff-only
+# ... edit ...
+git add -A && git commit && git push
+```
+
+## GitHub 访问
+
+226 使用 `/root/.ssh/id_ed25519_raid_nvme` 访问 GitHub；公钥需加到该仓库 **Deploy keys（允许写）**，否则无法 clone/push。
