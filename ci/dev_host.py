@@ -8,11 +8,13 @@ Examples (Windows PowerShell):
   python ci/dev_host.py bootstrap
   python ci/dev_host.py pull SMOKE
   python ci/dev_host.py status
+  python ci/dev_host.py sync-local SMOKE   # Windows: discard local edits, match origin
 """
 from __future__ import annotations
 
 import os
 import pathlib
+import subprocess
 import sys
 
 import paramiko
@@ -66,10 +68,23 @@ def run(c: paramiko.SSHClient, cmd: str, timeout: int = 300) -> tuple[int, str, 
     return code, out, err
 
 
-def git_ssh_prefix() -> str:
+def git_ssh_env() -> str:
+    # Must export: `VAR=val cmd1 && cmd2` only applies VAR to cmd1.
     return (
-        f"GIT_SSH_COMMAND='ssh -i {DEPLOY_KEY} "
-        f"-o StrictHostKeyChecking=accept-new'"
+        f"export GIT_SSH_COMMAND='ssh -i {DEPLOY_KEY} "
+        f"-o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new'; "
+        f"git config core.sshCommand \"$GIT_SSH_COMMAND\"; "
+    )
+
+
+def enable_hooks_cmd(repo: str) -> str:
+    return (
+        f"cd {repo} && "
+        f"git config core.hooksPath .githooks && "
+        f"chmod +x .githooks/pre-commit && "
+        f"git config core.autocrlf input && "
+        f"git config core.eol lf && "
+        f"echo hooksPath=$(git config --get core.hooksPath)"
     )
 
 
@@ -120,39 +135,74 @@ def cmd_bootstrap(c: paramiko.SSHClient) -> int:
     code, out, err = run(
         c,
         f"if [ ! -d {repo}/.git ]; then "
-        f"{git_ssh_prefix()} git clone {REPO_SSH} {repo}; "
+        f"{git_ssh_env()} git clone {REPO_SSH} {repo}; "
         f"else echo ALREADY_CLONED; fi; "
-        f"cd {repo} && git remote -v && git status -sb || true",
+        f"cd {repo} && {git_ssh_env()} true && git remote -v && git status -sb || true",
         timeout=600,
     )
     print(f"clone/status exit={code}\n{out}{err}")
-    return 0
+    code2, out2, err2 = run(c, enable_hooks_cmd(repo))
+    print(f"enable hooks exit={code2}\n{out2}{err2}")
+    return 0 if code == 0 and code2 == 0 else (code or code2)
 
 
 def cmd_pull(c: paramiko.SSHClient, branch: str) -> int:
     repo = f"{REMOTE_ROOT}/{REPO_NAME}"
     code, out, err = run(
         c,
-        f"cd {repo} && {git_ssh_prefix()} git fetch origin && "
+        f"cd {repo} && {git_ssh_env()} "
+        f"git fetch origin && "
         f"git checkout {branch} && git pull --ff-only origin {branch} && "
         f"git rev-parse --short HEAD && git status -sb",
     )
     print(out or err)
-    return code
+    if code != 0:
+        return code
+    code2, out2, err2 = run(c, enable_hooks_cmd(repo))
+    print(out2 or err2)
+    return code2
 
 
 def cmd_status(c: paramiko.SSHClient) -> int:
     repo = f"{REMOTE_ROOT}/{REPO_NAME}"
     code, out, err = run(
         c,
-        f"cd {repo} && git rev-parse --short HEAD && git status -sb && git remote -v",
+        f"cd {repo} && git rev-parse --short HEAD && git status -sb && "
+        f"git remote -v && echo hooksPath=$(git config --get core.hooksPath)",
     )
     print(out or err)
     return code
 
 
+def cmd_sync_local(branch: str) -> int:
+    """Windows pull-only: hard-reset to origin/<branch>, drop local edits."""
+    root = pathlib.Path(__file__).resolve().parents[1]
+    cmds = [
+        ["git", "fetch", "origin"],
+        ["git", "checkout", branch],
+        ["git", "reset", "--hard", f"origin/{branch}"],
+        ["git", "clean", "-fd"],
+        ["git", "config", "core.autocrlf", "false"],
+        ["git", "config", "core.eol", "lf"],
+        ["git", "rev-parse", "--short", "HEAD"],
+        ["git", "status", "-sb"],
+    ]
+    for cmd in cmds:
+        print("+", " ".join(cmd))
+        p = subprocess.run(cmd, cwd=root, text=True, capture_output=True)
+        sys.stdout.write(p.stdout)
+        sys.stderr.write(p.stderr)
+        if p.returncode != 0:
+            return p.returncode
+    return 0
+
+
 def main() -> int:
     action = sys.argv[1] if len(sys.argv) > 1 else "status"
+    if action == "sync-local":
+        branch = sys.argv[2] if len(sys.argv) > 2 else "SMOKE"
+        return cmd_sync_local(branch)
+
     c = connect()
     try:
         if action == "bootstrap":
@@ -163,7 +213,7 @@ def main() -> int:
         if action == "status":
             return cmd_status(c)
         print(
-            f"usage: {sys.argv[0]} bootstrap|pull [branch]|status",
+            f"usage: {sys.argv[0]} bootstrap|pull [branch]|status|sync-local [branch]",
             file=sys.stderr,
         )
         return 2

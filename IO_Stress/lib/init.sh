@@ -42,7 +42,7 @@ function prepare_logfile()
 
 function stop_sendmail()
 {
-    if [[ $System_Redhat7 == "1" ]] || [[ $System_CentOS8 == "1" ]]; then
+    if [[ $system_Redhat7 == "1" ]] || [[ $system_CentOS8 == "1" ]]; then
         service sendmail stop 2>/dev/null
         chkconfig --levels 12345 sendmail off 2>/dev/null
     fi
