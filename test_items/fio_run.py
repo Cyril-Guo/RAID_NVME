@@ -141,9 +141,24 @@ def ignore_error_enabled():
     return os.environ.get("IGNORE_ERROR", "").strip().lower() == "yes"
 
 
+def _is_mix_extra(extra):
+    if not extra:
+        return False
+    lowered = [str(x).strip().lower() for x in extra]
+    for i, token in enumerate(lowered):
+        if token in ("--mix_io", "-mix") and i + 1 < len(lowered) and lowered[i + 1] == "yes":
+            return True
+        if token.startswith("--mix_io=") and token.split("=", 1)[1] == "yes":
+            return True
+    return False
+
+
 def build_fio_args(mode, item, extra=None):
     flag_val = "NON-STOP" if ignore_error_enabled() else "STOP"
-    args = ["-i", mode, "-f", flag_val, "-n", resolve_fio_csv(item)]
+    args = ["-i", mode, "-f", flag_val]
+    # mix_io generates MixIO*.csv via random_choice; no Input_Config CSV needed.
+    if not _is_mix_extra(extra):
+        args.extend(["-n", resolve_fio_csv(item)])
     if extra:
         args.extend(extra)
     fio_disks = os.environ.get("FIO_DISKS", "").strip()

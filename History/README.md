@@ -5,6 +5,7 @@
 - 旧无后缀 / 分后缀 CSV
 - 已移出 CI 的 reboot/dc/basic_io/basic_rebuild_io
 - lawdisk/filesystem 的 `*_4k` / `*_512` 分拆脚本与 CSV（现已合并为单一用例，靠手动改 CSV）
+- mix 的 `Input_Config_mix_*.csv`（mix 已改为仅用 random_choice，不再读 CSV）
 - `powercycle_launch.py` 及对应单测
 
 活跃 CI 用例：

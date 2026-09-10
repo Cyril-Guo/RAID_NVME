@@ -69,8 +69,8 @@ Jenkins 通过 **`sshpass` + 密码** 连接被测机，**不再依赖 SSH 免�
 | `test_ci_00_env_prepare.py` | `test_ci_00_env_prepare` | 环境准备 |
 | `test_ci_01_lawdisk.py` | `test_ci_01_lawdisk` | 不区分 4k/512；改 `FIO_CONFIG` 指向的 CSV |
 | `test_ci_02_filesystem.py` | `test_ci_02_filesystem` | 不区分 4k/512；改 `FIO_CONFIG` 指向的 CSV |
-| `test_ci_03_mix_4k.py` | `test_ci_03_mix_4k` | mix 4k |
-| `test_ci_04_mix_512.py` | `test_ci_04_mix_512` | mix 512 |
+| `test_ci_03_mix_4k.py` | `test_ci_03_mix_4k` | mix 4k（无 CSV） |
+| `test_ci_04_mix_512.py` | `test_ci_04_mix_512` | mix 512（无 CSV） |
 | `test_ci_05_random_io_4k.py` | `test_ci_05_random_io_4k` | random_io 4k |
 | `test_ci_06_random_io_512.py` | `test_ci_06_random_io_512` | random_io 512 |
 
@@ -92,7 +92,6 @@ FIO_CONFIG      = Input_Config_lawdisk.csv
 IGNORE_ERROR    = yes
 
 [test_ci_03_mix_4k]
-FIO_CONFIG      = Input_Config_mix_4k.csv
 IGNORE_ERROR    = yes
 MIX_FAIL_ON_ANY = yes
 ```
@@ -101,7 +100,7 @@ MIX_FAIL_ON_ANY = yes
 
 参数含义：
 
-- `FIO_CONFIG`：本用例使用的 CSV（位于 `IO_Stress/`）。`lawdisk` / `filesystem` 使用无后缀 CSV，内容手动改；`mix` / `random_io` 仍用 `*_4k.csv` / `*_512.csv`。
+- `FIO_CONFIG`：`lawdisk` / `filesystem` / `random_io` 使用的 CSV；`mix` 不需要 CSV（`random_choice_*.py` 生成 MixIO）。
 - mix 的 4k/512 由用例脚本内置（`test_ci_03_mix_4k` / `test_ci_04_mix_512`），无需额外参数。
 - `MIX_FAIL_ON_ANY`：仅 mix；任一 FIO 失败是否判失败。
 - `IGNORE_ERROR`：MachineCheck 结果不一致时是否继续 (yes/no)。
