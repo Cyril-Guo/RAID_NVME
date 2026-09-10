@@ -1,4 +1,4 @@
 # History
 
-备份：拆分前无后缀 IO CSV，以及不再使用的 reboot/dc `_4k`/`_512` 用例脚本与 `reboot/dc *_512.csv`。
-活跃树仅保留 `IO_Stress/Input_Config_*_{4k,512}.csv`；`reboot`/`dc` 用例本身不拆分，仍引用对应 `*_4k.csv`。
+备份：拆分前无后缀 IO CSV；CI 分支已移除的 reboot/dc/basic_io/basic_rebuild_io 用例、配置与 powercycle_launch。
+这些能力保留在 `PowerCycle` 分支；`basic_io_common` 仍留在 CI（env_prepare 依赖）。

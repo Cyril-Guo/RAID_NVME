@@ -13,7 +13,7 @@ from nvme_raid_test import (
 
 def test_item_name_from_filename_supports_ci_and_plain_patterns():
     assert item_name_from_filename("test_ci_03_lawdisk_4k.py") == "test_ci_03_lawdisk_4k"
-    assert item_name_from_filename("test_ci_01_reboot.py") == "test_ci_01_reboot"
+    assert item_name_from_filename("test_ci_03_lawdisk_4k.py") == "test_ci_03_lawdisk_4k"
     assert item_name_from_filename("test_foo.py") == "foo"
     assert item_name_from_filename("basic_io_common.py") is None
     assert item_name_from_filename("test_basic_io_common.py") is None
@@ -28,20 +28,18 @@ def test_discover_test_items_finds_repository_ci_cases():
     catalog = discover_test_items()
 
     assert catalog["test_ci_00_env_prepare"] == "test_items/test_ci_00_env_prepare.py"
-    assert catalog["test_ci_01_reboot"] == "test_items/test_ci_01_reboot.py"
-    assert catalog["test_ci_02_dc"] == "test_items/test_ci_02_dc.py"
     assert catalog["test_ci_03_lawdisk_4k"] == "test_items/test_ci_03_lawdisk_4k.py"
     assert catalog["test_ci_04_lawdisk_512"] == "test_items/test_ci_04_lawdisk_512.py"
     assert catalog["test_ci_05_filesystem_4k"] == "test_items/test_ci_05_filesystem_4k.py"
     assert catalog["test_ci_06_filesystem_512"] == "test_items/test_ci_06_filesystem_512.py"
     assert catalog["test_ci_07_mix_4k"] == "test_items/test_ci_07_mix_4k.py"
     assert catalog["test_ci_08_mix_512"] == "test_items/test_ci_08_mix_512.py"
-    assert catalog["test_ci_09_basic_io_4k"] == "test_items/test_ci_09_basic_io_4k.py"
-    assert catalog["test_ci_10_basic_io_512"] == "test_items/test_ci_10_basic_io_512.py"
-    assert catalog["test_ci_11_basic_rebuild_io_4k"] == "test_items/test_ci_11_basic_rebuild_io_4k.py"
-    assert catalog["test_ci_12_basic_rebuild_io_512"] == "test_items/test_ci_12_basic_rebuild_io_512.py"
     assert catalog["test_ci_13_random_io_4k"] == "test_items/test_ci_13_random_io_4k.py"
     assert catalog["test_ci_14_random_io_512"] == "test_items/test_ci_14_random_io_512.py"
+    assert "test_ci_01_reboot" not in catalog
+    assert "test_ci_02_dc" not in catalog
+    assert "test_ci_09_basic_io_4k" not in catalog
+    assert "test_ci_11_basic_rebuild_io_4k" not in catalog
 
 
 def test_discover_test_items_rejects_duplicate_names(tmp_path):
@@ -78,16 +76,13 @@ def test_repository_test_items_file_is_valid():
     assert params["test_ci_08_mix_512"]["IO_BS_ALIGN"] == "512"
     assert params["test_ci_05_filesystem_4k"]["FIO_RUNTIME"] == "43200"
     assert "FIO_RUNTIME" in nvme_raid_test.ALLOWED_PARAM_KEYS
-    assert params["test_ci_09_basic_io_4k"]["FIO_CONFIG"] == "Input_Config_basic_io_4k.csv"
     assert params["test_ci_13_random_io_4k"]["FIO_CONFIG"] == "Input_Config_random_io_4k.csv"
     assert "FIO_CYCLES" not in params["test_ci_03_lawdisk_4k"]
-    assert params["test_ci_02_dc"]["FIO_CYCLES"] == "5"
-    assert params["test_ci_01_reboot"]["FIO_CYCLES"] == "100"
-    assert params["test_ci_01_reboot"]["FIO_CONFIG"] == "Input_Config_reboot_4k.csv"
-    assert params["test_ci_02_dc"]["FIO_CONFIG"] == "Input_Config_dc_4k.csv"
-    assert params["test_ci_09_basic_io_4k"]["STRESS_MONITOR"] == "no"
-    assert params["test_ci_11_basic_rebuild_io_4k"]["STRESS_MONITOR"] == "no"
     assert "test_ci_00_env_prepare" in params
+    assert "test_ci_01_reboot" not in params
+    assert "test_ci_02_dc" not in params
+    assert "test_ci_09_basic_io_4k" not in params
+    assert "test_ci_11_basic_rebuild_io_4k" not in params
     assert "reboot" not in catalog
     assert "lawdisk_4k" not in catalog
 
@@ -256,8 +251,8 @@ def test_parse_selection_entry_supports_multiple_orders():
         [8, 10],
         False,
     )
-    assert nvme_raid_test.parse_selection_entry("test_ci_09_basic_io_4k 1") == (
-        "test_ci_09_basic_io_4k",
+    assert nvme_raid_test.parse_selection_entry("test_ci_07_mix_4k 1") == (
+        "test_ci_07_mix_4k",
         [1],
         True,
     )
