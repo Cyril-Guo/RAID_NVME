@@ -2099,6 +2099,7 @@ function get_config_filelist() {
     elif [[ $mix_io == YES ]];then
         cd $File_Dir
 	rm -rf MixIO*.csv
+	# IO_BS_ALIGN=4k|512 (default 4k). random_choice.py dispatches.
 	for i in {1..4};do
 	    python3 $Cur_Dir/random_choice.py
 	    mv random_choice.csv MixIO$i.csv

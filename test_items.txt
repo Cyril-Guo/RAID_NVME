@@ -41,6 +41,8 @@ random_io 5
 # ============================================================
 # 各用例参数（只写该用例会用到的键）
 # FIO_CONFIG 指向 IO_Stress/ 下该用例自己的 CSV，互不影响
+# 每份模型拆成 _4k / _512：默认用 _4k；512 扇区场景改成对应 _512.csv
+# mix 的块大小分布由 random_choice_4k.py / random_choice_512.py 决定，环境变量 IO_BS_ALIGN=4k|512（默认 4k）
 # MIX_FAIL_ON_ANY（仅 mix）：IOPS 跌 0 不算失败
 #   no  = FIO/盘错误只记录，测试继续
 #   yes = 任何 FIO 报错或非 0 退出都算测试失败
@@ -49,25 +51,25 @@ random_io 5
 
 [reboot]
 FIO_CYCLES      = 100
-FIO_CONFIG      = Input_Config_reboot.csv
+FIO_CONFIG      = Input_Config_reboot_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 
 [dc]
 FIO_CYCLES      = 5
-FIO_CONFIG      = Input_Config_dc.csv
+FIO_CONFIG      = Input_Config_dc_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 
 [lawdisk]
-FIO_CONFIG      = Input_Config_lawdisk.csv
+FIO_CONFIG      = Input_Config_lawdisk_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
 [filesystem]
-FIO_CONFIG      = Input_Config_filesystem.csv
+FIO_CONFIG      = Input_Config_filesystem_4k.csv
 FIO_RUNTIME     = 43200
 IGNORE_ERROR    = yes
 FIO_DISKS       =
@@ -75,7 +77,7 @@ STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
 [mix]
-FIO_CONFIG      = Input_Config_mix.csv
+FIO_CONFIG      = Input_Config_mix_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
@@ -88,21 +90,21 @@ MIX_FAIL_ON_ANY = yes
 # Run before basic_io / basic_rebuild_io.
 
 [basic_io]
-FIO_CONFIG      = Input_Config_basic_io.csv
+FIO_CONFIG      = Input_Config_basic_io_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 1000
 
 [basic_rebuild_io]
-FIO_CONFIG      = Input_Config_basic_rebuild_io.csv
+FIO_CONFIG      = Input_Config_basic_rebuild_io_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 1000
 
 [random_io]
-FIO_CONFIG                = Input_Config_random_io.csv
+FIO_CONFIG                = Input_Config_random_io_4k.csv
 IGNORE_ERROR              = yes
 FIO_DISKS                 =
 STRESS_MONITOR            = no
