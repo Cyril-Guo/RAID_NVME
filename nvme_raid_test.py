@@ -215,14 +215,13 @@ def build_run_plan(path, test_items=None):
 
 def validate_powercycle_plan(run_plan):
     def _powercycle_item(name: str) -> bool:
-        base = name.rsplit("_", 1)[0] if name.endswith(("_4k", "_512")) else name
-        return base in {"reboot", "dc"}
+        return name in {"reboot", "dc"}
 
     powercycle = [entry for entry in run_plan if _powercycle_item(entry["item"])]
     if powercycle and len(run_plan) != 1:
         selected = ", ".join(entry["run_key"] for entry in run_plan)
         raise ValueError(
-            "reboot_*/DC_* power-cycle test must run alone; "
+            "reboot/DC power-cycle test must run alone; "
             f"split this selection into separate Jenkins builds: {selected}"
         )
 

@@ -4,7 +4,8 @@
 # BEGIN/END SELECTION 块会在运行 nvme_raid_test.py 时自动同步
 # （也可手动：python nvme_raid_test.py --sync-selection）。
 #
-# IO 用例已拆成 _4k / _512：去掉行首 # 即启用对应对齐模型。
+# IO 用例已拆成独立 _4k / _512 项，序号唯一递增，去掉行首 # 即启用。
+# reboot / dc 不拆分，仍为单项。
 # mix_4k / mix_512 会设置 IO_BS_ALIGN，并使用对应 random_choice_*.py。
 #
 # 格式：名称 + 空格 + 一个或多个数字序号
@@ -14,52 +15,39 @@
 
 # === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
 # env_prepare 0
-# reboot_4k 1
-# reboot_512 1
-# dc_4k 2
-# dc_512 2
+# reboot 1
+# dc 2
 # lawdisk_4k 3
-# lawdisk_512 3
-# filesystem_4k 4
-# filesystem_512 4
-# mix_4k 5
-# mix_512 5
-# basic_io_4k 6
-# basic_io_512 6
-# basic_rebuild_io_4k 7
-# basic_rebuild_io_512 7
-# random_io_4k 8
-# random_io_512 8
+# lawdisk_512 4
+# filesystem_4k 5
+# filesystem_512 6
+# mix_4k 7
+# mix_512 8
+# basic_io_4k 9
+# basic_io_512 10
+# basic_rebuild_io_4k 11
+# basic_rebuild_io_512 12
+# random_io_4k 13
+# random_io_512 14
 # === END SELECTION ===
 
 
 # ============================================================
 # 各用例参数（只写该用例会用到的键）
-# FIO_CONFIG 指向 IO_Stress/ 下对应 CSV
+# FIO_CONFIG 指向 IO_Stress/ 下对应 CSV（仅保留 *_4k / *_512）
 # mix_* 额外设置 IO_BS_ALIGN=4k|512
+# 旧无后缀 CSV / 旧用例脚本见 History/
 # ============================================================
 
-[reboot_4k]
+[reboot]
 FIO_CYCLES      = 100
 FIO_CONFIG      = Input_Config_reboot_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 
-[reboot_512]
-FIO_CYCLES      = 100
-FIO_CONFIG      = Input_Config_reboot_512.csv
-IGNORE_ERROR    = yes
-FIO_DISKS       =
-
-[dc_4k]
+[dc]
 FIO_CYCLES      = 5
 FIO_CONFIG      = Input_Config_dc_4k.csv
-IGNORE_ERROR    = yes
-FIO_DISKS       =
-
-[dc_512]
-FIO_CYCLES      = 5
-FIO_CONFIG      = Input_Config_dc_512.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 
