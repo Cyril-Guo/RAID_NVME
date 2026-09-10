@@ -9,8 +9,8 @@
 #   - 行格式：<完整用例名> <执行序号>；可写多个序号重复执行
 #   - 行首 # 表示不跑；去掉 # 即启用
 #
-# CI 分支用例：env_prepare / lawdisk / filesystem / mix / random_io
-# reboot/dc/basic_io 见 PowerCycle 分支与 History/
+# CI 用例：test_ci_00..08（env_prepare / lawdisk / filesystem / mix / random_io）
+# 电源循环 reboot/dc 与 basic_io 不在本分支（见 PowerCycle / History）
 # ============================================================
 
 # === BEGIN SELECTION（自动同步；完整用例名 + 执行序号，# 表示不跑）===

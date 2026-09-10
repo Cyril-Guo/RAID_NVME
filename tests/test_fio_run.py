@@ -13,7 +13,7 @@ def test_resolve_fio_csv_uses_case_file(tmp_path, monkeypatch):
     monkeypatch.setenv("RAID_NVME_CASE_ROOT", str(tmp_path))
     monkeypatch.delenv("FIO_CONFIG", raising=False)
 
-    assert resolve_fio_csv("lawdisk") == "Input_Config_lawdisk.csv"
+    assert resolve_fio_csv("test_ci_01_lawdisk_4k") == "Input_Config_lawdisk.csv"
 
 
 def test_resolve_fio_csv_honors_fio_config_override(tmp_path, monkeypatch):
@@ -23,7 +23,7 @@ def test_resolve_fio_csv_honors_fio_config_override(tmp_path, monkeypatch):
     monkeypatch.setenv("RAID_NVME_CASE_ROOT", str(tmp_path))
     monkeypatch.setenv("FIO_CONFIG", "custom_mix.csv")
 
-    assert resolve_fio_csv("mix") == "custom_mix.csv"
+    assert resolve_fio_csv("test_ci_05_mix_4k") == "custom_mix.csv"
 
 
 def test_build_fio_args_passes_case_csv(tmp_path, monkeypatch):
@@ -35,7 +35,7 @@ def test_build_fio_args_passes_case_csv(tmp_path, monkeypatch):
     monkeypatch.setenv("IGNORE_ERROR", "yes")
     monkeypatch.delenv("FIO_DISKS", raising=False)
 
-    args = build_fio_args("lawdiskstress", "mix", extra=["--mix_io", "yes"])
+    args = build_fio_args("lawdiskstress", "test_ci_05_mix_4k", extra=["--mix_io", "yes"])
     assert args == [
         "-i",
         "lawdiskstress",
@@ -51,28 +51,28 @@ def test_build_fio_args_passes_case_csv(tmp_path, monkeypatch):
 def test_ci_cases_use_own_csv_and_do_not_import_siblings():
     sources = {
         "test_ci_00_env_prepare.py": "run_env_prepare(log)",
-        "test_ci_03_lawdisk.py": 'build_fio_args("lawdiskstress", "lawdisk"',
-        "test_ci_04_filesystem.py": 'build_fio_args("filesystemstress", "filesystem"',
-        "test_ci_05_mix.py": 'build_fio_args("lawdiskstress", "mix", extra=["--mix_io", "yes"]',
-        "test_ci_08_random_io.py": 'write_fio_job(plan, disk_sizes, jobs["FILL"], "FILL")',
+        "test_ci_01_lawdisk_4k.py": 'build_fio_args("lawdiskstress"',
+        "test_ci_03_filesystem_4k.py": 'build_fio_args("filesystemstress"',
+        "test_ci_05_mix_4k.py": 'extra=["--mix_io", "yes"]',
+        "test_ci_07_random_io_4k.py": 'write_fio_job(plan, disk_sizes, jobs["FILL"], "FILL")',
     }
     for name, needle in sources.items():
         source = Path("test_items", name).read_text(encoding="utf-8")
         assert needle in source
-        assert "test_ci_03_lawdisk" not in source or name == "test_ci_03_lawdisk.py"
         assert "as lawdisk_case" not in source
         assert "prepare_physical_io_case" not in source
-    for item in (
-
-
-        "lawdisk",
-        "filesystem",
-        "mix",
-
-
-        "random_io",
+    for stem in (
+        "lawdisk_4k",
+        "lawdisk_512",
+        "filesystem_4k",
+        "filesystem_512",
+        "mix_4k",
+        "mix_512",
+        "random_io_4k",
+        "random_io_512",
     ):
-        assert Path("IO_Stress", f"Input_Config_{item}.csv").is_file()
+        assert Path("IO_Stress", f"Input_Config_{stem}.csv").is_file()
+
 
 
 def test_single_mode_propagates_run_single_failure():
@@ -103,7 +103,7 @@ class _FakeProcess:
 
 def _configure_fio_runner(monkeypatch, tmp_path, lines, returncode, attachments):
     monkeypatch.setenv("RAID_NVME_CASE_ROOT", str(tmp_path))
-    monkeypatch.setenv("RAID_NVME_RUN_KEY", "mix__2")
+    monkeypatch.setenv("RAID_NVME_RUN_KEY", "test_ci_05_mix_4k__5")
     monkeypatch.delenv("IGNORE_ERROR", raising=False)
     monkeypatch.setattr(
         fio_run.subprocess,

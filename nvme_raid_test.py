@@ -46,7 +46,7 @@ _SKIP_NAME_RE = re.compile(
 
 
 def item_name_from_filename(filename):
-    """Map test_ci_01_reboot.py -> test_ci_01_reboot, test_foo.py -> foo."""
+    """Map test_ci_01_lawdisk_4k.py -> test_ci_01_lawdisk_4k, test_foo.py -> foo."""
     if _SKIP_NAME_RE.search(filename):
         return None
     match = _CI_NAME_RE.match(filename)
@@ -61,7 +61,7 @@ def item_name_from_filename(filename):
 
 
 def item_short_name(name):
-    """test_ci_03_lawdisk_4k -> lawdisk_4k; plain names unchanged."""
+    """test_ci_01_lawdisk_4k -> lawdisk_4k; plain names unchanged."""
     match = _CI_SHORT_RE.match(name or "")
     return match.group(1).strip().lower() if match else (name or "").strip().lower()
 
@@ -98,8 +98,8 @@ _SELECTION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 def parse_selection_entry(line):
     """Parse a selection line into (name, orders, enabled), or None.
 
-    Preferred: ``test_ci_01_reboot 1`` or ``test_ci_07_mix_4k 8 10``.
-    Also accepts short legacy names and order-first lines.
+    Preferred: ``test_ci_05_mix_4k 5`` or ``test_ci_05_mix_4k 5 8``.
+    Also accepts order-first lines (``5 test_ci_05_mix_4k``).
     """
     text = line.strip()
     if not text:
@@ -145,7 +145,7 @@ def _selection_entry_name(line):
 
 
 def catalog_default_order(name, catalog):
-    """Prefer CI file number (test_ci_03_*.py -> 3); else None."""
+    """Prefer CI file number (test_ci_05_mix_4k.py -> 5); else None."""
     path = catalog.get(name, "")
     match = _CI_ORDER_RE.match(os.path.basename(path))
     if match:
@@ -205,7 +205,7 @@ def read_enabled_selection(path):
 def build_run_plan(path, test_items=None):
     """Expand enabled selection lines into ordered run slots.
 
-    ``test_ci_07_mix_4k 8 10`` contributes two slots.
+    ``test_ci_05_mix_4k 5 8`` contributes two slots.
     Every slot uses ``run_key`` ``{item}__{order}`` for isolated artifacts and reporting.
     """
     catalog = test_items if test_items is not None else TEST_ITEMS
@@ -908,14 +908,18 @@ def result_matches_item(result, item, run_key=None):
         for key in ("name", "fullName", "historyId", "testCaseId")
     )
     aliases = {
-        "lawdisk": ("lawdisk", "lawdiskstress"),
-        "filesystem": ("filesystem", "filesystemstress"),
-        "mix": ("mix", "mix_stress"),
-        "reboot": ("reboot", "reboot_powercycle"),
-        "dc": ("dc", "dc_powercycle"),
-        "basic_io": ("basic_io", "basic_io"),
-        "basic_rebuild_io": ("basic_rebuild_io", "basic_rebuild_io"),
-        "random_io": ("random_io", "randomio"),
+        "test_ci_00_env_prepare": ("test_ci_00_env_prepare", "env_prepare"),
+        "test_ci_01_lawdisk_4k": ("test_ci_01_lawdisk_4k", "lawdisk_4k", "lawdiskstress"),
+        "test_ci_02_lawdisk_512": ("test_ci_02_lawdisk_512", "lawdisk_512", "lawdiskstress"),
+        "test_ci_03_filesystem_4k": ("test_ci_03_filesystem_4k", "filesystem_4k", "filesystemstress"),
+        "test_ci_04_filesystem_512": ("test_ci_04_filesystem_512", "filesystem_512", "filesystemstress"),
+        "test_ci_05_mix_4k": ("test_ci_05_mix_4k", "mix_4k", "mix_stress"),
+        "test_ci_06_mix_512": ("test_ci_06_mix_512", "mix_512", "mix_stress"),
+        "test_ci_07_random_io_4k": ("test_ci_07_random_io_4k", "random_io_4k", "randomio"),
+        "test_ci_08_random_io_512": ("test_ci_08_random_io_512", "random_io_512", "randomio"),
+        # PowerCycle branch names (CI has no such cases; kept for shared helper):
+        "test_ci_01_reboot": ("test_ci_01_reboot", "reboot", "reboot_powercycle"),
+        "test_ci_02_dc": ("test_ci_02_dc", "dc", "dc_powercycle"),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))
 

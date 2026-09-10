@@ -4,7 +4,7 @@ from test_items.case_paths import case_root, io_stress_dir
 
 
 def test_case_paths_prefer_raid_nvme_case_root(monkeypatch, tmp_path):
-    case = tmp_path / "cases" / "mix"
+    case = tmp_path / "cases" / "test_ci_05_mix_4k"
     (case / "IO_Stress").mkdir(parents=True)
     shared = tmp_path / "IO_Stress"
     shared.mkdir()
@@ -16,7 +16,7 @@ def test_case_paths_prefer_raid_nvme_case_root(monkeypatch, tmp_path):
 
 
 def test_case_paths_prefer_cwd_when_env_missing(monkeypatch, tmp_path):
-    case = tmp_path / "cases" / "mix"
+    case = tmp_path / "cases" / "test_ci_05_mix_4k"
     (case / "IO_Stress").mkdir(parents=True)
     monkeypatch.delenv("RAID_NVME_CASE_ROOT", raising=False)
     monkeypatch.chdir(case)

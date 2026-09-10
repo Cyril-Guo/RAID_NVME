@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Wait on the Jenkins agent for reboot/dc loops to finish on the DUT.
-# Pytest only verifies "request start"; multi-loop resume happens after reboot.
+# Wait on the Jenkins agent for power-cycle loops to finish on the DUT.
+# CI branch has no reboot/dc cases; this no-ops unless such items are selected
+# (PowerCycle branch). Pytest only verifies "request start".
 set -euo pipefail
 
 : "${NODE_IP:?NODE_IP is required}"
@@ -20,7 +21,7 @@ result_roots_for_item() {
         "${REMOTE_DIR}/${RESULT_REL}"
 }
 
-# test_ci_01_reboot -> reboot; plain reboot stays reboot.
+# Strip test_ci_NN_ prefix: test_ci_01_reboot -> reboot (PowerCycle naming).
 item_short_name() {
     local name="$1"
     if [[ "${name}" =~ ^test_ci_[0-9]+_(.+)$ ]]; then
@@ -74,8 +75,8 @@ parse_selected_powercycle_items() {
         tokens=("$@")
         [[ "${#tokens[@]}" -ge 1 ]] || continue
 
-        # Preferred: test_ci_01_reboot 1   (name then one-or-more orders)
-        # Also accept short reboot/dc and order-first: 1 test_ci_01_reboot
+        # Preferred: <full_item> <order>...  e.g. test_ci_01_reboot 1 (PowerCycle)
+        # Also accept short reboot/dc and order-first lines.
         local i
         name=""
         if [[ "${tokens[0]}" =~ ^[0-9]+$ ]]; then
