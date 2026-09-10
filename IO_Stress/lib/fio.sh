@@ -2080,6 +2080,13 @@ sub_all()
 
 function get_config_filelist() {
     rm -rf $File_Dir/*
+    if [[ "$item" == "FILESYSTEMSTRESS" ]]; then
+        # Built-in rounds; keep one placeholder so all()/run_mode loop once.
+        config_list="filesystem_builtin"
+        : > "$Cur_Dir/config_list1.log"
+        echo "filesystem_builtin" > "$Cur_Dir/config_list1.log"
+        return 0
+    fi
     if [[ $mix_io == NO ]];then
         cp -r $Cur_Dir/$filename $File_Dir/ >/dev/null
         # Only append End to the copy in File_Dir if not already present

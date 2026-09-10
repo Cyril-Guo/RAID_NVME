@@ -156,8 +156,9 @@ def _is_mix_extra(extra):
 def build_fio_args(mode, item, extra=None):
     flag_val = "NON-STOP" if ignore_error_enabled() else "STOP"
     args = ["-i", mode, "-f", flag_val]
-    # mix_io generates MixIO*.csv via random_choice; no Input_Config CSV needed.
-    if not _is_mix_extra(extra):
+    # mix/filesystem build models in-engine; no Input_Config CSV needed.
+    needs_csv = (not _is_mix_extra(extra)) and str(mode).strip().lower() != "filesystemstress"
+    if needs_csv:
         args.extend(["-n", resolve_fio_csv(item)])
     if extra:
         args.extend(extra)

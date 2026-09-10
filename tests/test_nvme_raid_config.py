@@ -73,7 +73,7 @@ def test_repository_test_items_file_is_valid():
     assert "defaults" not in params
     assert params["test_ci_01_lawdisk"]["IGNORE_ERROR"] == "yes"
     assert params["test_ci_01_lawdisk"]["FIO_CONFIG"] == "Input_Config_lawdisk.csv"
-    assert params["test_ci_02_filesystem"]["FIO_CONFIG"] == "Input_Config_filesystem.csv"
+    assert "FIO_CONFIG" not in params["test_ci_02_filesystem"]
     assert "FIO_CONFIG" not in params["test_ci_03_mix_4k"]
     assert params["test_ci_03_mix_4k"]["MIX_FAIL_ON_ANY"].strip().lower() in ("yes", "no")
     assert params["test_ci_02_filesystem"]["FIO_RUNTIME"] == "43200"

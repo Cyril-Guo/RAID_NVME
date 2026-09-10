@@ -165,7 +165,8 @@ function check_arguments()
         LOOP=1
         #runtime=43200
 #	    disk_mode="ALL"
-        if [[ -z "$filename" && "${mix_io^^}" != "YES" && "$mix_io" != "yes" ]];then
+        # filesystem/mix do not use Input_Config CSV
+        if [[ -z "$filename" && "$item" != "FILESYSTEMSTRESS" && "${mix_io^^}" != "YES" && "$mix_io" != "yes" ]];then
              filename="Input_Config_Disk_Full_Scan.csv"
         fi
         if [[ $item == "FILESYSTEMSTRESS" && -n "${FIO_RUNTIME:-}" ]]; then
@@ -247,6 +248,10 @@ function check_arguments()
     fi
     # mix uses random_choice -> MixIO*.csv; Input_Config CSV is unused.
     if [[ "$mix_io" == "YES" ]]; then
+        filename=""
+    fi
+    # filesystem uses built-in 16x16 round models; Input_Config CSV is unused.
+    if [[ "$item" == "FILESYSTEMSTRESS" ]]; then
         filename=""
     fi
     if [[ $item == "DC" ]];then

@@ -63,11 +63,11 @@ def test_ci_cases_use_own_csv_and_do_not_import_siblings():
         assert "prepare_physical_io_case" not in source
     for stem in (
         "lawdisk",
-        "filesystem",
         "random_io_4k",
         "random_io_512",
     ):
         assert Path("IO_Stress", f"Input_Config_{stem}.csv").is_file()
+    assert not Path("IO_Stress", "Input_Config_filesystem.csv").is_file()
     # mix has no Input_Config CSV; models come from random_choice_*.py
     assert not Path("IO_Stress", "Input_Config_mix_4k.csv").is_file()
     assert not Path("IO_Stress", "Input_Config_mix_512.csv").is_file()
@@ -188,3 +188,13 @@ def test_build_fio_args_mix_skips_csv(monkeypatch, tmp_path):
     monkeypatch.setenv("FIO_CONFIG", "Input_Config_lawdisk.csv")
     args2 = fio_run.build_fio_args("lawdiskstress", "test_ci_01_lawdisk")
     assert args2[args2.index("-n") + 1] == "Input_Config_lawdisk.csv"
+
+
+def test_build_fio_args_filesystem_skips_csv(monkeypatch, tmp_path):
+    from test_items import fio_run
+
+    monkeypatch.setenv("IGNORE_ERROR", "yes")
+    monkeypatch.delenv("FIO_DISKS", raising=False)
+    monkeypatch.setattr(fio_run, "io_stress_dir", lambda: str(tmp_path))
+    args = fio_run.build_fio_args("filesystemstress", "test_ci_02_filesystem")
+    assert "-n" not in args
