@@ -4,31 +4,30 @@
 # BEGIN/END SELECTION 块会在运行 nvme_raid_test.py 时自动同步
 # （也可手动：python nvme_raid_test.py --sync-selection）。
 #
-# 命名规范：test_ci_<NN>_<name>[_4k|_512]
-#   - NN 连续编号（00..08）；脚本名去掉 .py 即为选择名
+# 命名规范：test_ci_<NN>_<name>[ _4k|_512 ]
+#   - NN 连续编号（00..06）
+#   - lawdisk / filesystem：不区分 4k/512，靠手动改 FIO_CONFIG 指向的 CSV
+#   - mix / random_io：仍分 4k / 512
 #   - 行格式：<完整用例名> <执行序号>；可写多个序号重复执行
 #   - 行首 # 表示不跑；去掉 # 即启用
 #
-# CI 用例：test_ci_00..08（env_prepare / lawdisk / filesystem / mix / random_io）
 # 电源循环 reboot/dc 与 basic_io 不在本分支（见 PowerCycle / History）
 # ============================================================
 
 # === BEGIN SELECTION（自动同步；完整用例名 + 执行序号，# 表示不跑）===
 # test_ci_00_env_prepare 0
-# test_ci_01_lawdisk_4k 1
-# test_ci_02_lawdisk_512 2
-# test_ci_03_filesystem_4k 3
-# test_ci_04_filesystem_512 4
-test_ci_05_mix_4k 5
-# test_ci_06_mix_512 6
-# test_ci_07_random_io_4k 7
-# test_ci_08_random_io_512 8
+# test_ci_01_lawdisk 1
+# test_ci_02_filesystem 2
+test_ci_03_mix_4k 3
+# test_ci_04_mix_512 4
+# test_ci_05_random_io_4k 5
+# test_ci_06_random_io_512 6
 # === END SELECTION ===
 
 
 # ============================================================
 # 各用例参数（块名必须与选择名一致）
-# FIO_CONFIG -> IO_Stress/Input_Config_*_{4k,512}.csv
+# lawdisk/filesystem：改 FIO_CONFIG= 指向的 CSV 内容即可（手动）
 # mix_* 设置 IO_BS_ALIGN=4k|512
 # ============================================================
 
@@ -36,37 +35,22 @@ test_ci_05_mix_4k 5
 # Stop QEMU if running, unload draid, return vfio devices to host,
 # then CSD flash clear + dpraid/draid reload + VD/PD clear.
 
-[test_ci_01_lawdisk_4k]
-FIO_CONFIG      = Input_Config_lawdisk_4k.csv
+[test_ci_01_lawdisk]
+FIO_CONFIG      = Input_Config_lawdisk.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
-[test_ci_02_lawdisk_512]
-FIO_CONFIG      = Input_Config_lawdisk_512.csv
-IGNORE_ERROR    = yes
-FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME = 21600
-
-[test_ci_03_filesystem_4k]
-FIO_CONFIG      = Input_Config_filesystem_4k.csv
+[test_ci_02_filesystem]
+FIO_CONFIG      = Input_Config_filesystem.csv
 FIO_RUNTIME     = 43200
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
-[test_ci_04_filesystem_512]
-FIO_CONFIG      = Input_Config_filesystem_512.csv
-FIO_RUNTIME     = 43200
-IGNORE_ERROR    = yes
-FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME = 21600
-
-[test_ci_05_mix_4k]
+[test_ci_03_mix_4k]
 FIO_CONFIG      = Input_Config_mix_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
@@ -75,7 +59,7 @@ MONITOR_RUNTIME =
 MIX_FAIL_ON_ANY = yes
 IO_BS_ALIGN     = 4k
 
-[test_ci_06_mix_512]
+[test_ci_04_mix_512]
 FIO_CONFIG      = Input_Config_mix_512.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
@@ -84,18 +68,18 @@ MONITOR_RUNTIME =
 MIX_FAIL_ON_ANY = yes
 IO_BS_ALIGN     = 512
 
-[test_ci_07_random_io_4k]
-FIO_CONFIG                = Input_Config_random_io_4k.csv
-IGNORE_ERROR              = yes
-FIO_DISKS                 =
-STRESS_MONITOR            = no
-MONITOR_RUNTIME           =
-RANDOM_IO_DURATION        = 12h
+[test_ci_05_random_io_4k]
+FIO_CONFIG         = Input_Config_random_io_4k.csv
+IGNORE_ERROR       = yes
+FIO_DISKS          =
+STRESS_MONITOR     = no
+MONITOR_RUNTIME    =
+RANDOM_IO_DURATION =
 
-[test_ci_08_random_io_512]
-FIO_CONFIG                = Input_Config_random_io_512.csv
-IGNORE_ERROR              = yes
-FIO_DISKS                 =
-STRESS_MONITOR            = no
-MONITOR_RUNTIME           =
-RANDOM_IO_DURATION        = 12h
+[test_ci_06_random_io_512]
+FIO_CONFIG         = Input_Config_random_io_512.csv
+IGNORE_ERROR       = yes
+FIO_DISKS          =
+STRESS_MONITOR     = no
+MONITOR_RUNTIME    =
+RANDOM_IO_DURATION =

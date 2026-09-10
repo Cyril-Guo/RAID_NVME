@@ -9,7 +9,7 @@ def test_report_metrics_counts_testcase_nodes_when_testsuites_root_is_zero(tmp_p
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuites tests="0" failures="0" errors="0" skipped="0">
   <testsuite name="pytest">
-    <testcase classname="test_items.test_ci_01_lawdisk_4k" name="test_lawdiskstress" />
+    <testcase classname="test_items.test_ci_01_lawdisk" name="test_lawdiskstress" />
     <testcase classname="test_items.test_ci_04_mix" name="test_mix_stress">
       <failure message="fio failed">trace</failure>
     </testcase>
@@ -95,7 +95,7 @@ def test_main_prints_kind(tmp_path, monkeypatch, capsys):
 
 def test_report_metrics_skips_per_item_junit_files(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "report_test_ci_01_lawdisk_4k.xml").write_text(
+    (tmp_path / "report_test_ci_01_lawdisk.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="x" name="a"><failure message="x">y</failure></testcase>
 </testsuite>
@@ -154,8 +154,8 @@ def test_report_metrics_merges_native_allure_failure_missing_from_junit(tmp_path
     monkeypatch.chdir(tmp_path)
     (tmp_path / "report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
-  <testcase classname="test_items.test_ci_05_mix_4k" name="test_mix_stress">
-    <properties><property name="run_key" value="test_ci_05_mix_4k__1" /></properties>
+  <testcase classname="test_items.test_ci_03_mix_4k" name="test_mix_stress">
+    <properties><property name="run_key" value="test_ci_03_mix_4k__1" /></properties>
   </testcase>
 </testsuite>
 """,
@@ -167,11 +167,11 @@ def test_report_metrics_merges_native_allure_failure_missing_from_junit(tmp_path
         json.dumps(
             {
                 "name": "[Physical 192.168.22.134] test_mix_stress",
-                "fullName": "physical:192.168.22.134:test_items.test_ci_05_mix_4k#test_mix_stress",
+                "fullName": "physical:192.168.22.134:test_items.test_ci_03_mix_4k#test_mix_stress",
                 "status": "passed",
                 "labels": [
                     {"name": "host", "value": "192.168.22.134"},
-                    {"name": "run_key", "value": "test_ci_05_mix_4k__1"},
+                    {"name": "run_key", "value": "test_ci_03_mix_4k__1"},
                 ],
             }
         ),
@@ -181,11 +181,11 @@ def test_report_metrics_merges_native_allure_failure_missing_from_junit(tmp_path
         json.dumps(
             {
                 "name": "[Physical 192.168.22.134] test_mix_stress",
-                "fullName": "physical:192.168.22.134:test_items.test_ci_05_mix_4k#test_mix_stress",
+                "fullName": "physical:192.168.22.134:test_items.test_ci_03_mix_4k#test_mix_stress",
                 "status": "failed",
                 "labels": [
                     {"name": "host", "value": "192.168.22.134"},
-                    {"name": "run_key", "value": "test_ci_05_mix_4k__2"},
+                    {"name": "run_key", "value": "test_ci_03_mix_4k__2"},
                 ],
             }
         ),

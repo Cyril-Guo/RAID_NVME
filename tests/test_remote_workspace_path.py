@@ -33,8 +33,8 @@ def test_remote_workspace_root_separates_job_branch_and_build():
 
 
 def test_case_workdir_nests_under_build_root():
-    assert case_workdir("/root/Cyril/Jenkins/CI/CI/build-9", "test_ci_05_mix_4k") == (
-        "/root/Cyril/Jenkins/CI/CI/build-9/cases/test_ci_05_mix_4k"
+    assert case_workdir("/root/Cyril/Jenkins/CI/CI/build-9", "test_ci_03_mix_4k") == (
+        "/root/Cyril/Jenkins/CI/CI/build-9/cases/test_ci_03_mix_4k"
     )
 
 

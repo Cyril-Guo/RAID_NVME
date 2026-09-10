@@ -7,10 +7,10 @@ def write_json(path, data):
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
 
-def result(run="test_ci_05_mix_4k__2", node="192.168.22.134", status="failed"):
+def result(run="test_ci_03_mix_4k__2", node="192.168.22.134", status="failed"):
     return {
         "uuid": f"{node}-{run}", "name": "FIO mix", "status": status,
-        "fullName": f"physical:{node}:{run}::test_items.test_ci_05_mix_4k#test_mix_stress",
+        "fullName": f"physical:{node}:{run}::test_items.test_ci_03_mix_4k#test_mix_stress",
         "labels": [{"name": "host", "value": node}, {"name": "target", "value": "physical"},
                    {"name": "run_key", "value": run}, {"name": "framework", "value": "pytest"},
                    {"name": "parentSuite", "value": "测试日志"}, {"name": "suite", "value": run}],
@@ -58,7 +58,7 @@ def test_pytest_duplicates_removed_but_real_internal_error_preserved(tmp_path, m
     root.mkdir()
     write_json(root / "native-result.json", result())
     duplicate = result()
-    duplicate.update(uuid="converted", fullName="physical:192.168.22.134:test_items.test_ci_05_mix_4k__2#test_mix_stress")
+    duplicate.update(uuid="converted", fullName="physical:192.168.22.134:test_items.test_ci_03_mix_4k__2#test_mix_stress")
     duplicate["labels"] = [l for l in duplicate["labels"] if l["name"] not in ("parentSuite", "suite")]
     duplicate["labels"].append({"name": "suite", "value": "pytest"})
     write_json(root / "duplicate-result.json", duplicate)
@@ -82,31 +82,31 @@ def test_native_case_does_not_suppress_another_junit_case(tmp_path, monkeypatch)
     root.mkdir()
     write_json(root / "native-result.json", result())
     (tmp_path / "report_192.168.22.134.xml").write_text(
-        '<testsuite name="pytest"><testcase classname="test_items.test_ci_05_mix_4k__2" name="test_mix_stress">'
+        '<testsuite name="pytest"><testcase classname="test_items.test_ci_03_mix_4k__2" name="test_mix_stress">'
         '<failure message="fio timeout" /></testcase>'
-        '<testcase classname="test_items.test_ci_07_random_io_4k__5" name="test_random_io" /></testsuite>')
+        '<testcase classname="test_items.test_ci_05_random_io_4k__5" name="test_random_io" /></testsuite>')
     junit_to_allure.main()
     results = [json.loads(p.read_text(encoding="utf-8")) for p in root.glob("*-result.json")]
     assert len(results) == 2
-    assert any("test_ci_07_random_io_4k" in r["name"] for r in results)
+    assert any("test_ci_05_random_io_4k" in r["name"] for r in results)
 
 
 def test_sidecars_match_exact_host_and_run_key(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "allure-results"
     root.mkdir()
-    for run in ("test_ci_05_mix_4k__2", "test_ci_05_mix_4k__5"):
+    for run in ("test_ci_03_mix_4k__2", "test_ci_03_mix_4k__5"):
         for node in ("192.168.22.134", "192.168.22.135"):
             write_json(root / f"{node}-{run}-result.json", result(run, node))
     (root / "case.tar.gz").write_bytes(b"debug")
-    write_json(root / "physical_134_monitor_attachments.json", [{"item": "test_ci_05_mix_4k", "run_key": "test_ci_05_mix_4k__2",
+    write_json(root / "physical_134_monitor_attachments.json", [{"item": "test_ci_03_mix_4k", "run_key": "test_ci_03_mix_4k__2",
         "host": "192.168.22.134", "target": "physical", "attachment": {
         "name": "case debug", "source": "case.tar.gz", "type": "application/gzip"}}])
     junit_to_allure.main()
     for path in root.glob("*-result.json"):
         data = json.loads(path.read_text(encoding="utf-8"))
         found = any(a["source"] == "case.tar.gz" for a in sections(data)["日志收集"]["attachments"])
-        assert found == (path.name == "192.168.22.134-test_ci_05_mix_4k__2-result.json")
+        assert found == (path.name == "192.168.22.134-test_ci_03_mix_4k__2-result.json")
 
 
 def test_missing_attachment_has_explanation_not_dead_link(tmp_path, monkeypatch):
@@ -132,7 +132,7 @@ def test_two_nodes_with_same_case_keep_separate_log_content(tmp_path, monkeypatc
     destination.mkdir()
     for node in ("192.168.22.134", "192.168.22.135"):
         workspace = tmp_path / node
-        case = workspace / "cases" / "test_ci_05_mix_4k__2"
+        case = workspace / "cases" / "test_ci_03_mix_4k__2"
         raw = case / "allure-results"
         raw.mkdir(parents=True)
         (case / "fio.log").write_text(node)

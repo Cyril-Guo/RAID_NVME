@@ -140,9 +140,9 @@ def test_resolve_failure_bundle_prefers_live_over_recollect(tmp_path, monkeypatc
     base = tmp_path / "ws"
     bundles = base / "failure_bundles"
     bundles.mkdir(parents=True)
-    live = bundles / "failure_bundle_10.0.0.8_test_ci_05_mix_4k_live.tar.gz"
+    live = bundles / "failure_bundle_10.0.0.8_test_ci_03_mix_4k_live.tar.gz"
     live.write_bytes(b"live-tar")
-    (bundles / "live_bundle_test_ci_05_mix_4k.txt").write_text(str(live), encoding="utf-8")
+    (bundles / "live_bundle_test_ci_03_mix_4k.txt").write_text(str(live), encoding="utf-8")
     (bundles / "preferred_live_bundle_path.txt").write_text(str(live), encoding="utf-8")
 
     called = {"count": 0}
@@ -152,7 +152,7 @@ def test_resolve_failure_bundle_prefers_live_over_recollect(tmp_path, monkeypatc
         return str(bundles / "should_not_use.tar.gz")
 
     monkeypatch.setattr(runner, "collect_failure_bundle", _fake_collect)
-    archive = runner.resolve_failure_bundle_for_item(str(base), "test_ci_05_mix_4k", exit_code=1)
+    archive = runner.resolve_failure_bundle_for_item(str(base), "test_ci_03_mix_4k", exit_code=1)
     assert archive == str(live)
     assert called["count"] == 0
 
@@ -169,11 +169,11 @@ def test_add_allure_failure_bundle_prefers_live_path(tmp_path):
     allure_dir.mkdir(parents=True)
     bundles = base / "failure_bundles"
     bundles.mkdir()
-    live = bundles / "failure_bundle_10.0.0.8_test_ci_05_mix_4k_1.tar.gz"
+    live = bundles / "failure_bundle_10.0.0.8_test_ci_03_mix_4k_1.tar.gz"
     live.write_bytes(b"live-tar")
-    late = bundles / "failure_bundle_10.0.0.8_test_ci_05_mix_4k_2.tar.gz"
+    late = bundles / "failure_bundle_10.0.0.8_test_ci_03_mix_4k_2.tar.gz"
     late.write_bytes(b"late-tar")
-    (bundles / "live_bundle_test_ci_05_mix_4k.txt").write_text(str(live), encoding="utf-8")
+    (bundles / "live_bundle_test_ci_03_mix_4k.txt").write_text(str(live), encoding="utf-8")
     (bundles / "latest_bundle_path.txt").write_text(str(late), encoding="utf-8")
     (bundles / "latest_bundle_summary.txt").write_text("live summary\n", encoding="utf-8")
     result_path = allure_dir / "abc-result.json"
@@ -181,18 +181,18 @@ def test_add_allure_failure_bundle_prefers_live_path(tmp_path):
         json.dumps(
             {
                 "name": "Test_CI_mix_4k",
-                "fullName": "test_items.test_ci_05_mix_4k.Test_CI_mix_4k",
+                "fullName": "test_items.test_ci_03_mix_4k.Test_CI_mix_4k",
                 "status": "failed",
-                "labels": [{"name": "run_key", "value": "test_ci_05_mix_4k"}],
+                "labels": [{"name": "run_key", "value": "test_ci_03_mix_4k"}],
                 "attachments": [],
             }
         ),
         encoding="utf-8",
     )
 
-    runner.add_allure_failure_bundle("test_ci_05_mix_4k", str(base), item="test_ci_05_mix_4k")
+    runner.add_allure_failure_bundle("test_ci_03_mix_4k", str(base), item="test_ci_03_mix_4k")
 
-    attached = (allure_dir / "failure_bundle_test_ci_05_mix_4k.tar.gz").read_bytes()
+    attached = (allure_dir / "failure_bundle_test_ci_03_mix_4k.tar.gz").read_bytes()
     assert attached == b"live-tar"
 
 
@@ -308,7 +308,7 @@ def test_add_allure_failure_bundle_attaches_tar_and_summary(tmp_path):
     allure_dir.mkdir(parents=True)
     bundles = base / "failure_bundles"
     bundles.mkdir()
-    archive = bundles / "failure_bundle_10.0.0.8_test_ci_05_mix_4k_1.tar.gz"
+    archive = bundles / "failure_bundle_10.0.0.8_test_ci_03_mix_4k_1.tar.gz"
     archive.write_bytes(b"fake-tar")
     (bundles / "latest_bundle_path.txt").write_text(str(archive), encoding="utf-8")
     (bundles / "latest_bundle_summary.txt").write_text(
@@ -319,9 +319,9 @@ def test_add_allure_failure_bundle_attaches_tar_and_summary(tmp_path):
         json.dumps(
             {
                 "name": "Test_CI_mix_4k",
-                "fullName": "test_items.test_ci_05_mix_4k.Test_CI_mix_4k",
+                "fullName": "test_items.test_ci_03_mix_4k.Test_CI_mix_4k",
                 "status": "failed",
-                "labels": [{"name": "run_key", "value": "test_ci_05_mix_4k"}],
+                "labels": [{"name": "run_key", "value": "test_ci_03_mix_4k"}],
                 "attachments": [],
             }
         ),
@@ -329,14 +329,14 @@ def test_add_allure_failure_bundle_attaches_tar_and_summary(tmp_path):
     )
 
     runner.add_allure_failure_bundle(
-        "test_ci_05_mix_4k", str(base), item="test_ci_05_mix_4k", archive_path=str(archive)
+        "test_ci_03_mix_4k", str(base), item="test_ci_03_mix_4k", archive_path=str(archive)
     )
 
     result = json.loads(result_path.read_text(encoding="utf-8"))
     names = {item["name"] for item in result["attachments"]}
-    assert "failure_gcore_bundle_test_ci_05_mix_4k" in names
-    assert "failure_gcore_summary_test_ci_05_mix_4k" in names
-    assert (allure_dir / "failure_bundle_test_ci_05_mix_4k.tar.gz").is_file()
-    assert (allure_dir / "failure_gcore_summary_test_ci_05_mix_4k.txt").read_text(
+    assert "failure_gcore_bundle_test_ci_03_mix_4k" in names
+    assert "failure_gcore_summary_test_ci_03_mix_4k" in names
+    assert (allure_dir / "failure_bundle_test_ci_03_mix_4k.tar.gz").is_file()
+    assert (allure_dir / "failure_gcore_summary_test_ci_03_mix_4k.txt").read_text(
         encoding="utf-8"
     ).startswith("no live fio")

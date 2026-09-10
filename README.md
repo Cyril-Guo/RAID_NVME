@@ -26,7 +26,7 @@ RAID_NVME/
 ├── Stress_Monitor/         # 后台压力监控工具（共用）
 ├── History/               # 归档（旧配置 / 已移出 CI 的用例）
 └── test_items/             # 纯测试项：仅存放各 Pytest 测试用例
-    └── test_ci_00..08_*.py # CI 连续编号用例（完整名即选择名）
+    └── test_ci_00..06_*.py # CI 连续编号用例（完整名即选择名）
 ```
 
 > 说明：`IO_Stress`、`MachineCheck`、`Stress_Monitor` 为多个测试项共用的引擎/工具，
@@ -56,53 +56,53 @@ Jenkins 通过 **`sshpass` + 密码** 连接被测机，**不再依赖 SSH 免�
 1. **`BEGIN/END SELECTION` 块**：列出全部已发现用例。  
    - **格式**：`<完整用例名> <序号> [序号 ...]`（完整用例名 = `test_items/test_ci_NN_*.py` 去掉 `.py`）  
    - 行首 `#` = 不跑；去掉 `#` = 跑  
-   - **按数字升序执行**（与 `test_ci_NN_*` 编号一致：`00`..`08`）  
-   - 同一名称可写多个序号以重复执行，例如 `test_ci_05_mix_4k 5 8`  
+   - **按数字升序执行**（与 `test_ci_NN_*` 编号一致：`00`..`06`）  
+   - 同一名称可写多个序号以重复执行，例如 `test_ci_03_mix_4k 3 5`  
    - 同步会按序号重排、保留启用状态，并给新用例补上 `# <name> <序号>`（也可手动  
      `python nvme_raid_test.py --sync-selection`）
 2. **`[完整用例名]` 参数块**：块名必须与选择名一致，只写该用例会用到的键。
 
-**CI 分支当前用例**（连续编号）：
+**CI 分支当前用例**（连续编号 `00`..`06`）：
 
-| 文件 | 选择名 |
-|------|--------|
-| `test_ci_00_env_prepare.py` | `test_ci_00_env_prepare` |
-| `test_ci_01_lawdisk_4k.py` | `test_ci_01_lawdisk_4k` |
-| `test_ci_02_lawdisk_512.py` | `test_ci_02_lawdisk_512` |
-| `test_ci_03_filesystem_4k.py` | `test_ci_03_filesystem_4k` |
-| `test_ci_04_filesystem_512.py` | `test_ci_04_filesystem_512` |
-| `test_ci_05_mix_4k.py` | `test_ci_05_mix_4k` |
-| `test_ci_06_mix_512.py` | `test_ci_06_mix_512` |
-| `test_ci_07_random_io_4k.py` | `test_ci_07_random_io_4k` |
-| `test_ci_08_random_io_512.py` | `test_ci_08_random_io_512` |
+| 文件 | 选择名 | 说明 |
+|------|--------|------|
+| `test_ci_00_env_prepare.py` | `test_ci_00_env_prepare` | 环境准备 |
+| `test_ci_01_lawdisk.py` | `test_ci_01_lawdisk` | 不区分 4k/512；改 `FIO_CONFIG` 指向的 CSV |
+| `test_ci_02_filesystem.py` | `test_ci_02_filesystem` | 不区分 4k/512；改 `FIO_CONFIG` 指向的 CSV |
+| `test_ci_03_mix_4k.py` | `test_ci_03_mix_4k` | mix 4k |
+| `test_ci_04_mix_512.py` | `test_ci_04_mix_512` | mix 512 |
+| `test_ci_05_random_io_4k.py` | `test_ci_05_random_io_4k` | random_io 4k |
+| `test_ci_06_random_io_512.py` | `test_ci_06_random_io_512` | random_io 512 |
 
 > `reboot` / `dc` / `basic_io` / `basic_rebuild_io` 不在 CI 分支；见 **`PowerCycle`** 分支与 `History/`。
 
 ```text
 # === BEGIN SELECTION（自动同步；完整用例名 + 执行序号，# 表示不跑）===
 # test_ci_00_env_prepare 0
-# test_ci_01_lawdisk_4k 1
-# test_ci_02_lawdisk_512 2
-# test_ci_03_filesystem_4k 3
-# test_ci_04_filesystem_512 4
-test_ci_05_mix_4k 5
-# test_ci_06_mix_512 6
-# test_ci_07_random_io_4k 7
-# test_ci_08_random_io_512 8
+# test_ci_01_lawdisk 1
+# test_ci_02_filesystem 2
+test_ci_03_mix_4k 3
+# test_ci_04_mix_512 4
+# test_ci_05_random_io_4k 5
+# test_ci_06_random_io_512 6
 # === END SELECTION ===
 
-[test_ci_05_mix_4k]
+[test_ci_01_lawdisk]
+FIO_CONFIG      = Input_Config_lawdisk.csv
+IGNORE_ERROR    = yes
+
+[test_ci_03_mix_4k]
 FIO_CONFIG      = Input_Config_mix_4k.csv
 IGNORE_ERROR    = yes
 MIX_FAIL_ON_ANY = yes
 IO_BS_ALIGN     = 4k
 ```
 
-上面启用项按序号执行：`test_ci_05_mix_4k`(5)。下方 `[...]` 只是参数，不决定是否执行。
+上面启用项按序号执行：`test_ci_03_mix_4k`(3)。下方 `[...]` 只是参数，不决定是否执行。
 
 参数含义：
 
-- `FIO_CONFIG`：本用例使用的 CSV（位于 `IO_Stress/`，CI 仅保留 `*_4k.csv` / `*_512.csv`）。
+- `FIO_CONFIG`：本用例使用的 CSV（位于 `IO_Stress/`）。`lawdisk` / `filesystem` 使用无后缀 CSV，内容手动改；`mix` / `random_io` 仍用 `*_4k.csv` / `*_512.csv`。
 - `IO_BS_ALIGN`：仅 mix；`4k` 或 `512`，决定 `random_choice_*.py`。
 - `MIX_FAIL_ON_ANY`：仅 mix；任一 FIO 失败是否判失败。
 - `IGNORE_ERROR`：MachineCheck 结果不一致时是否继续 (yes/no)。
