@@ -71,8 +71,8 @@ Jenkins 通过 **`sshpass` + 密码** 连接被测机，**不再依赖 SSH 免�
 | `test_ci_02_filesystem.py` | `test_ci_02_filesystem` | 无 CSV；内置 16 分区 × 16 模型 × 180s 轮 |
 | `test_ci_03_mix_4k.py` | `test_ci_03_mix_4k` | mix 4k（无 CSV） |
 | `test_ci_04_mix_512.py` | `test_ci_04_mix_512` | mix 512（无 CSV） |
-| `test_ci_05_random_io_4k.py` | `test_ci_05_random_io_4k` | random_io 4k |
-| `test_ci_06_random_io_512.py` | `test_ci_06_random_io_512` | random_io 512 |
+| `test_ci_05_random_io_4k.py` | `test_ci_05_random_io_4k` | random_io 4k 对齐（无 CSV） |
+| `test_ci_06_random_io_512.py` | `test_ci_06_random_io_512` | random_io 512/历史池（无 CSV） |
 
 > `reboot` / `dc` / `basic_io` / `basic_rebuild_io` 不在 CI 分支；见 **`PowerCycle`** 分支与 `History/`。
 
@@ -100,7 +100,7 @@ MIX_FAIL_ON_ANY = yes
 
 参数含义：
 
-- `FIO_CONFIG`：仅 `lawdisk` / `random_io`；`filesystem` / `mix` 不需要 CSV。
+- `FIO_CONFIG`：仅 `lawdisk`；`filesystem` / `mix` / `random_io` 不需要 Input_Config CSV。
 - mix 的 4k/512 由用例脚本内置（`test_ci_03_mix_4k` / `test_ci_04_mix_512`），无需额外参数。
 - `MIX_FAIL_ON_ANY`：仅 mix；任一 FIO 失败是否判失败。
 - `IGNORE_ERROR`：MachineCheck 结果不一致时是否继续 (yes/no)。

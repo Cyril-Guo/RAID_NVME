@@ -35,7 +35,8 @@ CSV_HEADER = (
     "Random_Percentage,Read_Percentage,Verify_Mode,Verify_Type"
 )
 
-BLOCK_SIZES = (
+# Historical / 512-oriented pool (may include non-4k sizes such as 512/1k/3k).
+BLOCK_SIZES_512 = (
     "512",
     "1k",
     "2k",
@@ -64,6 +65,8 @@ BLOCK_SIZES = (
     "8m",
     "16m",
 )
+# Backward-compatible alias used by older imports/tests.
+BLOCK_SIZES = BLOCK_SIZES_512
 RW_CHOICES = (
     {"random_pct": 100, "read_pct": 0, "name": "randwrite"},
     {"random_pct": 0, "read_pct": 0, "name": "write"},
@@ -82,6 +85,20 @@ def block_size_bytes(label):
     if text.endswith("m"):
         return int(text[:-1]) * 1024 * 1024
     return int(text)
+
+
+def block_sizes_for_align(align: str):
+    """Return BS labels for align=512 (legacy pool) or align=4k (4KiB multiples only)."""
+    key = (align or "512").strip().lower()
+    if key in ("512", "512b", "legacy"):
+        return BLOCK_SIZES_512
+    if key in ("4k", "4096", "4kib"):
+        return tuple(
+            label
+            for label in BLOCK_SIZES_512
+            if block_size_bytes(label) % 4096 == 0
+        )
+    raise ValueError(f"unsupported random_io align={align!r}; use 512 or 4k")
 
 
 def _align_down(value: int, align: int) -> int:
@@ -123,9 +140,9 @@ def parse_duration_seconds(raw=None) -> int:
     return max(1, int(float(text)))
 
 
-def _candidates():
+def _candidates(block_sizes=None):
     items = []
-    for block_size in BLOCK_SIZES:
+    for block_size in (block_sizes or BLOCK_SIZES_512):
         for rw in RW_CHOICES:
             for iodepth in IODEPTHS:
                 items.append(
@@ -140,11 +157,14 @@ def _candidates():
     return items
 
 
-def generate_random_io_plan(seed=None):
+def generate_random_io_plan(seed=None, align="512", block_sizes=None):
     if seed is None:
         seed = random.SystemRandom().randint(1, 2**31 - 1)
     rng = random.Random(seed)
-    pool = _candidates()
+    sizes = tuple(block_sizes) if block_sizes is not None else block_sizes_for_align(align)
+    if not sizes:
+        raise ValueError(f"empty block size pool for align={align!r}")
+    pool = _candidates(sizes)
     rng.shuffle(pool)
     models = []
     for index, spec in enumerate(pool[:MODEL_COUNT], start=1):
@@ -161,7 +181,17 @@ def generate_random_io_plan(seed=None):
                 "verify": VERIFY_TYPE,
             }
         )
-    return {"seed": seed, "lba_size": LBA_SIZE, "models": models}
+    align_key = (align or "512").strip().lower()
+    if align_key in ("4096", "4kib"):
+        align_key = "4k"
+    elif align_key in ("512b", "legacy"):
+        align_key = "512"
+    return {
+        "seed": seed,
+        "lba_size": LBA_SIZE,
+        "align": align_key,
+        "models": models,
+    }
 
 
 def format_plan(plan, disk_sizes=None):

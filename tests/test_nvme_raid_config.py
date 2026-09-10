@@ -78,7 +78,7 @@ def test_repository_test_items_file_is_valid():
     assert params["test_ci_03_mix_4k"]["MIX_FAIL_ON_ANY"].strip().lower() in ("yes", "no")
     assert params["test_ci_02_filesystem"]["FIO_RUNTIME"] == "43200"
     assert "FIO_RUNTIME" in nvme_raid_test.ALLOWED_PARAM_KEYS
-    assert params["test_ci_05_random_io_4k"]["FIO_CONFIG"] == "Input_Config_random_io_4k.csv"
+    assert "FIO_CONFIG" not in params["test_ci_05_random_io_4k"]
     assert "FIO_CYCLES" not in params["test_ci_01_lawdisk"]
     assert "test_ci_00_env_prepare" in params
     assert "reboot" not in catalog

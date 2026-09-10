@@ -2,6 +2,7 @@ import pytest
 
 from test_items import random_io_plan
 from test_items import test_ci_05_random_io_4k as random_io_case
+from test_items import random_io_plan_4k, random_io_plan_512
 from test_items.random_io_plan import (
     DEFAULT_DURATION_SECONDS,
     DEFAULT_STRESS_RUNTIME,
@@ -22,6 +23,23 @@ from test_items.random_io_plan import (
     plan_to_fio_job,
     regions_overlap_bytes,
 )
+
+
+
+def test_random_io_plan_4k_only_uses_4k_aligned_block_sizes():
+    plan = random_io_plan_4k.generate_random_io_plan(seed=42)
+    assert plan["align"] == "4k"
+    assert len(plan["models"]) == MODEL_COUNT
+    for model in plan["models"]:
+        assert block_size_bytes(model["bs"]) % 4096 == 0
+
+
+def test_random_io_plan_512_keeps_legacy_pool_including_sub_4k():
+    plan = random_io_plan_512.generate_random_io_plan(seed=42)
+    assert plan["align"] == "512"
+    sizes = {model["bs"] for model in plan["models"]}
+    # With seed=42 the first 16 may or may not include sub-4k; pool itself must.
+    assert any(block_size_bytes(label) % 4096 != 0 for label in random_io_plan_512.BLOCK_SIZES)
 
 
 def test_random_io_plan_has_sixteen_non_overlapping_512_aligned_models():
@@ -205,7 +223,6 @@ def _configure_single_round_case(monkeypatch, tmp_path, runner, attachments):
     )
     monkeypatch.setattr(random_io_case, "parse_duration_seconds", lambda: 1)
     monkeypatch.setattr(random_io_case.time, "monotonic", lambda: next(ticks))
-    monkeypatch.setattr(random_io_case, "maybe_start_monitor", lambda: None)
     monkeypatch.setattr(random_io_case, "run_and_check_argv", runner)
     monkeypatch.setattr(
         random_io_case,

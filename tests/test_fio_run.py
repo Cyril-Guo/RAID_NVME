@@ -61,12 +61,10 @@ def test_ci_cases_use_own_csv_and_do_not_import_siblings():
         assert needle in source
         assert "as lawdisk_case" not in source
         assert "prepare_physical_io_case" not in source
-    for stem in (
-        "lawdisk",
-        "random_io_4k",
-        "random_io_512",
-    ):
+    for stem in ("lawdisk",):
         assert Path("IO_Stress", f"Input_Config_{stem}.csv").is_file()
+    assert not Path("IO_Stress", "Input_Config_random_io_4k.csv").is_file()
+    assert not Path("IO_Stress", "Input_Config_random_io_512.csv").is_file()
     assert not Path("IO_Stress", "Input_Config_filesystem.csv").is_file()
     # mix has no Input_Config CSV; models come from random_choice_*.py
     assert not Path("IO_Stress", "Input_Config_mix_4k.csv").is_file()

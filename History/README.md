@@ -7,6 +7,7 @@
 - lawdisk/filesystem 的 `*_4k` / `*_512` 分拆脚本与 CSV（现已合并为单一用例，靠手动改 CSV）
 - mix 的 `Input_Config_mix_*.csv`（mix 已改为仅用 random_choice，不再读 CSV）
 - `Input_Config_filesystem.csv`（filesystem 已改为内置轮次模型，不再读 CSV）
+- `Input_Config_random_io_*.csv`（random_io 改为 plan_4k/plan_512 生成，不再读 CSV）
 - `powercycle_launch.py` 及对应单测
 
 活跃 CI 用例：
