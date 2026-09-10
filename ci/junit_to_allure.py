@@ -121,14 +121,15 @@ def result_matches_item(result, item, run_key=None):
         parts.append(str(label.get("value", "")).lower())
     text = " ".join(parts)
     aliases = {
-        "test_ci_03_lawdisk_4k": ("test_ci_03_lawdisk_4k", "lawdisk_4k", "lawdiskstress"),
-        "test_ci_04_lawdisk_512": ("test_ci_04_lawdisk_512", "lawdisk_512", "lawdiskstress"),
-        "test_ci_05_filesystem_4k": ("test_ci_05_filesystem_4k", "filesystem_4k", "filesystemstress"),
-        "test_ci_06_filesystem_512": ("test_ci_06_filesystem_512", "filesystem_512", "filesystemstress"),
-        "test_ci_07_mix_4k": ("test_ci_07_mix_4k", "mix_4k", "mix_stress"),
-        "test_ci_08_mix_512": ("test_ci_08_mix_512", "mix_512", "mix_stress"),        "test_ci_13_random_io_4k": ("test_ci_13_random_io_4k", "random_io_4k"),
-        "test_ci_14_random_io_512": ("test_ci_14_random_io_512", "random_io_512"),
         "test_ci_00_env_prepare": ("test_ci_00_env_prepare", "env_prepare"),
+        "test_ci_01_lawdisk_4k": ("test_ci_01_lawdisk_4k", "lawdisk_4k", "lawdiskstress"),
+        "test_ci_02_lawdisk_512": ("test_ci_02_lawdisk_512", "lawdisk_512", "lawdiskstress"),
+        "test_ci_03_filesystem_4k": ("test_ci_03_filesystem_4k", "filesystem_4k", "filesystemstress"),
+        "test_ci_04_filesystem_512": ("test_ci_04_filesystem_512", "filesystem_512", "filesystemstress"),
+        "test_ci_05_mix_4k": ("test_ci_05_mix_4k", "mix_4k", "mix_stress"),
+        "test_ci_06_mix_512": ("test_ci_06_mix_512", "mix_512", "mix_stress"),
+        "test_ci_07_random_io_4k": ("test_ci_07_random_io_4k", "random_io_4k"),
+        "test_ci_08_random_io_512": ("test_ci_08_random_io_512", "random_io_512"),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))
 

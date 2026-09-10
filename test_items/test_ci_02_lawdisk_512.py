@@ -1,4 +1,4 @@
-"""Lawdisk FIO stress (4k)."""
+"""Lawdisk FIO stress (512)."""
 import os
 
 import allure
@@ -6,7 +6,7 @@ import allure
 from test_items.fio_run import build_fio_args, maybe_start_monitor, run_and_check_fio
 
 
-def _item_name(default: str = "test_ci_03_lawdisk_4k") -> str:
+def _item_name(default: str = "test_ci_02_lawdisk_512") -> str:
     return (os.environ.get("RAID_NVME_ITEM") or default).strip() or default
 
 

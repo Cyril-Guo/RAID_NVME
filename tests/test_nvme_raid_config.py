@@ -12,8 +12,8 @@ from nvme_raid_test import (
 
 
 def test_item_name_from_filename_supports_ci_and_plain_patterns():
-    assert item_name_from_filename("test_ci_03_lawdisk_4k.py") == "test_ci_03_lawdisk_4k"
-    assert item_name_from_filename("test_ci_03_lawdisk_4k.py") == "test_ci_03_lawdisk_4k"
+    assert item_name_from_filename("test_ci_01_lawdisk_4k.py") == "test_ci_01_lawdisk_4k"
+    assert item_name_from_filename("test_ci_01_lawdisk_4k.py") == "test_ci_01_lawdisk_4k"
     assert item_name_from_filename("test_foo.py") == "foo"
     assert item_name_from_filename("basic_io_common.py") is None
     assert item_name_from_filename("test_basic_io_common.py") is None
@@ -28,18 +28,26 @@ def test_discover_test_items_finds_repository_ci_cases():
     catalog = discover_test_items()
 
     assert catalog["test_ci_00_env_prepare"] == "test_items/test_ci_00_env_prepare.py"
-    assert catalog["test_ci_03_lawdisk_4k"] == "test_items/test_ci_03_lawdisk_4k.py"
-    assert catalog["test_ci_04_lawdisk_512"] == "test_items/test_ci_04_lawdisk_512.py"
-    assert catalog["test_ci_05_filesystem_4k"] == "test_items/test_ci_05_filesystem_4k.py"
-    assert catalog["test_ci_06_filesystem_512"] == "test_items/test_ci_06_filesystem_512.py"
-    assert catalog["test_ci_07_mix_4k"] == "test_items/test_ci_07_mix_4k.py"
-    assert catalog["test_ci_08_mix_512"] == "test_items/test_ci_08_mix_512.py"
-    assert catalog["test_ci_13_random_io_4k"] == "test_items/test_ci_13_random_io_4k.py"
-    assert catalog["test_ci_14_random_io_512"] == "test_items/test_ci_14_random_io_512.py"
-    assert "test_ci_01_reboot" not in catalog
-    assert "test_ci_02_dc" not in catalog
-    assert "test_ci_09_basic_io_4k" not in catalog
-    assert "test_ci_11_basic_rebuild_io_4k" not in catalog
+    assert catalog["test_ci_01_lawdisk_4k"] == "test_items/test_ci_01_lawdisk_4k.py"
+    assert catalog["test_ci_02_lawdisk_512"] == "test_items/test_ci_02_lawdisk_512.py"
+    assert catalog["test_ci_03_filesystem_4k"] == "test_items/test_ci_03_filesystem_4k.py"
+    assert catalog["test_ci_04_filesystem_512"] == "test_items/test_ci_04_filesystem_512.py"
+    assert catalog["test_ci_05_mix_4k"] == "test_items/test_ci_05_mix_4k.py"
+    assert catalog["test_ci_06_mix_512"] == "test_items/test_ci_06_mix_512.py"
+    assert catalog["test_ci_07_random_io_4k"] == "test_items/test_ci_07_random_io_4k.py"
+    assert catalog["test_ci_08_random_io_512"] == "test_items/test_ci_08_random_io_512.py"
+    assert set(catalog) == {
+        "test_ci_00_env_prepare",
+        "test_ci_01_lawdisk_4k",
+        "test_ci_02_lawdisk_512",
+        "test_ci_03_filesystem_4k",
+        "test_ci_04_filesystem_512",
+        "test_ci_05_mix_4k",
+        "test_ci_06_mix_512",
+        "test_ci_07_random_io_4k",
+        "test_ci_08_random_io_512",
+    }
+
 
 
 def test_discover_test_items_rejects_duplicate_names(tmp_path):
@@ -67,17 +75,17 @@ def test_repository_test_items_file_is_valid():
     assert selected
     assert all(name in catalog for name in selected)
     assert "defaults" not in params
-    assert params["test_ci_03_lawdisk_4k"]["IGNORE_ERROR"] == "yes"
-    assert params["test_ci_03_lawdisk_4k"]["FIO_CONFIG"] == "Input_Config_lawdisk_4k.csv"
-    assert params["test_ci_04_lawdisk_512"]["FIO_CONFIG"] == "Input_Config_lawdisk_512.csv"
-    assert params["test_ci_07_mix_4k"]["FIO_CONFIG"] == "Input_Config_mix_4k.csv"
-    assert params["test_ci_07_mix_4k"]["MIX_FAIL_ON_ANY"].strip().lower() in ("yes", "no")
-    assert params["test_ci_07_mix_4k"]["IO_BS_ALIGN"] == "4k"
-    assert params["test_ci_08_mix_512"]["IO_BS_ALIGN"] == "512"
-    assert params["test_ci_05_filesystem_4k"]["FIO_RUNTIME"] == "43200"
+    assert params["test_ci_01_lawdisk_4k"]["IGNORE_ERROR"] == "yes"
+    assert params["test_ci_01_lawdisk_4k"]["FIO_CONFIG"] == "Input_Config_lawdisk_4k.csv"
+    assert params["test_ci_02_lawdisk_512"]["FIO_CONFIG"] == "Input_Config_lawdisk_512.csv"
+    assert params["test_ci_05_mix_4k"]["FIO_CONFIG"] == "Input_Config_mix_4k.csv"
+    assert params["test_ci_05_mix_4k"]["MIX_FAIL_ON_ANY"].strip().lower() in ("yes", "no")
+    assert params["test_ci_05_mix_4k"]["IO_BS_ALIGN"] == "4k"
+    assert params["test_ci_06_mix_512"]["IO_BS_ALIGN"] == "512"
+    assert params["test_ci_03_filesystem_4k"]["FIO_RUNTIME"] == "43200"
     assert "FIO_RUNTIME" in nvme_raid_test.ALLOWED_PARAM_KEYS
-    assert params["test_ci_13_random_io_4k"]["FIO_CONFIG"] == "Input_Config_random_io_4k.csv"
-    assert "FIO_CYCLES" not in params["test_ci_03_lawdisk_4k"]
+    assert params["test_ci_07_random_io_4k"]["FIO_CONFIG"] == "Input_Config_random_io_4k.csv"
+    assert "FIO_CYCLES" not in params["test_ci_01_lawdisk_4k"]
     assert "test_ci_00_env_prepare" in params
     assert "test_ci_01_reboot" not in params
     assert "test_ci_02_dc" not in params
@@ -241,18 +249,18 @@ FIO_CYCLES = 10
 
 
 def test_parse_selection_entry_supports_multiple_orders():
-    assert nvme_raid_test.parse_selection_entry("test_ci_07_mix_4k 8 10") == (
-        "test_ci_07_mix_4k",
+    assert nvme_raid_test.parse_selection_entry("test_ci_05_mix_4k 8 10") == (
+        "test_ci_05_mix_4k",
         [8, 10],
         True,
     )
-    assert nvme_raid_test.parse_selection_entry("# test_ci_07_mix_4k 8 10") == (
-        "test_ci_07_mix_4k",
+    assert nvme_raid_test.parse_selection_entry("# test_ci_05_mix_4k 8 10") == (
+        "test_ci_05_mix_4k",
         [8, 10],
         False,
     )
-    assert nvme_raid_test.parse_selection_entry("test_ci_07_mix_4k 1") == (
-        "test_ci_07_mix_4k",
+    assert nvme_raid_test.parse_selection_entry("test_ci_05_mix_4k 1") == (
+        "test_ci_05_mix_4k",
         [1],
         True,
     )
