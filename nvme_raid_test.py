@@ -82,7 +82,7 @@ def discover_test_items(items_dir=None):
 
 TEST_ITEMS = discover_test_items()
 
-SELECTION_BEGIN = "# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）==="
+SELECTION_BEGIN = "# === BEGIN SELECTION（自动同步；序号在前 + 完整用例名，# 表示不跑）==="
 SELECTION_END = "# === END SELECTION ==="
 _CI_ORDER_RE = re.compile(r"^test_ci_(\d+)_.+\.py$", re.IGNORECASE)
 _SELECTION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -91,7 +91,8 @@ _SELECTION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 def parse_selection_entry(line):
     """Parse a selection line into (name, orders, enabled), or None.
 
-    orders is a sorted list of unique positive integers, e.g. ``mix 8 10`` -> [8, 10].
+    Preferred form puts order first: ``3 lawdisk_4k``, ``8 10 mix``.
+    Legacy form ``mix 8 10`` is still accepted.
     """
     text = line.strip()
     if not text:
@@ -110,10 +111,19 @@ def parse_selection_entry(line):
     parts = text.split()
     if not parts:
         return None
+
+    # Preferred: <order> [order...] <name>
+    if len(parts) >= 2 and parts[0].isdigit() and _SELECTION_NAME_RE.fullmatch(parts[-1].lower()):
+        if not all(token.isdigit() for token in parts[:-1]):
+            return None
+        name = parts[-1].lower()
+        orders = sorted({int(token) for token in parts[:-1]})
+        return name, orders, enabled
+
+    # Legacy / bare name: <name> [order...]
     name = parts[0].lower()
     if not _SELECTION_NAME_RE.fullmatch(name):
         return None
-
     orders = []
     for token in parts[1:]:
         if not token.isdigit():
@@ -190,8 +200,8 @@ def read_enabled_selection(path):
 def build_run_plan(path, test_items=None):
     """Expand enabled selection lines into ordered run slots.
 
-    ``mix 8 10`` contributes two slots (orders 8 and 10). Every slot uses
-    ``run_key`` ``{item}__{order}`` for isolated artifacts and reporting.
+    ``8 10 mix`` (or legacy ``mix 8 10``) contributes two slots.
+    Every slot uses ``run_key`` ``{item}__{order}`` for isolated artifacts and reporting.
     """
     catalog = test_items if test_items is not None else TEST_ITEMS
     slots = []
@@ -276,7 +286,7 @@ def build_synced_selection_order(existing_entries, catalog):
 def format_selection_line(name, orders, enabled):
     clean_orders = sorted(set(orders))
     if clean_orders:
-        body = f"{name} " + " ".join(str(order) for order in clean_orders)
+        body = " ".join(str(order) for order in clean_orders) + f" {name}"
     else:
         body = name
     return f"{body}\n" if enabled else f"# {body}\n"
@@ -286,7 +296,7 @@ def sync_selection_list(path, catalog):
     """Rewrite selection block so every discovered item is listed for easy toggle.
 
     Preserve enable/disable and numeric order; sort lines by order ascending.
-    Newly discovered names are added as '# name <order>'.
+    Newly discovered names are added as '# <order> <name>'.
     Returns True when the file content changed.
     """
     if not os.path.exists(path):

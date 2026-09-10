@@ -106,9 +106,9 @@ def test_sync_selection_lists_all_discovered_items(tmp_path):
     config.write_text(
         """
 # header
-# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
-lawdisk 3
-# mix 5
+# === BEGIN SELECTION（自动同步；序号在前 + 完整用例名，# 表示不跑）===
+3 lawdisk
+# 5 mix
 # === END SELECTION ===
 
 [lawdisk]
@@ -141,21 +141,21 @@ IGNORE_ERROR = no
         ("filesystem", [4], False),
         ("mix", [5], False),
     ]
-    assert "lawdisk 3\n" in text
-    for name in ("reboot", "dc", "filesystem", "mix"):
-        assert f"# {name} " in text
+    assert "3 lawdisk\n" in text
+    for order, name in ((1, "reboot"), (2, "dc"), (4, "filesystem"), (5, "mix")):
+        assert f"# {order} {name}\n" in text
 
 
 def test_sync_selection_preserves_custom_numeric_order(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
         """
-# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
-mix 1
-# filesystem 2
-lawdisk 3
-# reboot 4
-# dc 5
+# === BEGIN SELECTION（自动同步；序号在前 + 完整用例名，# 表示不跑）===
+1 mix
+# 2 filesystem
+3 lawdisk
+# 4 reboot
+# 5 dc
 # === END SELECTION ===
 
 [mix]
@@ -193,10 +193,10 @@ def test_parse_whitelist_controls_enabled_items_with_per_case_params(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
         """
-# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
-# reboot 1
-dc 2
-mix 5
+# === BEGIN SELECTION（自动同步；序号在前 + 完整用例名，# 表示不跑）===
+# 1 reboot
+2 dc
+5 mix
 # === END SELECTION ===
 
 [dc]
@@ -222,10 +222,10 @@ def test_parse_sorts_enabled_items_by_numeric_order(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
         """
-# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
-mix 5
-lawdisk 3
-reboot 1
+# === BEGIN SELECTION（自动同步；序号在前 + 完整用例名，# 表示不跑）===
+5 mix
+3 lawdisk
+1 reboot
 # === END SELECTION ===
 
 [mix]
@@ -246,19 +246,21 @@ FIO_CYCLES = 10
 
 
 def test_parse_selection_entry_supports_multiple_orders():
+    assert nvme_raid_test.parse_selection_entry("8 10 mix") == ("mix", [8, 10], True)
+    assert nvme_raid_test.parse_selection_entry("# 8 10 mix") == ("mix", [8, 10], False)
+    assert nvme_raid_test.parse_selection_entry("1 basic_io") == ("basic_io", [1], True)
+    # legacy name-first form still accepted
     assert nvme_raid_test.parse_selection_entry("mix 8 10") == ("mix", [8, 10], True)
-    assert nvme_raid_test.parse_selection_entry("# mix 8 10") == ("mix", [8, 10], False)
-    assert nvme_raid_test.parse_selection_entry("basic_io 1") == ("basic_io", [1], True)
 
 
 def test_read_enabled_selection_repeats_item_for_multiple_orders(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
         """
-# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
-mix 8 10
-basic_io 1
-basic_rebuild_io 9
+# === BEGIN SELECTION（自动同步；序号在前 + 完整用例名，# 表示不跑）===
+8 10 mix
+1 basic_io
+9 basic_rebuild_io
 # === END SELECTION ===
 
 [mix]
@@ -295,8 +297,8 @@ def test_build_run_plan_tags_run_key_with_order(tmp_path):
     config = tmp_path / "test_items.txt"
     config.write_text(
         """
-# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
-lawdisk 3
+# === BEGIN SELECTION（自动同步；序号在前 + 完整用例名，# 表示不跑）===
+3 lawdisk
 # === END SELECTION ===
 
 [lawdisk]

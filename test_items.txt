@@ -8,27 +8,27 @@
 # reboot / dc 不拆分，仍为单项。
 # mix_4k / mix_512 会设置 IO_BS_ALIGN，并使用对应 random_choice_*.py。
 #
-# 格式：名称 + 空格 + 一个或多个数字序号
-#   - 数字越小越先执行（升序）；同一名称可写多个序号以重复执行
+# 格式：序号 + 空格 + 完整用例名（可写多个序号重复执行，如：8 10 mix_4k）
+#   - 数字越小越先执行（升序）
 #   - 行首 # 表示不跑该用例
 # ============================================================
 
-# === BEGIN SELECTION（自动同步；名称后数字为执行顺序，# 表示不跑）===
-# env_prepare 0
-# reboot 1
-# dc 2
-# lawdisk_4k 3
-# lawdisk_512 4
-# filesystem_4k 5
-# filesystem_512 6
-# mix_4k 7
-# mix_512 8
-# basic_io_4k 9
-# basic_io_512 10
-# basic_rebuild_io_4k 11
-# basic_rebuild_io_512 12
-# random_io_4k 13
-# random_io_512 14
+# === BEGIN SELECTION（自动同步；序号在前 + 完整用例名，# 表示不跑）===
+# 0 env_prepare
+# 1 reboot
+# 2 dc
+# 3 lawdisk_4k
+# 4 lawdisk_512
+# 5 filesystem_4k
+# 6 filesystem_512
+# 7 mix_4k
+# 8 mix_512
+# 9 basic_io_4k
+# 10 basic_io_512
+# 11 basic_rebuild_io_4k
+# 12 basic_rebuild_io_512
+# 13 random_io_4k
+# 14 random_io_512
 # === END SELECTION ===
 
 
