@@ -8,7 +8,11 @@ def test_wait_powercycle_completion_script_exists_and_checks_markers():
     assert "Power-cycle test completed all" in source
     assert "request start" in source
     assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES" in source
-    assert 'selected_run_keys+=("${name}__${order}")' in source
+    assert "is_powercycle_item" in source
+    assert "item_short_name" in source
+    assert "powercycle_log_name" in source
+    assert "test_ci_" in source
+    assert "selected_run_keys+=" in source
     assert '"${REMOTE_DIR}/cases/${run_key}/${RESULT_REL}"' in source
 
 

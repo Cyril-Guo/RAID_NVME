@@ -20,10 +20,40 @@ result_roots_for_item() {
         "${REMOTE_DIR}/${RESULT_REL}"
 }
 
+# test_ci_01_reboot -> reboot; plain reboot stays reboot.
+item_short_name() {
+    local name="$1"
+    if [[ "${name}" =~ ^test_ci_[0-9]+_(.+)$ ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
+    else
+        printf '%s\n' "${name}"
+    fi
+}
+
+is_powercycle_item() {
+    local short
+    short="$(item_short_name "$1")"
+    case "${short}" in
+        reboot|dc) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+powercycle_log_name() {
+    local short
+    short="$(item_short_name "$1")"
+    if [[ "${short}" == "reboot" ]]; then
+        printf '%s\n' "reboot_command.log"
+    else
+        printf '%s\n' "dc_command.log"
+    fi
+}
+
 selected_run_keys=()
 parse_selected_powercycle_items() {
     local in_selection=0
-    local line name order
+    local line name order token
+    local -a tokens=()
     selected_run_keys=()
     [[ -f "${ITEMS_FILE}" ]] || return 0
     while IFS= read -r line || [[ -n "${line}" ]]; do
@@ -41,16 +71,37 @@ parse_selected_powercycle_items() {
         [[ "${line}" =~ ^[[:space:]]*# ]] && continue
         # shellcheck disable=SC2086
         set -- ${line}
-        name="${1:-}"
-        order="${2:-}"
-        case "${name}" in
-            reboot|dc)
-                if [[ "${order}" =~ ^[0-9]+$ ]]; then
-                    selected_run_keys+=("${name}__${order}")
+        tokens=("$@")
+        [[ "${#tokens[@]}" -ge 1 ]] || continue
+
+        # Preferred: test_ci_01_reboot 1   (name then one-or-more orders)
+        # Also accept short reboot/dc and order-first: 1 test_ci_01_reboot
+        local i
+        name=""
+        if [[ "${tokens[0]}" =~ ^[0-9]+$ ]]; then
+            name="${tokens[$((${#tokens[@]} - 1))]}"
+            if ! is_powercycle_item "${name}"; then
+                continue
+            fi
+            for ((i = 0; i < ${#tokens[@]} - 1; i++)); do
+                token="${tokens[$i]}"
+                if [[ "${token}" =~ ^[0-9]+$ ]]; then
+                    selected_run_keys+=("${name}__${token}")
                 fi
-                ;;
-        esac
-        : "${order}"
+            done
+            continue
+        fi
+
+        name="${tokens[0]}"
+        if ! is_powercycle_item "${name}"; then
+            continue
+        fi
+        for ((i = 1; i < ${#tokens[@]}; i++)); do
+            order="${tokens[$i]}"
+            if [[ "${order}" =~ ^[0-9]+$ ]]; then
+                selected_run_keys+=("${name}__${order}")
+            fi
+        done
     done < "${ITEMS_FILE}"
 }
 
@@ -110,11 +161,7 @@ item_completed() {
     local run_key="$1"
     local item="${run_key%%__*}"
     local log_name text root
-    if [[ "${item}" == "reboot" ]]; then
-        log_name="reboot_command.log"
-    else
-        log_name="dc_command.log"
-    fi
+    log_name="$(powercycle_log_name "${item}")"
     while IFS= read -r root; do
         # shellcheck disable=SC2086
         text="$(eval ${REMOTE_SSH_COMMAND} "grep -F 'all power-cycle loops completed' ${root}/${log_name} 2>/dev/null" || true)"
@@ -135,11 +182,7 @@ item_triggered() {
     local run_key="$1"
     local item="${run_key%%__*}"
     local log_name pattern text root
-    if [[ "${item}" == "reboot" ]]; then
-        log_name="reboot_command.log"
-    else
-        log_name="dc_command.log"
-    fi
+    log_name="$(powercycle_log_name "${item}")"
     pattern="request start"
     while IFS= read -r root; do
         # shellcheck disable=SC2086
