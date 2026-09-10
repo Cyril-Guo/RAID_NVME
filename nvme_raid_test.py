@@ -22,6 +22,7 @@ ALLOWED_PARAM_KEYS = (
     "FIO_RUNTIME",
     "RANDOM_IO_DURATION",
     "MIX_FAIL_ON_ANY",
+    "IO_BS_ALIGN",
 )
 ALL_PARAM_KEYS = sorted(ALLOWED_PARAM_KEYS)
 
@@ -213,11 +214,15 @@ def build_run_plan(path, test_items=None):
 
 
 def validate_powercycle_plan(run_plan):
-    powercycle = [entry for entry in run_plan if entry["item"] in {"reboot", "dc"}]
+    def _powercycle_item(name: str) -> bool:
+        base = name.rsplit("_", 1)[0] if name.endswith(("_4k", "_512")) else name
+        return base in {"reboot", "dc"}
+
+    powercycle = [entry for entry in run_plan if _powercycle_item(entry["item"])]
     if powercycle and len(run_plan) != 1:
         selected = ", ".join(entry["run_key"] for entry in run_plan)
         raise ValueError(
-            "reboot/DC power-cycle test must run alone; "
+            "reboot_*/DC_* power-cycle test must run alone; "
             f"split this selection into separate Jenkins builds: {selected}"
         )
 

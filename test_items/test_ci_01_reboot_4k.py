@@ -22,6 +22,8 @@ def _ts():
 
 
 def test_reboot_powercycle():
+    item = (os.environ.get('RAID_NVME_ITEM') or 'reboot_4k').strip() or 'reboot_4k'
+
     # ---------- 1. 解析运行参数（全部来自 test_items.txt 注入的环境变量）----------
     raw_cycles = os.environ.get("FIO_CYCLES", "").strip()
     try:
@@ -32,7 +34,7 @@ def test_reboot_powercycle():
     ignore_error = os.environ.get("IGNORE_ERROR", "").strip().lower() == "yes"
 
     # ---------- 2. 组装 powercycle 参数（本用例独立 CSV）----------
-    fio_args = build_fio_args("reboot", "reboot", extra=["-l", str(loops)])
+    fio_args = build_fio_args("reboot", item, extra=["-l", str(loops)])
 
     # ---------- 3. Allure 报告标题与描述 ----------
     allure.dynamic.title(f"FIO 测试: reboot (循环 {loops} 次)")

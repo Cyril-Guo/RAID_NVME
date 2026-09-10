@@ -122,12 +122,28 @@ def result_matches_item(result, item, run_key=None):
     text = " ".join(parts)
     aliases = {
         "lawdisk": ("lawdisk", "lawdiskstress"),
+        "lawdisk_4k": ("lawdisk_4k", "lawdiskstress"),
+        "lawdisk_512": ("lawdisk_512", "lawdiskstress"),
         "filesystem": ("filesystem", "filesystemstress"),
+        "filesystem_4k": ("filesystem_4k", "filesystemstress"),
+        "filesystem_512": ("filesystem_512", "filesystemstress"),
         "mix": ("mix", "mix_stress"),
+        "mix_4k": ("mix_4k", "mix_stress"),
+        "mix_512": ("mix_512", "mix_stress"),
         "reboot": ("reboot", "reboot_powercycle"),
+        "reboot_4k": ("reboot_4k", "reboot_powercycle"),
+        "reboot_512": ("reboot_512", "reboot_powercycle"),
         "dc": ("dc", "dc_powercycle"),
+        "dc_4k": ("dc_4k", "dc_powercycle"),
+        "dc_512": ("dc_512", "dc_powercycle"),
         "basic_io": ("basic_io",),
+        "basic_io_4k": ("basic_io_4k",),
+        "basic_io_512": ("basic_io_512",),
+        "basic_rebuild_io_4k": ("basic_rebuild_io_4k",),
+        "basic_rebuild_io_512": ("basic_rebuild_io_512",),
         "basic_rebuild_io": ("basic_rebuild_io",),
+        "random_io_4k": ("random_io_4k",),
+        "random_io_512": ("random_io_512",),
         "random_io": ("random_io", "randomio"),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))

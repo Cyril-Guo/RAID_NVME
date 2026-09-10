@@ -29,8 +29,10 @@ from test_items.random_io_plan import (
 
 
 def test_random_io():
+    item = (os.environ.get('RAID_NVME_ITEM') or 'random_io_4k').strip() or 'random_io_4k'
+
     stress_dir = io_stress_dir()
-    csv_name = os.environ.get("FIO_CONFIG", "").strip() or "Input_Config_random_io.csv"
+    csv_name = os.environ.get("FIO_CONFIG", "").strip() or f"Input_Config_{item}.csv"
     csv_path = os.path.join(stress_dir, os.path.basename(csv_name.replace("\\", "/")))
 
     disk_sizes = list_test_disks()
