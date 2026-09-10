@@ -13,7 +13,7 @@ import pytest
 
 from test_items.case_paths import io_stress_dir
 from test_items.fio_allure import attach_named_text
-from test_items.fio_run import maybe_start_monitor, run_and_check_argv
+from test_items.fio_run import run_and_check_argv
 from test_items.random_io_plan import (
     DEFAULT_STRESS_RUNTIME,
     PHASES,
@@ -49,8 +49,7 @@ def test_random_io():
         for phase in PHASES
     }
 
-    maybe_start_monitor()
-
+    
     allure.dynamic.title("FIO 测试: random_io")
     round_idx = 0
     while time.monotonic() < deadline:

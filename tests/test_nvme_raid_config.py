@@ -76,8 +76,6 @@ def test_repository_test_items_file_is_valid():
     assert params["test_ci_02_filesystem"]["FIO_CONFIG"] == "Input_Config_filesystem.csv"
     assert params["test_ci_03_mix_4k"]["FIO_CONFIG"] == "Input_Config_mix_4k.csv"
     assert params["test_ci_03_mix_4k"]["MIX_FAIL_ON_ANY"].strip().lower() in ("yes", "no")
-    assert params["test_ci_03_mix_4k"]["IO_BS_ALIGN"] == "4k"
-    assert params["test_ci_04_mix_512"]["IO_BS_ALIGN"] == "512"
     assert params["test_ci_02_filesystem"]["FIO_RUNTIME"] == "43200"
     assert "FIO_RUNTIME" in nvme_raid_test.ALLOWED_PARAM_KEYS
     assert params["test_ci_05_random_io_4k"]["FIO_CONFIG"] == "Input_Config_random_io_4k.csv"

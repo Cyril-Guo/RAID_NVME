@@ -7,7 +7,8 @@
 # 命名规范：test_ci_<NN>_<name>[ _4k|_512 ]
 #   - NN 连续编号（00..06）
 #   - lawdisk / filesystem：不区分 4k/512，靠手动改 FIO_CONFIG 指向的 CSV
-#   - mix / random_io：仍分 4k / 512
+#   - mix / random_io：仍分 4k / 512（对齐由用例脚本内置，无需 IO_BS_ALIGN 参数）
+#   - Stress_Monitor 仅 lawdisk / filesystem 支持
 #   - 行格式：<完整用例名> <执行序号>；可写多个序号重复执行
 #   - 行首 # 表示不跑；去掉 # 即启用
 #
@@ -28,7 +29,6 @@ test_ci_03_mix_4k 3
 # ============================================================
 # 各用例参数（块名必须与选择名一致）
 # lawdisk/filesystem：改 FIO_CONFIG= 指向的 CSV 内容即可（手动）
-# mix_* 设置 IO_BS_ALIGN=4k|512
 # ============================================================
 
 [test_ci_00_env_prepare]
@@ -54,32 +54,22 @@ MONITOR_RUNTIME = 21600
 FIO_CONFIG      = Input_Config_mix_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME =
 MIX_FAIL_ON_ANY = yes
-IO_BS_ALIGN     = 4k
 
 [test_ci_04_mix_512]
 FIO_CONFIG      = Input_Config_mix_512.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME =
 MIX_FAIL_ON_ANY = yes
-IO_BS_ALIGN     = 512
 
 [test_ci_05_random_io_4k]
 FIO_CONFIG         = Input_Config_random_io_4k.csv
 IGNORE_ERROR       = yes
 FIO_DISKS          =
-STRESS_MONITOR     = no
-MONITOR_RUNTIME    =
 RANDOM_IO_DURATION =
 
 [test_ci_06_random_io_512]
 FIO_CONFIG         = Input_Config_random_io_512.csv
 IGNORE_ERROR       = yes
 FIO_DISKS          =
-STRESS_MONITOR     = no
-MONITOR_RUNTIME    =
 RANDOM_IO_DURATION =

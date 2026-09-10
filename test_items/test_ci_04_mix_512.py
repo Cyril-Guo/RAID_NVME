@@ -3,7 +3,7 @@ import os
 
 import allure
 
-from test_items.fio_run import build_fio_args, maybe_start_monitor, run_and_check_fio
+from test_items.fio_run import build_fio_args, run_and_check_fio
 
 
 def _item_name(default: str = "test_ci_04_mix_512") -> str:
@@ -12,19 +12,17 @@ def _item_name(default: str = "test_ci_04_mix_512") -> str:
 
 def test_mix_stress():
     item = _item_name()
-    # Prefer explicit param; fall back to suffix.
-    if not os.environ.get("IO_BS_ALIGN", "").strip():
-        os.environ["IO_BS_ALIGN"] = "512"
-    maybe_start_monitor()
+    # Align is fixed by this case; not a test_items.txt parameter.
+    os.environ["IO_BS_ALIGN"] = "512"
     fio_args = build_fio_args("lawdiskstress", item, extra=["--mix_io", "yes"])
     fail_on_any = os.environ.get("MIX_FAIL_ON_ANY", "no").strip().lower()
     allure.dynamic.title(f"FIO 测试: {item} (混合 IO)")
     allure.dynamic.description(
-        f"混合读写；4 路 MixIO 由 random_choice_{os.environ.get('IO_BS_ALIGN', '512')}.py 生成。"
+        f"混合读写；4 路 MixIO 由 random_choice_512.py 生成。"
         f" MIX_FAIL_ON_ANY={fail_on_any or 'no'}。"
     )
     print(
-        f"[MIX] item={item} IO_BS_ALIGN={os.environ.get('IO_BS_ALIGN')} "
+        f"[MIX] item={item} IO_BS_ALIGN=512 "
         f"MIX_FAIL_ON_ANY={fail_on_any or 'no'}"
     )
     run_and_check_fio(fio_args)

@@ -95,7 +95,6 @@ IGNORE_ERROR    = yes
 FIO_CONFIG      = Input_Config_mix_4k.csv
 IGNORE_ERROR    = yes
 MIX_FAIL_ON_ANY = yes
-IO_BS_ALIGN     = 4k
 ```
 
 上面启用项按序号执行：`test_ci_03_mix_4k`(3)。下方 `[...]` 只是参数，不决定是否执行。
@@ -103,12 +102,12 @@ IO_BS_ALIGN     = 4k
 参数含义：
 
 - `FIO_CONFIG`：本用例使用的 CSV（位于 `IO_Stress/`）。`lawdisk` / `filesystem` 使用无后缀 CSV，内容手动改；`mix` / `random_io` 仍用 `*_4k.csv` / `*_512.csv`。
-- `IO_BS_ALIGN`：仅 mix；`4k` 或 `512`，决定 `random_choice_*.py`。
+- mix 的 4k/512 由用例脚本内置（`test_ci_03_mix_4k` / `test_ci_04_mix_512`），无需额外参数。
 - `MIX_FAIL_ON_ANY`：仅 mix；任一 FIO 失败是否判失败。
 - `IGNORE_ERROR`：MachineCheck 结果不一致时是否继续 (yes/no)。
 - `FIO_DISKS`：指定数据盘 (如 `sdb,sdc`)，留空为全部数据盘。
 - `FIO_RUNTIME`：filesystem 的 fio 压测阶段总时长，单位秒且必须是 180 的整数倍。
-- `STRESS_MONITOR` / `MONITOR_RUNTIME`：后台压力监控开关与时长。
+- `STRESS_MONITOR` / `MONITOR_RUNTIME`：仅 `test_ci_01_lawdisk` / `test_ci_02_filesystem`。
 - `RANDOM_IO_DURATION`：仅 random_io。
 
 > 白名单为空时不跑任何用例（破坏性测试的安全默认）。停止/清理（restore）
