@@ -18,7 +18,7 @@
 # test_ci_04_lawdisk_512 4
 # test_ci_05_filesystem_4k 5
 # test_ci_06_filesystem_512 6
-# test_ci_07_mix_4k 7
+test_ci_07_mix_4k 7
 # test_ci_08_mix_512 8
 # test_ci_09_basic_io_4k 9
 # test_ci_10_basic_io_512 10
