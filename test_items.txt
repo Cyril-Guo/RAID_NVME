@@ -4,31 +4,28 @@
 # BEGIN/END SELECTION 块会在运行 nvme_raid_test.py 时自动同步
 # （也可手动：python nvme_raid_test.py --sync-selection）。
 #
-# IO 用例已拆成独立 _4k / _512 项，序号唯一递增，去掉行首 # 即启用。
-# reboot / dc 不拆分，仍为单项。
-# mix_4k / mix_512 会设置 IO_BS_ALIGN，并使用对应 random_choice_*.py。
-#
-# 格式：序号 + 空格 + 完整用例名（可写多个序号重复执行，如：8 10 mix_4k）
-#   - 数字越小越先执行（升序）
-#   - 行首 # 表示不跑该用例
+# 用例名与脚本一致（去掉 .py）：test_ci_01_reboot
+# 后面的数字决定执行顺序；可写多个数字重复执行，例如：
+#   test_ci_07_mix_4k 8 10
+# 行首 # 表示不跑该用例；去掉 # 即启用。
 # ============================================================
 
-# === BEGIN SELECTION（自动同步；序号在前 + 完整用例名，# 表示不跑）===
-# 0 env_prepare
-# 1 reboot
-# 2 dc
-# 3 lawdisk_4k
-# 4 lawdisk_512
-# 5 filesystem_4k
-# 6 filesystem_512
-# 7 mix_4k
-# 8 mix_512
-# 9 basic_io_4k
-# 10 basic_io_512
-# 11 basic_rebuild_io_4k
-# 12 basic_rebuild_io_512
-# 13 random_io_4k
-# 14 random_io_512
+# === BEGIN SELECTION（自动同步；完整用例名 + 执行序号，# 表示不跑）===
+# test_ci_00_env_prepare 0
+# test_ci_01_reboot 1
+# test_ci_02_dc 2
+# test_ci_03_lawdisk_4k 3
+# test_ci_04_lawdisk_512 4
+# test_ci_05_filesystem_4k 5
+# test_ci_06_filesystem_512 6
+# test_ci_07_mix_4k 7
+# test_ci_08_mix_512 8
+# test_ci_09_basic_io_4k 9
+# test_ci_10_basic_io_512 10
+# test_ci_11_basic_rebuild_io_4k 11
+# test_ci_12_basic_rebuild_io_512 12
+# test_ci_13_random_io_4k 13
+# test_ci_14_random_io_512 14
 # === END SELECTION ===
 
 
@@ -39,33 +36,33 @@
 # 旧无后缀 CSV / 旧用例脚本见 History/
 # ============================================================
 
-[reboot]
+[test_ci_01_reboot]
 FIO_CYCLES      = 100
 FIO_CONFIG      = Input_Config_reboot_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 
-[dc]
+[test_ci_02_dc]
 FIO_CYCLES      = 5
 FIO_CONFIG      = Input_Config_dc_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 
-[lawdisk_4k]
+[test_ci_03_lawdisk_4k]
 FIO_CONFIG      = Input_Config_lawdisk_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
-[lawdisk_512]
+[test_ci_04_lawdisk_512]
 FIO_CONFIG      = Input_Config_lawdisk_512.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
-[filesystem_4k]
+[test_ci_05_filesystem_4k]
 FIO_CONFIG      = Input_Config_filesystem_4k.csv
 FIO_RUNTIME     = 43200
 IGNORE_ERROR    = yes
@@ -73,7 +70,7 @@ FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
-[filesystem_512]
+[test_ci_06_filesystem_512]
 FIO_CONFIG      = Input_Config_filesystem_512.csv
 FIO_RUNTIME     = 43200
 IGNORE_ERROR    = yes
@@ -81,7 +78,7 @@ FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
-[mix_4k]
+[test_ci_07_mix_4k]
 FIO_CONFIG      = Input_Config_mix_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
@@ -90,7 +87,7 @@ MONITOR_RUNTIME =
 MIX_FAIL_ON_ANY = yes
 IO_BS_ALIGN     = 4k
 
-[mix_512]
+[test_ci_08_mix_512]
 FIO_CONFIG      = Input_Config_mix_512.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
@@ -99,40 +96,40 @@ MONITOR_RUNTIME =
 MIX_FAIL_ON_ANY = yes
 IO_BS_ALIGN     = 512
 
-[env_prepare]
+[test_ci_00_env_prepare]
 # Stop QEMU if running, unload draid, return vfio devices to host,
 # then CSD flash clear + dpraid/draid reload + VD/PD clear (SMOKE physical parity).
 # Run before basic_io_* / basic_rebuild_io_*.
 
-[basic_io_4k]
+[test_ci_09_basic_io_4k]
 FIO_CONFIG      = Input_Config_basic_io_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 1000
 
-[basic_io_512]
+[test_ci_10_basic_io_512]
 FIO_CONFIG      = Input_Config_basic_io_512.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 1000
 
-[basic_rebuild_io_4k]
+[test_ci_11_basic_rebuild_io_4k]
 FIO_CONFIG      = Input_Config_basic_rebuild_io_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 1000
 
-[basic_rebuild_io_512]
+[test_ci_12_basic_rebuild_io_512]
 FIO_CONFIG      = Input_Config_basic_rebuild_io_512.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 1000
 
-[random_io_4k]
+[test_ci_13_random_io_4k]
 FIO_CONFIG                = Input_Config_random_io_4k.csv
 IGNORE_ERROR              = yes
 FIO_DISKS                 =
@@ -140,7 +137,7 @@ STRESS_MONITOR            = no
 MONITOR_RUNTIME           =
 RANDOM_IO_DURATION        = 12h
 
-[random_io_512]
+[test_ci_14_random_io_512]
 FIO_CONFIG                = Input_Config_random_io_512.csv
 IGNORE_ERROR              = yes
 FIO_DISKS                 =

@@ -121,20 +121,21 @@ def result_matches_item(result, item, run_key=None):
         parts.append(str(label.get("value", "")).lower())
     text = " ".join(parts)
     aliases = {
-        "lawdisk_4k": ("lawdisk_4k", "lawdiskstress"),
-        "lawdisk_512": ("lawdisk_512", "lawdiskstress"),
-        "filesystem_4k": ("filesystem_4k", "filesystemstress"),
-        "filesystem_512": ("filesystem_512", "filesystemstress"),
-        "mix_4k": ("mix_4k", "mix_stress"),
-        "mix_512": ("mix_512", "mix_stress"),
-        "reboot": ("reboot", "reboot_powercycle"),
-        "dc": ("dc", "dc_powercycle"),
-        "basic_io_4k": ("basic_io_4k",),
-        "basic_io_512": ("basic_io_512",),
-        "basic_rebuild_io_4k": ("basic_rebuild_io_4k",),
-        "basic_rebuild_io_512": ("basic_rebuild_io_512",),
-        "random_io_4k": ("random_io_4k",),
-        "random_io_512": ("random_io_512",),
+        "test_ci_03_lawdisk_4k": ("test_ci_03_lawdisk_4k", "lawdisk_4k", "lawdiskstress"),
+        "test_ci_04_lawdisk_512": ("test_ci_04_lawdisk_512", "lawdisk_512", "lawdiskstress"),
+        "test_ci_05_filesystem_4k": ("test_ci_05_filesystem_4k", "filesystem_4k", "filesystemstress"),
+        "test_ci_06_filesystem_512": ("test_ci_06_filesystem_512", "filesystem_512", "filesystemstress"),
+        "test_ci_07_mix_4k": ("test_ci_07_mix_4k", "mix_4k", "mix_stress"),
+        "test_ci_08_mix_512": ("test_ci_08_mix_512", "mix_512", "mix_stress"),
+        "test_ci_01_reboot": ("test_ci_01_reboot", "reboot", "reboot_powercycle"),
+        "test_ci_02_dc": ("test_ci_02_dc", "dc", "dc_powercycle"),
+        "test_ci_09_basic_io_4k": ("test_ci_09_basic_io_4k", "basic_io_4k"),
+        "test_ci_10_basic_io_512": ("test_ci_10_basic_io_512", "basic_io_512"),
+        "test_ci_11_basic_rebuild_io_4k": ("test_ci_11_basic_rebuild_io_4k", "basic_rebuild_io_4k"),
+        "test_ci_12_basic_rebuild_io_512": ("test_ci_12_basic_rebuild_io_512", "basic_rebuild_io_512"),
+        "test_ci_13_random_io_4k": ("test_ci_13_random_io_4k", "random_io_4k"),
+        "test_ci_14_random_io_512": ("test_ci_14_random_io_512", "random_io_512"),
+        "test_ci_00_env_prepare": ("test_ci_00_env_prepare", "env_prepare"),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))
 

@@ -36,8 +36,9 @@ RUN_ORDER_ENV = "RAID_NVME_RUN_ORDER"
 ITEM_ENV = "RAID_NVME_ITEM"
 _NODE_IP_REPORT_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 
-_CI_NAME_RE = re.compile(r"^test_ci_\d+_(.+)\.py$", re.IGNORECASE)
+_CI_NAME_RE = re.compile(r"^(test_ci_\d+_.+)\.py$", re.IGNORECASE)
 _TEST_NAME_RE = re.compile(r"^test_(.+)\.py$", re.IGNORECASE)
+_CI_SHORT_RE = re.compile(r"^test_ci_\d+_(.+)$", re.IGNORECASE)
 _SKIP_NAME_RE = re.compile(
     r"(^__init__\.py$|_common\.py$|^powercycle_launch\.py$|^fio_run\.py$|^fio_allure\.py$|^random_io_plan\.py$)",
     re.IGNORECASE,
@@ -45,7 +46,7 @@ _SKIP_NAME_RE = re.compile(
 
 
 def item_name_from_filename(filename):
-    """Map test_ci_03_lawdisk.py -> lawdisk, test_foo.py -> foo."""
+    """Map test_ci_01_reboot.py -> test_ci_01_reboot, test_foo.py -> foo."""
     if _SKIP_NAME_RE.search(filename):
         return None
     match = _CI_NAME_RE.match(filename)
@@ -57,6 +58,12 @@ def item_name_from_filename(filename):
         if name and not name.endswith("_common"):
             return name
     return None
+
+
+def item_short_name(name):
+    """test_ci_03_lawdisk_4k -> lawdisk_4k; plain names unchanged."""
+    match = _CI_SHORT_RE.match(name or "")
+    return match.group(1).strip().lower() if match else (name or "").strip().lower()
 
 
 def discover_test_items(items_dir=None):
@@ -82,7 +89,7 @@ def discover_test_items(items_dir=None):
 
 TEST_ITEMS = discover_test_items()
 
-SELECTION_BEGIN = "# === BEGIN SELECTION（自动同步；序号在前 + 完整用例名，# 表示不跑）==="
+SELECTION_BEGIN = "# === BEGIN SELECTION（自动同步；完整用例名 + 执行序号，# 表示不跑）==="
 SELECTION_END = "# === END SELECTION ==="
 _CI_ORDER_RE = re.compile(r"^test_ci_(\d+)_.+\.py$", re.IGNORECASE)
 _SELECTION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -91,8 +98,8 @@ _SELECTION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 def parse_selection_entry(line):
     """Parse a selection line into (name, orders, enabled), or None.
 
-    Preferred form puts order first: ``3 lawdisk_4k``, ``8 10 mix``.
-    Legacy form ``mix 8 10`` is still accepted.
+    Preferred: ``test_ci_01_reboot 1`` or ``test_ci_07_mix_4k 8 10``.
+    Also accepts short legacy names and order-first lines.
     """
     text = line.strip()
     if not text:
@@ -112,7 +119,15 @@ def parse_selection_entry(line):
     if not parts:
         return None
 
-    # Preferred: <order> [order...] <name>
+    # Preferred / normal: <name> [order...]
+    if _SELECTION_NAME_RE.fullmatch(parts[0].lower()) and all(
+        token.isdigit() for token in parts[1:]
+    ):
+        name = parts[0].lower()
+        orders = sorted({int(token) for token in parts[1:]})
+        return name, orders, enabled
+
+    # Alternate: <order> [order...] <name>
     if len(parts) >= 2 and parts[0].isdigit() and _SELECTION_NAME_RE.fullmatch(parts[-1].lower()):
         if not all(token.isdigit() for token in parts[:-1]):
             return None
@@ -120,17 +135,7 @@ def parse_selection_entry(line):
         orders = sorted({int(token) for token in parts[:-1]})
         return name, orders, enabled
 
-    # Legacy / bare name: <name> [order...]
-    name = parts[0].lower()
-    if not _SELECTION_NAME_RE.fullmatch(name):
-        return None
-    orders = []
-    for token in parts[1:]:
-        if not token.isdigit():
-            return None
-        orders.append(int(token))
-    orders = sorted(set(orders))
-    return name, orders, enabled
+    return None
 
 
 def _selection_entry_name(line):
@@ -200,7 +205,7 @@ def read_enabled_selection(path):
 def build_run_plan(path, test_items=None):
     """Expand enabled selection lines into ordered run slots.
 
-    ``8 10 mix`` (or legacy ``mix 8 10``) contributes two slots.
+    ``test_ci_07_mix_4k 8 10`` contributes two slots.
     Every slot uses ``run_key`` ``{item}__{order}`` for isolated artifacts and reporting.
     """
     catalog = test_items if test_items is not None else TEST_ITEMS
@@ -225,7 +230,7 @@ def build_run_plan(path, test_items=None):
 
 def validate_powercycle_plan(run_plan):
     def _powercycle_item(name: str) -> bool:
-        return name in {"reboot", "dc"}
+        return item_short_name(name) in {"reboot", "dc"}
 
     powercycle = [entry for entry in run_plan if _powercycle_item(entry["item"])]
     if powercycle and len(run_plan) != 1:
@@ -286,7 +291,7 @@ def build_synced_selection_order(existing_entries, catalog):
 def format_selection_line(name, orders, enabled):
     clean_orders = sorted(set(orders))
     if clean_orders:
-        body = " ".join(str(order) for order in clean_orders) + f" {name}"
+        body = f"{name} " + " ".join(str(order) for order in clean_orders)
     else:
         body = name
     return f"{body}\n" if enabled else f"# {body}\n"
@@ -296,7 +301,7 @@ def sync_selection_list(path, catalog):
     """Rewrite selection block so every discovered item is listed for easy toggle.
 
     Preserve enable/disable and numeric order; sort lines by order ascending.
-    Newly discovered names are added as '# <order> <name>'.
+    Newly discovered names are added as '# <full_name> <order>'.
     Returns True when the file content changed.
     """
     if not os.path.exists(path):

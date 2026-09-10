@@ -12,7 +12,7 @@ from test_items.basic_io_common import (
 from test_items.fio_run import build_fio_args, maybe_start_monitor, run_and_check_fio
 
 
-def _item_name(default: str = "basic_rebuild_io_512") -> str:
+def _item_name(default: str = "test_ci_12_basic_rebuild_io_512") -> str:
     return (os.environ.get("RAID_NVME_ITEM") or default).strip() or default
 
 

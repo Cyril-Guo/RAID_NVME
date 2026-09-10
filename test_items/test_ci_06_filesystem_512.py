@@ -7,7 +7,7 @@ import pytest
 from test_items.fio_run import build_fio_args, maybe_start_monitor, run_and_check_fio
 
 
-def _item_name(default: str = "filesystem_512") -> str:
+def _item_name(default: str = "test_ci_06_filesystem_512") -> str:
     return (os.environ.get("RAID_NVME_ITEM") or default).strip() or default
 
 

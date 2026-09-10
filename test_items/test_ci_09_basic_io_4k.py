@@ -7,7 +7,7 @@ from test_items.basic_io_common import CommandLog, prepare_basic_raid5_vds
 from test_items.fio_run import build_fio_args, maybe_start_monitor, run_and_check_fio
 
 
-def _item_name(default: str = "basic_io_4k") -> str:
+def _item_name(default: str = "test_ci_09_basic_io_4k") -> str:
     return (os.environ.get("RAID_NVME_ITEM") or default).strip() or default
 
 

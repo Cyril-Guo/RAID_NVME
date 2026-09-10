@@ -29,7 +29,7 @@ from test_items.random_io_plan import (
 
 
 def test_random_io():
-    item = (os.environ.get('RAID_NVME_ITEM') or 'random_io_512').strip() or 'random_io_512'
+    item = (os.environ.get('RAID_NVME_ITEM') or "test_ci_14_random_io_512").strip() or "test_ci_14_random_io_512"
 
     stress_dir = io_stress_dir()
     csv_name = os.environ.get("FIO_CONFIG", "").strip() or f"Input_Config_{item}.csv"
