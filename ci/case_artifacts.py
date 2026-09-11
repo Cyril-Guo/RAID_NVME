@@ -121,9 +121,6 @@ def copy_case_outputs(case_dir, repo_root, run_key):
     def paths():
         yield from sorted(case_dir.glob("*.log"))
         yield from _local_files(case_dir / "IO_Stress" / "log", case_dir)
-        if not (case_dir / "Stress_Monitor").is_symlink():
-            yield from _local_files(case_dir / "Stress_Monitor" / "monitor_log", case_dir)
-
     source = f"case_debug_{run_key}.tar.gz"
     # A completed case snapshot was taken before gcore; salvage reuses it.
     if (destination / source).is_file() or _archive_logs(destination / source, case_dir, paths()):
@@ -142,15 +139,5 @@ def recover_case_outputs(repo_root):
     for case in sorted(cases.iterdir()):
         if case.is_dir() and not case.is_symlink() and RUN_KEY.fullmatch(case.name):
             copy_case_outputs(case, repo_root, case.name)
-    # The monitor tree is shared across cases. Do not pretend its final snapshot
-    # belongs to every historical case; label it explicitly as node-wide evidence.
-    monitor = repo_root / "Stress_Monitor" / "monitor_log"
-    if monitor.is_dir() and not monitor.is_symlink():
-        destination = repo_root / "allure-results"
-        destination.mkdir(exist_ok=True)
-        source = "node_monitor_snapshot.tar.gz"
-        if _archive_logs(destination / source, repo_root, _local_files(monitor, repo_root)):
-            entry = {"scope": "node", "attachment": {"name": "节点监控快照（收尾时，非单用例）",
-                     "source": source, "type": "application/gzip"}}
-            (destination / "node_monitor_attachments.json").write_text(
-                json.dumps([entry], ensure_ascii=False), encoding="utf-8")
+
+

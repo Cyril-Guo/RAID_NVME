@@ -48,35 +48,19 @@ def test_build_fio_args_passes_case_csv(tmp_path, monkeypatch):
     ]
 
 
-def test_ci_cases_use_own_csv_and_do_not_import_siblings():
+def test_powercycle_cases_use_own_csv_and_do_not_import_siblings():
     sources = {
-        "test_ci_00_env_prepare.py": "run_env_prepare(log)",
-        "test_ci_01_reboot.py": 'build_fio_args("reboot", "reboot"',
-        "test_ci_02_dc.py": 'build_fio_args("dc", "dc"',
-        "test_ci_03_lawdisk.py": 'build_fio_args("lawdiskstress", "lawdisk"',
-        "test_ci_04_filesystem.py": 'build_fio_args("filesystemstress", "filesystem"',
-        "test_ci_05_mix.py": 'build_fio_args("lawdiskstress", "mix", extra=["--mix_io", "yes"]',
-        "test_ci_06_basic_io.py": 'build_fio_args("lawdiskstress", "basic_io"',
-        "test_ci_07_basic_rebuild_io.py": 'build_fio_args("lawdiskstress", "basic_rebuild_io"',
-        "test_ci_08_random_io.py": 'write_fio_job(plan, disk_sizes, jobs["FILL"], "FILL")',
+        "test_powercycle_00_env_prepare.py": "run_env_prepare(log)",
+        "test_powercycle_01_reboot.py": 'build_fio_args("reboot", "reboot"',
+        "test_powercycle_02_dc.py": 'build_fio_args("dc", "dc"',
     }
     for name, needle in sources.items():
         source = Path("test_items", name).read_text(encoding="utf-8")
         assert needle in source
-        assert "test_ci_03_lawdisk" not in source or name == "test_ci_03_lawdisk.py"
         assert "as lawdisk_case" not in source
         assert "prepare_physical_io_case" not in source
-    for item in (
-        "reboot",
-        "dc",
-        "lawdisk",
-        "filesystem",
-        "mix",
-        "basic_io",
-        "basic_rebuild_io",
-        "random_io",
-    ):
-        assert Path("IO_Stress", f"Input_Config_{item}.csv").is_file()
+    assert Path("IO_Stress", "Input_Config_reboot_4k.csv").is_file()
+    assert Path("IO_Stress", "Input_Config_dc_4k.csv").is_file()
 
 
 def test_single_mode_propagates_run_single_failure():

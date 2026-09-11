@@ -20,10 +20,10 @@ result_roots_for_item() {
         "${REMOTE_DIR}/${RESULT_REL}"
 }
 
-# test_ci_01_reboot -> reboot; plain reboot stays reboot.
+# test_powercycle_01_reboot -> reboot; plain reboot stays reboot.
 item_short_name() {
     local name="$1"
-    if [[ "${name}" =~ ^test_ci_[0-9]+_(.+)$ ]]; then
+    if [[ "${name}" =~ ^test_powercycle_[0-9]+_(.+)$ ]]; then
         printf '%s\n' "${BASH_REMATCH[1]}"
     else
         printf '%s\n' "${name}"
@@ -74,8 +74,8 @@ parse_selected_powercycle_items() {
         tokens=("$@")
         [[ "${#tokens[@]}" -ge 1 ]] || continue
 
-        # Preferred: test_ci_01_reboot 1   (name then one-or-more orders)
-        # Also accept short reboot/dc and order-first: 1 test_ci_01_reboot
+        # Preferred: test_powercycle_01_reboot 1   (name then one-or-more orders)
+        # Also accept short reboot/dc and order-first: 1 test_powercycle_01_reboot
         local i
         name=""
         if [[ "${tokens[0]}" =~ ^[0-9]+$ ]]; then

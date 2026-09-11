@@ -49,6 +49,4 @@ def test_merge_from_directory_keeps_duplicate_run_keys(tmp_path):
 def test_monitor_pkill_pattern_does_not_embed_plain_path():
     assert salvage_junit_reports.MONITOR_PKILL_PATTERN == "[S]tress_Monitor/main.py"
     source = Path("ci/salvage_junit_reports.py").read_text(encoding="utf-8")
-    assert "pkill -TERM -f Stress_Monitor/main.py" not in source
-    assert "pkill -KILL -f Stress_Monitor/main.py" not in source
     assert "sys.path.insert" in source

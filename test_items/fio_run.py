@@ -8,7 +8,7 @@ from datetime import datetime
 
 import pytest
 
-from test_items.case_paths import io_stress_dir, stress_monitor_dir
+from test_items.case_paths import io_stress_dir
 from test_items.command_output import CommandOutputCapture, safe_console_print
 from test_items.fio_allure import (
     FIO_FAILURE_SUMMARY_NAME,
@@ -151,31 +151,6 @@ def build_fio_args(mode, item, extra=None):
         args.extend(["-u", fio_disks])
     return args
 
-
-def maybe_start_monitor():
-    if os.environ.get("STRESS_MONITOR", "").strip().lower() != "yes":
-        return
-    monitor_dir = stress_monitor_dir()
-    monitor_main = os.path.join(monitor_dir, "main.py")
-    if not os.path.exists(monitor_main):
-        return
-    monitor_cmd = [sys.executable, monitor_main]
-    runtime = os.environ.get("MONITOR_RUNTIME", "").strip()
-    if runtime:
-        monitor_cmd.extend(["-r", runtime])
-    monitor_disks = os.environ.get("FIO_DISKS", "").strip()
-    if monitor_disks:
-        monitor_cmd.extend(["-d", monitor_disks])
-    safe_console_print(
-        f"[{_ts()}] Start Stress_Monitor in background (Runtime: {runtime or 'Default'})..."
-    )
-    subprocess.Popen(
-        monitor_cmd,
-        cwd=monitor_dir,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
 
 
 def run_and_check_fio(fio_args, extra_output=""):

@@ -17,12 +17,7 @@ ALLOWED_PARAM_KEYS = (
     "FIO_CONFIG",
     "IGNORE_ERROR",
     "FIO_DISKS",
-    "STRESS_MONITOR",
-    "MONITOR_RUNTIME",
     "FIO_RUNTIME",
-    "RANDOM_IO_DURATION",
-    "MIX_FAIL_ON_ANY",
-    "IO_BS_ALIGN",
 )
 ALL_PARAM_KEYS = sorted(ALLOWED_PARAM_KEYS)
 
@@ -36,17 +31,17 @@ RUN_ORDER_ENV = "RAID_NVME_RUN_ORDER"
 ITEM_ENV = "RAID_NVME_ITEM"
 _NODE_IP_REPORT_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 
-_CI_NAME_RE = re.compile(r"^(test_ci_\d+_.+)\.py$", re.IGNORECASE)
+_CI_NAME_RE = re.compile(r"^(test_powercycle_\d+_.+)\.py$", re.IGNORECASE)
 _TEST_NAME_RE = re.compile(r"^test_(.+)\.py$", re.IGNORECASE)
-_CI_SHORT_RE = re.compile(r"^test_ci_\d+_(.+)$", re.IGNORECASE)
+_CI_SHORT_RE = re.compile(r"^test_powercycle_\d+_(.+)$", re.IGNORECASE)
 _SKIP_NAME_RE = re.compile(
-    r"(^__init__\.py$|_common\.py$|^powercycle_launch\.py$|^fio_run\.py$|^fio_allure\.py$|^random_io_plan\.py$)",
+    r"(^__init__\.py$|_common\.py$|^powercycle_launch\.py$|^fio_run\.py$|^fio_allure\.py$)",
     re.IGNORECASE,
 )
 
 
 def item_name_from_filename(filename):
-    """Map test_ci_01_reboot.py -> test_ci_01_reboot, test_foo.py -> foo."""
+    """Map test_powercycle_01_reboot.py -> test_powercycle_01_reboot, test_foo.py -> foo."""
     if _SKIP_NAME_RE.search(filename):
         return None
     match = _CI_NAME_RE.match(filename)
@@ -61,7 +56,7 @@ def item_name_from_filename(filename):
 
 
 def item_short_name(name):
-    """test_ci_03_lawdisk_4k -> lawdisk_4k; plain names unchanged."""
+    """test_powercycle_01_reboot -> reboot; plain names unchanged."""
     match = _CI_SHORT_RE.match(name or "")
     return match.group(1).strip().lower() if match else (name or "").strip().lower()
 
@@ -91,14 +86,14 @@ TEST_ITEMS = discover_test_items()
 
 SELECTION_BEGIN = "# === BEGIN SELECTION（自动同步；完整用例名 + 执行序号，# 表示不跑）==="
 SELECTION_END = "# === END SELECTION ==="
-_CI_ORDER_RE = re.compile(r"^test_ci_(\d+)_.+\.py$", re.IGNORECASE)
+_CI_ORDER_RE = re.compile(r"^test_powercycle_(\d+)_.+\.py$", re.IGNORECASE)
 _SELECTION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def parse_selection_entry(line):
     """Parse a selection line into (name, orders, enabled), or None.
 
-    Preferred: ``test_ci_01_reboot 1`` or ``test_ci_07_mix_4k 8 10``.
+    Preferred: ``test_powercycle_01_reboot 1`` or ``test_powercycle_07_mix_4k 8 10``.
     Also accepts short legacy names and order-first lines.
     """
     text = line.strip()
@@ -145,7 +140,7 @@ def _selection_entry_name(line):
 
 
 def catalog_default_order(name, catalog):
-    """Prefer CI file number (test_ci_03_*.py -> 3); else None."""
+    """Prefer file number (test_powercycle_01_*.py -> 1); else None."""
     path = catalog.get(name, "")
     match = _CI_ORDER_RE.match(os.path.basename(path))
     if match:
@@ -205,7 +200,7 @@ def read_enabled_selection(path):
 def build_run_plan(path, test_items=None):
     """Expand enabled selection lines into ordered run slots.
 
-    ``test_ci_07_mix_4k 8 10`` contributes two slots.
+    ``test_powercycle_07_mix_4k 8 10`` contributes two slots.
     Every slot uses ``run_key`` ``{item}__{order}`` for isolated artifacts and reporting.
     """
     catalog = test_items if test_items is not None else TEST_ITEMS
@@ -831,57 +826,9 @@ def validate_selection(selected, test_items=None, base_dir=None):
     return invalid, missing
 
 
-def stress_monitor_enabled(params):
-    return params.get("STRESS_MONITOR", "").strip().lower() == "yes"
 
 
-def monitor_paths(base_dir):
-    monitor_dir = os.path.join(base_dir, "Stress_Monitor")
-    monitor_main = os.path.join(monitor_dir, "main.py")
-    monitor_log = os.path.join(monitor_dir, "monitor_log")
-    return monitor_main, monitor_log
 
-
-def clean_monitor_log(base_dir):
-    _, monitor_log = monitor_paths(base_dir)
-    if os.path.exists(monitor_log):
-        shutil.rmtree(monitor_log, ignore_errors=True)
-
-
-def monitor_running(monitor_main):
-    result = subprocess.run(
-        ["pgrep", "-f", monitor_main],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    return result.returncode == 0
-
-
-def stop_monitor_for_item(base_dir, wait_seconds=30):
-    monitor_main, _ = monitor_paths(base_dir)
-    subprocess.run(
-        ["pkill", "-TERM", "-f", monitor_main],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    for _ in range(wait_seconds):
-        if not monitor_running(monitor_main):
-            return
-        time.sleep(1)
-
-    print(f"[WARN] Stress monitor still running after TERM; sending KILL: {monitor_main}")
-    subprocess.run(
-        ["pkill", "-KILL", "-f", monitor_main],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-    )
-    for _ in range(5):
-        if not monitor_running(monitor_main):
-            return
-        time.sleep(1)
 
 
 def _result_label_map(result):
@@ -908,71 +855,15 @@ def result_matches_item(result, item, run_key=None):
         for key in ("name", "fullName", "historyId", "testCaseId")
     )
     aliases = {
-        "lawdisk": ("lawdisk", "lawdiskstress"),
-        "filesystem": ("filesystem", "filesystemstress"),
-        "mix": ("mix", "mix_stress"),
+        "test_powercycle_00_env_prepare": ("test_powercycle_00_env_prepare", "env_prepare"),
+        "test_powercycle_01_reboot": ("test_powercycle_01_reboot", "reboot", "reboot_powercycle"),
+        "test_powercycle_02_dc": ("test_powercycle_02_dc", "dc", "dc_powercycle"),
         "reboot": ("reboot", "reboot_powercycle"),
         "dc": ("dc", "dc_powercycle"),
-        "basic_io": ("basic_io", "basic_io"),
-        "basic_rebuild_io": ("basic_rebuild_io", "basic_rebuild_io"),
-        "random_io": ("random_io", "randomio"),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))
 
 
-def attach_monitor_archive_to_result(item, base_dir, archive_name, run_key=None):
-    allure_dir = os.path.join(base_dir, ALLURE_DIR)
-    label = run_key or item
-    attachment = {
-        "name": "monitor_log_{}".format(label),
-        "source": archive_name,
-        "type": "application/gzip",
-    }
-
-    for name in os.listdir(allure_dir):
-        if not name.endswith("-result.json"):
-            continue
-        path = os.path.join(allure_dir, name)
-        try:
-            with open(path, "r", encoding="utf-8") as handle:
-                result = json.load(handle)
-        except (OSError, json.JSONDecodeError):
-            continue
-        if not result_matches_item(result, item, run_key=run_key):
-            continue
-
-        attachments = result.setdefault("attachments", [])
-        if not any(existing.get("source") == archive_name for existing in attachments):
-            attachments.append(attachment)
-        with open(path, "w", encoding="utf-8") as handle:
-            json.dump(result, handle, ensure_ascii=False)
-        return True
-
-    sidecar = os.path.join(allure_dir, "monitor_attachments.json")
-    try:
-        with open(sidecar, "r", encoding="utf-8") as handle:
-            pending = json.load(handle)
-    except (OSError, json.JSONDecodeError):
-        pending = []
-    pending.append({"item": item, "attachment": attachment, "run_key": run_key})
-    with open(sidecar, "w", encoding="utf-8") as handle:
-        json.dump(pending, handle, ensure_ascii=False)
-    return False
-
-
-def add_allure_monitor_archive(run_key, base_dir, item=None):
-    item = item or run_key.split("__", 1)[0]
-    _, monitor_log = monitor_paths(base_dir)
-    if not os.path.isdir(monitor_log):
-        return
-
-    allure_dir = os.path.join(base_dir, ALLURE_DIR)
-    os.makedirs(allure_dir, exist_ok=True)
-
-    archive_name = "monitor_log_{}.tar.gz".format(run_key)
-    base_name = os.path.join(allure_dir, "monitor_log_{}".format(run_key))
-    shutil.make_archive(base_name, "gztar", root_dir=os.path.dirname(monitor_log), base_dir=os.path.basename(monitor_log))
-    attach_monitor_archive_to_result(item, base_dir, archive_name, run_key=run_key)
 
 
 def main(argv=None):
@@ -1035,7 +926,6 @@ def main(argv=None):
         run_key = entry["run_key"]
         order = entry["order"]
         params = params_map.get(item, {})
-        monitor_enabled = stress_monitor_enabled(params)
         print(f"[ITEM_START] {run_key}")
         if run_key != item:
             print(f"[ITEM] order={order}")
@@ -1043,8 +933,6 @@ def main(argv=None):
         case_dir = prepare_case_workdir(base_dir, run_key)
         print(f"[ITEM] case workspace: {case_dir}")
         try:
-            if monitor_enabled:
-                clean_monitor_log(case_dir)
             exit_code = run_single_item(
                 item,
                 params,
@@ -1056,12 +944,6 @@ def main(argv=None):
             )
             print(f"[ITEM_END] {run_key} exit_code={exit_code}")
         finally:
-            if monitor_enabled:
-                stop_monitor_for_item(case_dir)
-                try:
-                    add_allure_monitor_archive(run_key, case_dir, item=item)
-                except Exception as exc:
-                    print(f"[WARN] Failed to archive monitor log for {run_key}: {exc}")
             try:
                 collect_case_outputs(case_dir, base_dir, run_key)
             except Exception as exc:

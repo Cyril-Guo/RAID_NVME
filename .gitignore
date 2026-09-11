@@ -3,7 +3,12 @@
 __pycache__/
 *.py[cod]
 *.pyo
-
 # Per-case DUT/local workspaces created by nvme_raid_test.py
 cases/
 storcli2.log
+allure-results/
+failure_bundles/
+failure_bundle_*.tar.gz
+report_*.xml
+.pytest_cache/
+*.pyc

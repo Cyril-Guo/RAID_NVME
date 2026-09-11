@@ -11,7 +11,7 @@ def test_wait_powercycle_completion_script_exists_and_checks_markers():
     assert "is_powercycle_item" in source
     assert "item_short_name" in source
     assert "powercycle_log_name" in source
-    assert "test_ci_" in source
+    assert "test_powercycle_" in source
     assert "selected_run_keys+=" in source
     assert '"${REMOTE_DIR}/cases/${run_key}/${RESULT_REL}"' in source
 

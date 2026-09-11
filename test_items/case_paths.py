@@ -24,5 +24,3 @@ def io_stress_dir() -> str:
     return os.path.join(case_root(), "IO_Stress")
 
 
-def stress_monitor_dir() -> str:
-    return os.path.join(case_root(), "Stress_Monitor")

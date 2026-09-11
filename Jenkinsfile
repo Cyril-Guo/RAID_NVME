@@ -303,7 +303,6 @@ PY''',
                                 sh """
                                 ${restoreSsh} '
                                     pkill -9 -f nvme_raid_test.py 2>/dev/null || true
-                                    pkill -2 -f Stress_Monitor/main.py 2>/dev/null || true
                                     pkill -9 -f run_fio.sh 2>/dev/null || true
                                     pkill -9 -f Fio_All.sh 2>/dev/null || true
                                     pkill -9 fio 2>/dev/null || true
@@ -531,7 +530,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                 }
 
                 try {
-                    archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, allure-results/*monitor*.tar.gz, allure-results/*case_debug_*.tar.gz, allure-results/*failure_bundle_*.tar.gz, failure_bundle_*.tar.gz', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, allure-results/*case_debug_*.tar.gz, allure-results/*failure_bundle_*.tar.gz, failure_bundle_*.tar.gz', allowEmptyArchive: true
                 } catch (Exception publishEx) {
                     if (publishEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(publishEx)) {
                         throw publishEx
@@ -608,14 +607,11 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                 }
                 // If JUnit stayed green but logs already captured hard FIO/env failures,
                 // force Jenkins + Feishu BUILD_RESULT to FAILURE before payload generation.
-                // Do not treat plain "FIO command failed" as hard: MIX_FAIL_ON_ANY=no records
-                // those lines while intentionally continuing.
                 if (hasFailureSummary && buildResult in ['SUCCESS', 'UNKNOWN', '']) {
                     def summaryLower = readFile('failure_summary.txt').toLowerCase()
                     def hardMarkers = [
                         'fio stage failed',
                         'fio stage abort',
-                        'mix_fail_on_any=yes, fail',
                         'idle watchdog timeout',
                         'idle watchdog fired',
                         'environment_prepare_status=failed',
@@ -626,21 +622,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                         'traceback',
                         'assertionerror',
                     ]
-                    def softMixContinue = summaryLower.contains('mix_fail_on_any=no, continue') &&
-                        !summaryLower.contains('mix_fail_on_any=yes, fail')
-                    def stageStops = [
-                        'fio stage failed',
-                        'fio stage abort',
-                        'idle watchdog timeout',
-                        'idle watchdog fired',
-                        'environment_prepare_status=failed',
-                        'test_execution_status=failed',
-                        'traceback',
-                        'assertionerror',
-                    ]
-                    def isHard = softMixContinue ?
-                        stageStops.any { summaryLower.contains(it) } :
-                        hardMarkers.any { summaryLower.contains(it) }
+                    def isHard = hardMarkers.any { summaryLower.contains(it) }
                     if (isHard) {
                         echo "Hard failure summary detected; override BUILD_RESULT ${buildResult} -> FAILURE for Feishu card"
                         currentBuild.result = 'FAILURE'
