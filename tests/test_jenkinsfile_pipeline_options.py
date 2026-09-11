@@ -359,8 +359,10 @@ def test_junit_glob_only_collects_node_level_reports():
 
 
 def test_jenkins_sets_sshpass_env_without_embedding_password_in_helper():
+    # timeout wiring checked in test_jenkins_wires_powercycle_completion_timeout
     jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
     assert "SSHPASS = " in jenkinsfile
     assert 'return "sshpass -e ssh' in jenkinsfile
     assert "SSHPASS='${env.TARGET_PASSWORD}' sshpass" not in jenkinsfile
-    assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES" in jenkinsfile
+    assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES = '4000'" in jenkinsfile
+    assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES='${env.POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES}'" in jenkinsfile

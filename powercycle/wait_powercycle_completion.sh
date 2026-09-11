@@ -107,16 +107,18 @@ parse_selected_powercycle_items() {
 
 read_item_ignore_error() {
     local item="$1"
-    local in_section=0
-    local line key value
+    local want_short in_section=0
+    local line key value section=""
     local ignore=""
+    want_short="$(item_short_name "${item}")"
     [[ -f "${ITEMS_FILE}" ]] || { echo "no"; return; }
     while IFS= read -r line || [[ -n "${line}" ]]; do
         line="${line%%#*}"
         line="$(echo "${line}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
         [[ -z "${line}" ]] && continue
         if [[ "${line}" =~ ^\[(.+)\]$ ]]; then
-            if [[ "${BASH_REMATCH[1]}" == "${item}" ]]; then
+            section="${BASH_REMATCH[1]}"
+            if [[ "${section}" == "${item}" ]] || [[ "$(item_short_name "${section}")" == "${want_short}" ]]; then
                 in_section=1
             else
                 in_section=0
@@ -139,16 +141,18 @@ read_item_ignore_error() {
 
 read_item_cycles() {
     local item="$1"
-    local in_section=0
-    local line key value
+    local want_short in_section=0
+    local line key value section=""
     local cycles=""
+    want_short="$(item_short_name "${item}")"
     [[ -f "${ITEMS_FILE}" ]] || { echo 10; return; }
     while IFS= read -r line || [[ -n "${line}" ]]; do
         line="${line%%#*}"
         line="$(echo "${line}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
         [[ -z "${line}" ]] && continue
         if [[ "${line}" =~ ^\[(.+)\]$ ]]; then
-            if [[ "${BASH_REMATCH[1]}" == "${item}" ]]; then
+            section="${BASH_REMATCH[1]}"
+            if [[ "${section}" == "${item}" ]] || [[ "$(item_short_name "${section}")" == "${want_short}" ]]; then
                 in_section=1
             else
                 in_section=0

@@ -223,8 +223,9 @@ dc_utc()
     cat /proc/driver/rtc
     sleep 5
     echo "$(date '+%F %T') [DC] request start, mode=UTC, user=$(id -un), uid=$(id -u)" | tee -a "$ResultLog/dc_command.log"
-    sleep ${POWER_CYCLE_COMMAND_GRACE:-15}
+    sleep ${POWER_CYCLE_COMMAND_GRACE:-90}
     poweroff
+    return $?
 }
 
 dc_rtc()
@@ -240,8 +241,9 @@ dc_rtc()
     # Sync system clock to hardware RTC before DC, but don't fail if hwclock is missing
     hwclock -w 2>/dev/null || timedatectl set-local-rtc 0 >> /dev/null 2>&1 || true
     echo "$(date '+%F %T') [DC] request start, mode=RTC, user=$(id -un), uid=$(id -u)" | tee -a "$ResultLog/dc_command.log"
-    sleep ${POWER_CYCLE_COMMAND_GRACE:-15}
+    sleep ${POWER_CYCLE_COMMAND_GRACE:-90}
     poweroff
+    return $?
 }
 
 
@@ -256,7 +258,7 @@ function request_system_reboot()
     local rc=1
 
     echo "$(date '+%F %T') [REBOOT] request start, user=$(id -un), uid=$(id -u)" | tee -a "$reboot_cmd_log"
-    sleep ${POWER_CYCLE_COMMAND_GRACE:-15}
+    sleep ${POWER_CYCLE_COMMAND_GRACE:-90}
 
     if [ "$(id -u)" -eq 0 ]; then
         systemctl reboot -i >>"$reboot_cmd_log" 2>&1 || reboot >>"$reboot_cmd_log" 2>&1 || shutdown -r now >>"$reboot_cmd_log" 2>&1
@@ -302,9 +304,10 @@ function do_reboot()
         fi
     fi
 
+    # 10 == all loops completed (do NOT reuse for errors).
     if [ "$loop" -ge "$LOOP" ]; then
         echo "$(date '+%F %T') [POWER] all power-cycle loops completed, no remaining reboot/dc command" | tee -a "$command_log"
-        return 2
+        return 10
     fi
 
     let beforeloop=$loop
@@ -317,6 +320,13 @@ function do_reboot()
     echo "Press Ctrl+c to stop running"
     sleep $delay
 
+    _rollback_powercycle_loop() {
+        loop=$beforeloop
+        if [[ -f "$ResultLog/reboot.log" ]]; then
+            sed -i '$d' "$ResultLog/reboot.log" 2>/dev/null || true
+        fi
+    }
+
     if [ "$item" = "REBOOT" ];then
         autoopen
         sync
@@ -325,29 +335,42 @@ function do_reboot()
         if [ "$reboot_fail_rc" -ne 0 ]; then
             echo "$(date '+%F %T') [POWER] reboot command failed, rc=$reboot_fail_rc" | tee -a "$command_log"
             echo "Power-cycle reboot/dc command failed, rc=$reboot_fail_rc" | tee -a "$command_log"
+            _rollback_powercycle_loop
             return "$reboot_fail_rc"
         fi
         # Reboot requested: keep resume unit armed and end this process.
+        POWERCYCLE_KEEP_RESUME=1
         sleep 60
         exit 0
     elif [ "$item" = "DC" ];then
         autoopen
         sync
-        if [ "$mode" = "UTC" ];then
-            dc_utc
-            sleep 60
-            exit 0
-        elif [ "$mode" = "RTC" ];then
-            dc_rtc
+        if [ "$mode" = "UTC" ] || [ "$mode" = "RTC" ]; then
+            if [ "$mode" = "UTC" ]; then
+                dc_utc
+            else
+                dc_rtc
+            fi
+            dc_rc=$?
+            if [ "$dc_rc" -ne 0 ]; then
+                echo "$(date '+%F %T') [POWER] DC poweroff failed, rc=$dc_rc mode=$mode" | tee -a "$command_log"
+                echo "Power-cycle reboot/dc command failed, rc=$dc_rc" | tee -a "$command_log"
+                _rollback_powercycle_loop
+                return "$dc_rc"
+            fi
+            # poweroff accepted: keep resume unit armed.
+            POWERCYCLE_KEEP_RESUME=1
             sleep 60
             exit 0
         else
             echo "ERROR: unsupported DC mode '$mode' (only UTC/RTC)" | tee -a "$command_log"
-            echo "Power-cycle reboot/dc command failed, rc=2" | tee -a "$command_log"
-            return 2
+            echo "Power-cycle reboot/dc command failed, rc=22" | tee -a "$command_log"
+            _rollback_powercycle_loop
+            return 22
         fi
     else
         echo "$item Test Complete once"
+        return 1
     fi
 
 #    echo "FIO + DC test has been run $LOOP,it will be exit,if you want to run more times please modify the var loops"

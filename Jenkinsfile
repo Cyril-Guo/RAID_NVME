@@ -186,6 +186,8 @@ pipeline {
         // Consumed by sshpass -e; keep out of command strings built by hostSshCmd/hostScpCmd.
         SSHPASS = "${params.TARGET_PASSWORD?.trim() ?: ''}"
         TEST_IDLE_TIMEOUT_MINUTES = '15'
+        // Wait budget for reboot/dc multi-loop completion (minutes). 100 cycles * ~30m = 3000; keep headroom under 72h.
+        POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES = '4000'
         ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
         TEST_EXECUTION_ATTEMPTED = 'false'
         SSH_OPTS = '-o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
@@ -457,6 +459,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x powercycle/collect_environment_metadat
  REMOTE_DIR='${remoteDir}' \
  REMOTE_SSH_COMMAND="${targetSsh}" \
  TEST_ITEMS_FILE='test_items.txt' \
+ POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES='${env.POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES}' \
  powercycle/wait_powercycle_completion.sh
   """
                                     )

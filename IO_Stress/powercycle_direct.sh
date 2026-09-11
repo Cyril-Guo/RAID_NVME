@@ -74,7 +74,7 @@ echo "$(date '+%F %T') [DIRECT] dmesg captured for loop=${loop:-0}" | tee -a "$c
 do_reboot
 reboot_rc=$?
 echo "$(date '+%F %T') [DIRECT] do_reboot rc=$reboot_rc" | tee -a "$command_log"
-if [[ $reboot_rc -eq 2 ]]; then
+if [[ $reboot_rc -eq 10 ]]; then
     collect_log
     teardown_powercycle_resume
     test_end 0
@@ -84,4 +84,7 @@ if [[ $reboot_rc -ne 0 ]]; then
     teardown_powercycle_resume
     test_end "$reboot_rc"
 fi
-exit "$reboot_rc"
+# Successful reboot/dc request exits inside do_reboot; reaching here is unexpected.
+echo "$(date '+%F %T') [DIRECT] unexpected do_reboot rc=$reboot_rc" | tee -a "$command_log"
+teardown_powercycle_resume
+test_end 1

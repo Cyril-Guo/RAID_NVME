@@ -355,7 +355,11 @@ function info_diff()
             return 0
         else
             echo "Unsupport stop flag, and it shoule be STOP or NON-STOP, exit..."
-            exit 2
+            collect_log
+            if declare -F teardown_powercycle_resume >/dev/null 2>&1; then
+                teardown_powercycle_resume
+            fi
+            test_end 2
         fi
     fi
 }  

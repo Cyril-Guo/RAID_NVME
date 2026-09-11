@@ -154,7 +154,7 @@ function check_arguments()
         expr $LOOP "+" 10 &> /dev/null
     if [ $? -ne 0 ];then
         echo "the input LOOP isn't a number,exit" 
-        exit
+        exit 2
     fi
     fi
     if [[ -z "$safe" ]];then
@@ -173,7 +173,7 @@ function check_arguments()
             expr $wait "+" 10 &> /dev/null
             if [ $? -ne 0 ];then
                 echo "the input S5 delay time isn't a number,exit" 
-                exit
+                exit 2
             fi
         fi
         if [[ $mode == "UTC" ]];then
@@ -182,7 +182,7 @@ function check_arguments()
 			show_produce_message "DC test start as RTC mode"
         else
             echo -e " the DC mode isn't supported, only utc or rtc, exit now.  \n"
-            exit
+            exit 2
         fi
     elif [[ $item == "RESTORE" ]];then
         show_produce_message "Restore mode selected"
@@ -223,7 +223,7 @@ function check_arguments()
         expr $log_interval "+" 10 &> /dev/null
         if [ $? -ne 0 ];then
             echo "the input log_interval isn't a number,exit"
-            exit
+            exit 2
         fi
     fi
     #######

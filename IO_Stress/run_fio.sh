@@ -41,7 +41,7 @@ if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
 
     do_reboot
     reboot_rc=$?
-    if [ $reboot_rc -eq 2 ]; then
+    if [ $reboot_rc -eq 10 ]; then
         echo "Power-cycle test completed all $LOOP loops."
         collect_log
         teardown_powercycle_resume

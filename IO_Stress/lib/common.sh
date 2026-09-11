@@ -67,9 +67,13 @@ teardown_powercycle_resume()
 function dotrap()
 {
    # Preserve the original exit status after cleanup (do not force exit 0).
+   # Also clear powercycle resume unit if this process exits without test_end.
    trap '
     ec=$?
     ps -ef | grep -E "APERF_FREQ|python3 main.py" | grep -v grep | awk "{print \$2}" | xargs kill -9 > /dev/null 2>&1
+    if [[ "${POWERCYCLE_KEEP_RESUME:-0}" != "1" ]] && declare -F teardown_powercycle_resume >/dev/null 2>&1; then
+        teardown_powercycle_resume
+    fi
     exit $ec' EXIT
    trap 'exit 130' INT
 }
