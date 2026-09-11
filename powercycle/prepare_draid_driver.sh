@@ -7,7 +7,11 @@ set -euo pipefail
 : "${BUILD_NUMBER:?BUILD_NUMBER is required}"
 
 SSH_OPTS=${SSH_OPTS:-}
-TARGET_PASSWORD=${TARGET_PASSWORD:-123456}
+TARGET_PASSWORD="${TARGET_PASSWORD:-}"
+if [[ -z "${TARGET_PASSWORD}" ]]; then
+    echo "TARGET_PASSWORD is required" >&2
+    exit 1
+fi
 
 host_ssh() {
     SSHPASS="${TARGET_PASSWORD}" sshpass -e ssh ${SSH_OPTS} "${TARGET_USER}@${NODE_IP}" "$@"

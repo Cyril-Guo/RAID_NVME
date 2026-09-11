@@ -105,6 +105,38 @@ parse_selected_powercycle_items() {
     done < "${ITEMS_FILE}"
 }
 
+read_item_ignore_error() {
+    local item="$1"
+    local in_section=0
+    local line key value
+    local ignore=""
+    [[ -f "${ITEMS_FILE}" ]] || { echo "no"; return; }
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line%%#*}"
+        line="$(echo "${line}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        [[ -z "${line}" ]] && continue
+        if [[ "${line}" =~ ^\[(.+)\]$ ]]; then
+            if [[ "${BASH_REMATCH[1]}" == "${item}" ]]; then
+                in_section=1
+            else
+                in_section=0
+            fi
+            continue
+        fi
+        [[ "${in_section}" -eq 1 ]] || continue
+        key="$(echo "${line%%=*}" | sed 's/[[:space:]]//g')"
+        value="$(echo "${line#*=}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+        if [[ "${key}" == "IGNORE_ERROR" ]]; then
+            ignore="$(echo "${value}" | tr '[:upper:]' '[:lower:]')"
+        fi
+    done < "${ITEMS_FILE}"
+    if [[ "${ignore}" == "yes" ]]; then
+        echo "yes"
+    else
+        echo "no"
+    fi
+}
+
 read_item_cycles() {
     local item="$1"
     local in_section=0
@@ -198,7 +230,7 @@ item_triggered() {
 item_failed() {
     local run_key="$1"
     local item="${run_key%%__*}"
-    local log_name root text
+    local log_name root text ignore_error
     local -a patterns=(
         "FIO stage failed"
         "FIO stage abort"
@@ -210,12 +242,19 @@ item_failed() {
         "Fail to detect system disk"
         "idle watchdog timeout"
         "PowerCycle FIO requires filename="
-        "ERROR: MachineCheck before FIO failed"
-        "ERROR: MachineCheck inconsistencies found"
-        "ERROR: MachineCheck Log Inconsistency"
-        "Whitelist field differences"
+        "Power-cycle reboot/dc command failed"
         "stop_flag is STOP,so exit"
     )
+    # MachineCheck soft-continue (IGNORE_ERROR=yes / NON-STOP) must NOT fail the wait loop.
+    ignore_error="$(read_item_ignore_error "${item}")"
+    if [[ "${ignore_error}" != "yes" ]]; then
+        patterns+=(
+            "ERROR: MachineCheck before FIO failed"
+            "ERROR: MachineCheck inconsistencies found"
+            "ERROR: MachineCheck Log Inconsistency"
+            "Whitelist field differences"
+        )
+    fi
     log_name="$(powercycle_log_name "${item}")"
     while IFS= read -r root; do
         for pattern in "${patterns[@]}"; do

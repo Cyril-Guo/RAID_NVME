@@ -320,23 +320,31 @@ function do_reboot()
     if [ "$item" = "REBOOT" ];then
         autoopen
         sync
-        request_system_reboot || exit $?
+        request_system_reboot
+        reboot_fail_rc=$?
+        if [ "$reboot_fail_rc" -ne 0 ]; then
+            echo "$(date '+%F %T') [POWER] reboot command failed, rc=$reboot_fail_rc" | tee -a "$command_log"
+            echo "Power-cycle reboot/dc command failed, rc=$reboot_fail_rc" | tee -a "$command_log"
+            return "$reboot_fail_rc"
+        fi
+        # Reboot requested: keep resume unit armed and end this process.
         sleep 60
-        exit
+        exit 0
     elif [ "$item" = "DC" ];then
         autoopen
         sync
         if [ "$mode" = "UTC" ];then
             dc_utc
             sleep 60
-            exit
+            exit 0
         elif [ "$mode" = "RTC" ];then
             dc_rtc
             sleep 60
-            exit
+            exit 0
         else
-            echo "unsupport mode, exit"
-            exit
+            echo "ERROR: unsupported DC mode '$mode' (only UTC/RTC)" | tee -a "$command_log"
+            echo "Power-cycle reboot/dc command failed, rc=2" | tee -a "$command_log"
+            return 2
         fi
     else
         echo "$item Test Complete once"

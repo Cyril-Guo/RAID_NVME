@@ -16,12 +16,13 @@ def needsPhysicalIoDriverPrep = false
 def selectedTestItems = []
 
 def hostSshCmd(ip) {
-    // Use sshpass -e so callers can also safely store/expand the command string.
-    return "SSHPASS='${env.TARGET_PASSWORD}' sshpass -e ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
+    // sshpass -e reads SSHPASS from the environment (set in environment{}).
+    // Do not embed the password in the returned command string.
+    return "sshpass -e ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
 }
 
 def hostScpCmd() {
-    return "SSHPASS='${env.TARGET_PASSWORD}' sshpass -e scp ${env.SSH_OPTS}"
+    return "sshpass -e scp ${env.SSH_OPTS}"
 }
 
 def sanitizePathSegment(value) {
@@ -182,6 +183,8 @@ pipeline {
         FEISHU_WEBHOOK = credentials('feishu-webhook')
         TARGET_USER = 'root'
         TARGET_PASSWORD = "${params.TARGET_PASSWORD?.trim() ?: ''}"
+        // Consumed by sshpass -e; keep out of command strings built by hostSshCmd/hostScpCmd.
+        SSHPASS = "${params.TARGET_PASSWORD?.trim() ?: ''}"
         TEST_IDLE_TIMEOUT_MINUTES = '15'
         ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
         TEST_EXECUTION_ATTEMPTED = 'false'

@@ -346,6 +346,9 @@ function info_diff()
         if [ $flag == "STOP" ];then
             echo "stop_flag is STOP,so exit"
             collect_log
+            if declare -F teardown_powercycle_resume >/dev/null 2>&1; then
+                teardown_powercycle_resume
+            fi
             test_end 3
         elif [ "$flag" == "NON-STOP" ];then
             echo "stop_flag is NON-STOP, ignore error and continue..."

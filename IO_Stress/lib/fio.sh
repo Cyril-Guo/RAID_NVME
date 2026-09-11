@@ -203,11 +203,19 @@ test_end()
 {
     # Optional exit status (default 0). MachineCheck STOP should pass a non-zero rc.
     local rc=${1:-0}
+    # Always clear resume unit on any terminal exit (success or failure).
+    if declare -F teardown_powercycle_resume >/dev/null 2>&1; then
+        teardown_powercycle_resume
+    fi
     echo ""
     echo "=========================================="
-    echo "********** ALL TESTS COMPLETE **********"
+    if [[ "${rc}" -eq 0 ]]; then
+        echo "********** ALL TESTS COMPLETE **********"
+    else
+        echo "********** TESTS FAILED (rc=${rc}) **********"
+    fi
     echo "=========================================="
-    echo "********** NVME RAID Test Engine Exit **********"
+    echo "********** NVME RAID Test Engine Exit rc=${rc} **********"
     exit "${rc}"
 }
 
@@ -1353,7 +1361,7 @@ function do_fio() {
         if [[ -z "$system_disk" ]];then
             echo -ne " Fail to detect system disk. Refuse to run to avoid any IO on OS disk. Exit.\n"
             echo "$(date '+%F %T') [FIO] failed: system disk not detected, sources=${system_disk_sources:-EMPTY}" | tee -a "$power_log"
-            exit 1
+            return 1
         fi
         if [[ "$specified_disk" =~ "null" ]];then
             # 仅选取 TYPE=disk 的真实块设备，排除 loop/rom 等虚拟设备；
@@ -1367,7 +1375,7 @@ function do_fio() {
         elif specified_disk_contains_system; then
             # 指定磁盘中包含系统盘：为保证不对系统盘做 IO，直接中止
             echo "Specified disk contains system disk [$system_disk]. Refuse to run to avoid IO on OS disk. Exit."
-            exit 1
+            return 1
         else
             disk=$(echo ${specified_disk} | sed 's/,/ /g')
             OLD_IFS="$IFS"

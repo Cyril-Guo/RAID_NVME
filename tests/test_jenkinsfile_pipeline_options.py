@@ -269,7 +269,9 @@ def test_run_tests_uses_password_host_ssh_without_qemu_ports():
 
     assert "def targetSsh = hostSshCmd(ip)" in source
     assert "def targetScp = hostScpCmd()" in source
-    assert "SSHPASS='${env.TARGET_PASSWORD}' sshpass -e ssh" in source
+    assert "sshpass -e ssh" in source
+    assert "SSHPASS = " in Path("Jenkinsfile").read_text(encoding="utf-8")
+    assert "SSHPASS='${env.TARGET_PASSWORD}'" not in source
     assert "${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'" in source
     assert "find /root/Cyril/Jenkins -maxdepth 1 -type d -name" not in source
     assert "jenkins_nvme_*" not in source
@@ -285,7 +287,9 @@ def test_physical_host_ssh_uses_password_with_default_and_override():
     assert "name: 'TARGET_PASSWORD'" in jenkinsfile
     assert "defaultValue: ''" in jenkinsfile
     assert "TARGET_PASSWORD is required" in jenkinsfile
-    assert "SSHPASS=" in source
+    assert "SSHPASS = " in jenkinsfile
+    assert 'return "sshpass -e ssh' in jenkinsfile
+    assert "SSHPASS='${env.TARGET_PASSWORD}' sshpass" not in jenkinsfile
     assert "sshpass -e ssh" in source
     assert "sshpass -e scp" in source
 
@@ -350,3 +354,13 @@ def test_junit_glob_only_collects_node_level_reports():
 
     assert "junit testResults: 'report_*.*.*.*.xml', allowEmptyResults: true" in source
     assert "report_*_physical.xml" not in source
+
+
+
+
+def test_jenkins_sets_sshpass_env_without_embedding_password_in_helper():
+    jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
+    assert "SSHPASS = " in jenkinsfile
+    assert 'return "sshpass -e ssh' in jenkinsfile
+    assert "SSHPASS='${env.TARGET_PASSWORD}' sshpass" not in jenkinsfile
+    assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES" in jenkinsfile

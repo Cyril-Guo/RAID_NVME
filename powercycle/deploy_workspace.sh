@@ -6,7 +6,11 @@ set -euo pipefail
 : "${REMOTE_DIR:?REMOTE_DIR is required}"
 
 SSH_OPTS=${SSH_OPTS:-}
-TARGET_PASSWORD=${TARGET_PASSWORD:-123456}
+TARGET_PASSWORD="${TARGET_PASSWORD:-}"
+if [[ -z "${TARGET_PASSWORD}" ]]; then
+    echo "TARGET_PASSWORD is required" >&2
+    exit 1
+fi
 export SSHPASS="${TARGET_PASSWORD}"
 if [ -z "${REMOTE_SSH_COMMAND:-}" ]; then
     REMOTE_SSH_COMMAND="sshpass -e ssh ${SSH_OPTS} ${TARGET_USER}@${NODE_IP}"
