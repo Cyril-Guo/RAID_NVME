@@ -17,7 +17,7 @@ RAID_NVME/
 ├── Jenkinsfile
 ├── nvme_raid_test.py
 ├── test_items.txt
-├── IO_Stress/              # powercycle_direct.sh、fio_powercycle、reboot/dc CSV
+├── IO_Stress/              # powercycle_direct.sh、fio_powercycle、powercycle_random
 ├── MachineCheck/
 ├── ci/                     # wait_powercycle_completion.sh 等
 └── test_items/
@@ -38,7 +38,6 @@ RAID_NVME/
 | 键 | 含义 |
 |---|---|
 | `FIO_CYCLES` | 电源循环次数（仅 reboot/dc） |
-| `FIO_CONFIG` | `IO_Stress/` 下 CSV |
 | `IGNORE_ERROR` | MachineCheck 不一致是否继续 |
 | `FIO_DISKS` | 指定数据盘；空=全部数据盘 |
 

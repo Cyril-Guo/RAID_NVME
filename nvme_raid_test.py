@@ -14,7 +14,6 @@ import pytest
 
 ALLOWED_PARAM_KEYS = (
     "FIO_CYCLES",
-    "FIO_CONFIG",
     "IGNORE_ERROR",
     "FIO_DISKS",
     "FIO_RUNTIME",

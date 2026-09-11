@@ -1,15 +1,6 @@
-"""FIO helpers for PowerCycle cases (CSV resolve + arg build + log scanners)."""
+"""FIO helpers for PowerCycle cases (arg build + log scanners)."""
 import os
 from datetime import datetime
-
-import pytest
-
-from test_items.case_paths import io_stress_dir
-
-
-def _ts():
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
 
 _MACHINECHECK_MARKERS = (
     "MachineCheck inconsistencies found",
@@ -50,7 +41,6 @@ _FIO_JOB_ERROR_MARKERS = (
     "direct IO errored",
 )
 
-# Hard stops must fail even when the shell wrongly returns 0.
 _HARD_FIO_FAILURE_MARKERS = (
     "FIO stage failed",
     "FIO stage abort",
@@ -61,6 +51,10 @@ _HARD_FIO_FAILURE_MARKERS = (
     "No non-system test disk found",
     "Fail to detect system disk",
 )
+
+
+def _ts():
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _is_machinecheck_line(line):
@@ -111,22 +105,19 @@ def collect_failure_lines(text, ignore_machinecheck=False, ignore_fio_job_errors
     return lines
 
 
-def resolve_fio_csv(item):
-    name = os.environ.get("FIO_CONFIG", "").strip() or f"Input_Config_{item}.csv"
-    name = os.path.basename(name.replace("\\", "/"))
-    path = os.path.join(io_stress_dir(), name)
-    if not os.path.isfile(path):
-        pytest.fail(f"Missing FIO CSV for {item}: {path}")
-    return name
-
-
 def ignore_error_enabled():
     return os.environ.get("IGNORE_ERROR", "").strip().lower() == "yes"
 
 
 def build_fio_args(mode, item, extra=None):
+    """Build powercycle_direct.sh args.
+
+    FIO models come from powercycle_random.py (powercycle_auto.csv) at runtime;
+    no static Input_Config CSV is passed.
+    """
+    del item  # reserved for call-site clarity; plan generator uses mode/item env
     flag_val = "NON-STOP" if ignore_error_enabled() else "STOP"
-    args = ["-i", mode, "-f", flag_val, "-n", resolve_fio_csv(item)]
+    args = ["-i", mode, "-f", flag_val]
     if extra:
         args.extend(extra)
     fio_disks = os.environ.get("FIO_DISKS", "").strip()

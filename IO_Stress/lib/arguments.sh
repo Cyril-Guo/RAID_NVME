@@ -64,9 +64,6 @@ function arguments_parse()
            -x)
                shift
                remote=$1;;
-	   --mix_io|-mix)
-	       shift
-	       mix_io=$1;;
            -h|--help)
                help
            exit;;
@@ -94,11 +91,9 @@ function help(){
    echo "   -w <60|...>: S5 delay time, the default value is 120s"
    echo "   -l <500|...>: the LOOPs, and the default value is 1000"
    #echo "   -r <43200|...>: runtime for stress"
-   echo "   -n <Input_Config_reboot_4k.csv|Input_Config_dc_4k.csv|...>: per-case FIO CSV"
    echo "   -t <non-fs|...>: fs_type for stress"
    echo "   -o <all|single|both>: disk_mode for Disk"
    echo "   -u <sda,sdb,...>: specify disk"
-   echo "   --mix_io|-mix <yes|no>: specify mix fio, default is no"
    echo "   -q <100|200|...>: log avg msec,default is 100"
 
    exit
@@ -111,7 +106,7 @@ function check_arguments()
     if [[ -z "$beforeloop" ]]; then beforeloop=0; fi
 
     if [[ -z "$item" ]];then
-	item="LAWDISKSTRESS"
+	item=""
         echo "**********" `date +%m-%d" "%H:%M:%S` "current mode is $item **********"
     fi
     if [[ -z "$delay" ]];then
@@ -157,28 +152,7 @@ function check_arguments()
     if [[ -z "$safe" ]];then
        safe="YES"
     fi
-    if [[ $item == "PERFORMANCE" ]];then
-        show_produce_message "Performance test start"
-        LOOP=1
-    elif [[ $item == "LAWDISKSTRESS" || $item == "FILESYSTEMSTRESS" ]];then
-        show_produce_message "$item test start"
-        LOOP=1
-        #runtime=43200
-#	    disk_mode="ALL"
-        if [[ -z "$filename" ]];then
-             filename="Input_Config_Disk_Full_Scan.csv"
-        fi
-        if [[ $item == "FILESYSTEMSTRESS" && -n "${FIO_RUNTIME:-}" ]]; then
-            if ! [[ "$FIO_RUNTIME" =~ ^[1-9][0-9]*$ ]]; then
-                echo "FIO_RUNTIME must be a positive integer in seconds, got: $FIO_RUNTIME"
-                exit 1
-            fi
-            if (( FIO_RUNTIME < 180 || FIO_RUNTIME % 180 != 0 )); then
-                echo "FIO_RUNTIME must be a multiple of 180 seconds and at least 180, got: $FIO_RUNTIME"
-                exit 1
-            fi
-        fi
-    elif [[ $item == "REBOOT" ]];then
+    if [[ $item == "REBOOT" ]];then
         show_produce_message "Reboot test start"
     elif [[ $item == "DC" ]];then
         if [[ -z "$mode" ]];then
@@ -227,11 +201,6 @@ function check_arguments()
     if [[ -z "$disk_mode" ]];then
         disk_mode="ALL"
     fi
-
-
-    if [[ -z "$filename" && "$item" != "DC" && "$item" != "REBOOT" ]];then
-        filename="Input_Config_Disk_Full_Scan.csv"
-    fi
     if [[ -z "$specified_disk" ]];then
         specified_disk="null"
     fi
@@ -239,12 +208,7 @@ function check_arguments()
     if [[ -z "$remote" ]];then
         remote="-"
     fi
-
-    if [[ -z "$mix_io" ]];then
-        mix_io=NO
-    else
-        mix_io=$(echo "$mix_io" | tr '[a-z]' '[A-Z]')
-    fi
+    mix_io=NO
     if [[ $item == "DC" ]];then
         flag="NON-STOP"
     fi

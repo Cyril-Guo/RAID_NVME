@@ -211,262 +211,12 @@ test_end()
     exit "${rc}"
 }
 
-FILESYSTEM_PARTITIONS_PER_DISK=16
-FILESYSTEM_MODEL_RUNTIME=180
-FILESYSTEM_MODEL_SIZE_PAIRS=(
-    "512:513"
-    "1k:1025"
-    "2k:2049"
-    "4k:4097"
-    "8k:8193"
-    "16k:16385"
-    "32k:32769"
-    "64k:65537"
-    "128k:131073"
-    "256k:262145"
-    "512k:524289"
-    "1m:1048577"
-    "2m:2097153"
-    "4m:4194305"
-    "8m:8388609"
-    "16m:16777215"
-)
-
-refresh_partition_devices()
-{
-    local device="$1"
-
-    # Some draid virtual disks accept the GPT write while BLKRRPART does not
-    # create partition devices. partx uses BLKPG to register them explicitly.
-    partprobe "$device" >/dev/null 2>&1 || true
-    if command -v partx >/dev/null 2>&1; then
-        partx -a "$device" >/dev/null 2>&1 ||
-            partx -u "$device" >/dev/null 2>&1 || true
-    fi
-    udevadm settle --timeout=30 || true
-}
-
-function partition(){
-    local disk_partition=$1
-    local total_num=$2
-    local device="/dev/${disk_partition}"
-    local alignment_sectors=2048
-    local first_sector=$alignment_sectors
-    local total_sectors
-    local last_sector
-    local usable_sectors
-    local partition_sectors
-    local partition_start
-    local partition_end
-    local i
-
-    assert_not_system_disk "$disk_partition" "partition" || return $?
-    total_sectors=$(blockdev --getsz "$device") || return $?
-    last_sector=$((total_sectors - alignment_sectors - 1))
-    usable_sectors=$((last_sector - first_sector + 1))
-    partition_sectors=$((usable_sectors / total_num / alignment_sectors * alignment_sectors))
-    if (( partition_sectors <= 0 )); then
-        echo "ERROR: ${device} is too small for ${total_num} aligned partitions."
-        return 1
-    fi
-
-    parted -s "$device" mklabel gpt || return $?
-    for ((i=1; i<=total_num; i++)); do
-        partition_start=$((first_sector + (i - 1) * partition_sectors))
-        if (( i == total_num )); then
-            partition_end=$last_sector
-        else
-            partition_end=$((partition_start + partition_sectors - 1))
-        fi
-        parted -s -a none "$device" unit s mkpart primary \
-            "${partition_start}s" "${partition_end}s" || return $?
-    done
-    refresh_partition_devices "$device"
-}
-
-function del_partition(){
-    local disk_del=$1
-    assert_not_system_disk "$disk_del" "delete partition" || return $?
-    umount -l /dev/$disk_del* 2>/dev/null
-    wipefs -a /dev/$disk_del
-    fdisk /dev/$disk_del  <<eof
-g
-w
-eof
-}
-
-function mount_disk(){
-    disk_mount=$1
-    assert_not_system_disk "$disk_mount" "mount test disk" || return $?
-    mkdir -p /tmp/fiotest/$disk_mount
-    mount /dev/$disk_mount /tmp/fiotest/$disk_mount
-    touch /tmp/fiotest/${disk_mount}/test_${disk_mount}
-}
-
-function append_filesystem_model_jobs(){
-    local fio_file=$1
-    local partition_name=$2
-    local target_config=${3:-$Cur_Dir/configuration.tmp}
-    local round_number=${4:-1}
-    local model_index
-    local model_number
-    local model_name
-    local size_pair
-    local aligned_size
-    local unaligned_size
-    local aligned_percentage
-    local unaligned_percentage
-    local read_percentage
-
-    for model_index in "${!FILESYSTEM_MODEL_SIZE_PAIRS[@]}"; do
-        model_number=$((model_index + 1))
-        size_pair=${FILESYSTEM_MODEL_SIZE_PAIRS[$model_index]}
-        aligned_size=${size_pair%%:*}
-        unaligned_size=${size_pair#*:}
-        aligned_percentage=$((10 + (round_number * 7 + model_number * 11) % 81))
-        unaligned_percentage=$((100 - aligned_percentage))
-        read_percentage=$((10 + (round_number * 13 + model_number * 17) % 81))
-        printf -v model_name '%s-round-%04d-model-%02d' \
-            "$partition_name" "$round_number" "$model_number"
-        {
-            echo ""
-            echo "[$model_name]"
-            echo "filename=$fio_file"
-            echo "rw=randrw"
-            echo "rwmixread=$read_percentage"
-            echo "bssplit=${aligned_size}/${aligned_percentage}:${unaligned_size}/${unaligned_percentage}"
-            echo "bs_unaligned=1"
-            echo "iodepth=32"
-            echo "numjobs=1"
-        } >> "$target_config"
-    done
-}
-
-function configure_filesystem_rounds(){
-    local total_runtime="${FIO_RUNTIME:-$FILESYSTEM_MODEL_RUNTIME}"
-    local round_count=$((total_runtime / FILESYSTEM_MODEL_RUNTIME))
-    local round_number
-    local config_file
-    local target_config
-    local fio_file
-    local partition_name
-
-    echo "Filesystem FIO: ${round_count} rounds x ${FILESYSTEM_MODEL_RUNTIME}s = ${total_runtime}s"
-    for ((round_number=1; round_number<=round_count; round_number++)); do
-        printf -v config_file '%04d-filesystem-models-32-%d.log' \
-            "$round_number" "$FILESYSTEM_MODEL_RUNTIME"
-        target_config="$Config_Dir/$config_file"
-        {
-            echo "[global]"
-            echo "ioengine=io_uring"
-            echo "direct=0"
-            echo "runtime=$FILESYSTEM_MODEL_RUNTIME"
-            echo "time_based=1"
-            echo "iodepth=32"
-            echo "numjobs=1"
-            echo "size=100%"
-            echo "randrepeat=0"
-            echo "norandommap"
-            echo "refill_buffers"
-            echo "group_reporting"
-            echo "log_avg_msec=$log_interval"
-        } > "$target_config"
-
-        for fio_file in "${add_file[@]}"; do
-            partition_name=$(basename "$(dirname "$fio_file")")
-            append_filesystem_model_jobs \
-                "$fio_file" "$partition_name" "$target_config" "$round_number"
-        done
-    done
-    echo "Filesystem round configs are under $Config_Dir"
-}
 
 
-function prepare_filesystem(){
-    local hd
-    local pid
-    local part_path
-    local actual_partition_count
-    local partition_attempt
-    local mount_path
-    local fio_file
-    local available_bytes
-    local file_size
-    local -a partition_pids=()
-    local -a disk_partitions=()
 
-    if [ -d /tmp/fiotest/ ]; then
-        mount | grep "/tmp/fiotest/" | awk '{print $3}' | xargs umount -l 2>/dev/null
-    fi
-    rm -rf /tmp/fiotest/
-    add_disks=()
-    add_disk_num=0
-    for hd in ${disk[*]};do
-        assert_not_system_disk "$hd" "prepare filesystem" || return $?
-	    del_partition $hd
-    done
-    wait
-    sleep 10
-    for hd in ${disk[*]};do
-        assert_not_system_disk "$hd" "create filesystem partitions" || return $?
-        partition "$hd" "$FILESYSTEM_PARTITIONS_PER_DISK" &
-        partition_pids+=("$!")
-    done
-    for pid in "${partition_pids[@]}"; do
-        wait "$pid" || return $?
-    done
-    for hd in ${disk[*]};do
-        assert_not_system_disk "$hd" "partprobe" || return $?
-        for ((partition_attempt=1; partition_attempt<=10; partition_attempt++)); do
-            refresh_partition_devices "/dev/$hd"
-            mapfile -t disk_partitions < <(
-                lsblk -lnpo NAME,TYPE "/dev/$hd" |
-                    awk '$2 == "part" {print $1}' |
-                    sort -V
-            )
-            actual_partition_count=${#disk_partitions[@]}
-            (( actual_partition_count == FILESYSTEM_PARTITIONS_PER_DISK )) && break
-            sleep 1
-        done
-        if (( actual_partition_count != FILESYSTEM_PARTITIONS_PER_DISK )); then
-            echo "ERROR: /dev/$hd has ${actual_partition_count} partitions; expected ${FILESYSTEM_PARTITIONS_PER_DISK}."
-            return 1
-        fi
-        for part_path in "${disk_partitions[@]}"; do
-            add_disks+=("$(basename "$part_path")")
-        done
-    done
-        	
-    echo ${add_disks[*]} 
-    add_file=()
-    mkdir -p /tmp/fiotest
-    partition_pids=()
-    for ((i=0; i<${#add_disks[*]}; i++));do
-        assert_not_system_disk "${add_disks[$i]}" "mkfs" || return $?
-        mkfs.xfs /dev/${add_disks[$i]} -f &
-        partition_pids+=("$!")
-    done
-    for pid in "${partition_pids[@]}"; do
-        wait "$pid" || return $?
-    done
-    for ((i=0; i<${#add_disks[*]}; i++));do
-        mount_disk "${add_disks[$i]}" || return $?
-    done
-    echo "Allocate one filesystem test file per partition"
-    for ((i=0; i<${#add_disks[*]}; i++));do
-        mount_path="/tmp/fiotest/${add_disks[$i]}"
-        fio_file="${mount_path}/test_${add_disks[$i]}"
-        available_bytes=$(df -B1 --output=avail "$mount_path" | tail -n 1 | tr -d '[:space:]')
-        file_size=$((available_bytes * 80 / 100 / 512 * 512))
-        if (( file_size < 33554432 )); then
-            echo "ERROR: ${mount_path} has insufficient free space for filesystem FIO."
-            return 1
-        fi
-        fallocate -l "$file_size" "$fio_file" || return $?
-	add_file[$i]="$fio_file"
-    done
-    echo ${add_file[*]}
-}
+
+
+
 
 function close_mount(){
     sleep 10
@@ -599,12 +349,6 @@ function gen_config_file()
         fi
 	    sed -i "s/config_log_avg_msec/$log_interval/"  $Config_Dir/$config_file
 
-        if [[ "$item" == FILESYSTEMSTRESS && "$blocksize" == bssplit=* ]]; then
-            sed -i 's/^ioengine=.*/ioengine=io_uring/' $Config_Dir/$config_file
-            sed -i 's/^direct=.*/direct=0/' $Config_Dir/$config_file
-            sed -i '/^bs_unaligned=/d' $Config_Dir/$config_file
-            sed -i '/^group_reporting/a bs_unaligned=1' $Config_Dir/$config_file
-        fi
 
     
 }
@@ -613,10 +357,6 @@ function configure()
 {
     echo "**********" `date +%m-%d" "%H:%M:%S` "Generating Config Files**********"
 
-    if [[ "$item" == FILESYSTEMSTRESS ]]; then
-        configure_filesystem_rounds
-        return $?
-    fi
 
     check_="START"
     line_t=2
@@ -632,111 +372,7 @@ function configure()
     cd - >/dev/null
 }
 
-configure_mixio() {
-    configure_filename="${File_Dir}/MixIO${1}.csv"
-    
-    echo "**********" `date +%m-%d" "%H:%M:%S` "Generating MIX IO Config Files**********"
-    check_="START"
-    line_t=2
-    until [ "$check_" = "End" ]
-    do
-        line=`echo "$line_t"p`
-        mode_rs=`sed -n "$line" $configure_filename |awk -F "," '{print $2}'`
-        mode_rw=`sed -n "$line" $configure_filename |awk -F "," '{print $3}'`
-        read_percentage=`sed -n "$line" $configure_filename |awk -F "," '{print $3}'`
-        blocksize=`sed -n "$line" $configure_filename |awk -F "," '{print $1}'`
-        # Skip commented lines or empty lines
-        if [[ $blocksize =~ ^# ]] || [[ -z $blocksize ]]; then
-            line_t=` expr $line_t + 1 `
-            continue
-        fi
-        iodepth=`sed -n "$line" $configure_filename  |awk -F "," '{print $4}'`
-        run_time=`sed -n "$line" $configure_filename |awk -F "," '{print $5}'`
-        numjobs=`sed -n "$line" $configure_filename |awk -F "," '{print $6}'`
-	offset=`sed -n "$line" $configure_filename |awk -F "," '{print $7}'`
-        check_="$blocksize"
-        if [ "$check_" = "End" ];then
-            echo "Job files are under $Config_Dir/MIX$1"
-            echo ""
-            line_t=` expr $line_t + 1 `
-            continue
-        fi
 
-        if [ "$mode_rs" -eq 100 ];then
-            mode_rs=R
-        elif [ "$mode_rs" -eq 0 ];then
-            mode_rs=S
-        else
-            echo ""
-        fi
-
-        if [ "$mode_rw" -eq 100 ];then
-            mode_rw=READ
-        elif [ "$mode_rw" -eq 0 ];then
-            mode_rw=WRITE
-        else
-            mode_rw=MIX
-        fi
-
-        if [[ $mode_rs == "R" ]] && [[ $mode_rw == "READ" ]];then
-            mode_=randread
-        fi
-
-        if [ "$mode_rs" = "R" ] && [ "$mode_rw" = "WRITE" ];then
-            mode_=randwrite
-        fi
-
-        if [ "$mode_rs" = "R" ] && [ "$mode_rw" = "MIX" ];then
-            mode_=randrw
-        fi
-
-        if [ "$mode_rs" = "S" ] && [ "$mode_rw" = "READ" ];then
-            mode_=read
-        fi
-
-        if [ "$mode_rs" = "S" ] && [ "$mode_rw" = "WRITE" ];then
-            mode_=write
-        fi
-
-        if [ "$mode_rs" = "S" ] && [ "$mode_rw" = "MIX" ]; then
-            mode_=rw
-        fi
-
-        if [ "$mode_rw" = "MIX" ];then
-            sed -i '/rwmixread/d' $Cur_Dir/configuration.tmp
-            sed -i '8i rwmixread=read_percentage' $Cur_Dir/configuration.tmp
-        fi
-
-        if [ "$mode_rw" != "MIX" ];then
-            sed -i '/rwmixread/d' $Cur_Dir/configuration.tmp
-        fi
-
-            count=` expr $line_t - 1 `
-            config_file="$count-$mode_-$blocksize-$iodepth-$run_time.log"
-
-            sed -i '/randrepeat/d' $Cur_Dir/configuration.tmp
-            sed -i '/norandommap/d' $Cur_Dir/configuration.tmp
-            sed -i '/ramp_time/d' $Cur_Dir/configuration.tmp
-
-            if [[ $item =~ "STRESS" ]];then
-
-                sed -i "9i randrepeat=0"  $Cur_Dir/configuration.tmp
-                sed -i "9i norandommap"  $Cur_Dir/configuration.tmp
-                sed -i "9i ramp_time=5" $Cur_Dir/configuration.tmp
-            fi
-            sed  "s/config_blocksize/$blocksize/" $Cur_Dir/configuration.tmp > $Config_Dir/MIX${1}/$config_file
-            sed -i "s/config_mode/$mode_/" $Config_Dir/MIX${1}/$config_file
-            sed -i "s/run_time/$run_time/" $Config_Dir/MIX${1}/$config_file
-            sed -i "s/config_iodepth/$iodepth/" $Config_Dir/MIX${1}/$config_file
-            sed -i "s/num_jobs/$numjobs/" $Config_Dir/MIX${1}/$config_file
-            sed -i "s/off_set/${offset}%/" $Config_Dir/MIX${1}/$config_file
-            sed -i "s/read_percentage/$read_percentage/" $Config_Dir/MIX${1}/$config_file
-	    sed -i "s/config_log_avg_msec/$log_interval/"  $Config_Dir/MIX${1}/$config_file
-
-        
-        line_t=` expr $line_t + 1 `
-    done
-}
 
 
 
@@ -748,7 +384,7 @@ function set_Disk()
 {
     cp $Cur_Dir/configuration $Cur_Dir/configuration.tmp
     if [[ $disk_mode == ALL || $disk_mode == SUBALL ]];then
-        if [[ $item == LAWDISKSTRESS || $item == REBOOT || $item == DC || $item == AC ]];then
+        if [[ $item == REBOOT || $item == DC ]];then
             # 仅对非系统盘的裸设备下发 IO（系统盘已在 do_fio 中被排除，不再对系统盘做任何 IO）
             for str in ${disk[@]}
             do
@@ -758,13 +394,6 @@ function set_Disk()
                 echo "filename="$Hard_Disk >>$Cur_Dir/configuration.tmp
                 echo "size=100%" >>$Cur_Dir/configuration.tmp
             done
-        elif [[ $item == FILESYSTEMSTRESS ]];then
-            # 仅对非系统盘新建的文件系统做 IO，不在系统盘上创建任何测试文件
-            prepare_filesystem || {
-                local prepare_rc=$?
-                close_mount
-                return "$prepare_rc"
-            }
         fi
         swapoff -a
     fi  
@@ -1223,81 +852,7 @@ result_handle_after() {
 }
 
 
-function result_handle_for_mix_io(){
-    sleep 5
-    for i in {1..4};do
-        readiops=$(cat $Result_Dir/detresult/MIX${i}/${jobnum}.txt| grep "read:" | awk -F "IOPS=" '{print $2}' | awk -F "," '{print $1}')
-        writeiops=$( cat $Result_Dir/detresult/MIX${i}/${jobnum}.txt | grep "write:" | awk -F "IOPS=" '{print $2}' | awk -F "," '{print $1}')
-        readbw_temp=$(cat $Result_Dir/detresult/MIX${i}/${jobnum}.txt | grep "read:" | awk -F "BW=" '{print $2}' | awk -F "(" '{print $1}')
-        writebw_temp=$( cat $Result_Dir/detresult/MIX${i}/${jobnum}.txt | grep "write:" | awk -F "BW=" '{print $2}' | awk -F "(" '{print $1}')
-        Lat=$( cat $Result_Dir/detresult/MIX${i}/${jobnum}.txt | grep -i '[[:space:]]lat.*avg' | tail -n1 | awk -F "avg=" '{print $2}' | awk -F "," '{print $1}')
-        CPUusr=$(cat $Result_Dir/detresult/MIX${i}/${jobnum}.txt | grep cpu | awk -F "usr=" '{print $2}' | awk -F "," '{print $1}')
-        CPUsys=$(cat $Result_Dir/detresult/MIX${i}/${jobnum}.txt | grep cpu | awk -F "sys=" '{print $2}' | awk -F "," '{print $1}')
-        
-        jobs_run=$(cat $Config_Dir/MIX${i}/${jobnum}-*.log | awk '/numjobs/ {split($0,arr,"=");print arr[2]}')
-	iodepth=$(cat $Config_Dir/MIX${i}/${jobnum}-*.log | grep iodepth | awk -F "=" '{print $2}')
-        rw_temp=$(cat $Config_Dir/MIX${i}/${jobnum}-*.log | sed -n 7p | awk -F "=" '{print $2}')
-        read_percentage=$(cat $Config_Dir/MIX${i}/${jobnum}-*.log | grep rwmixread | awk -F "=" '{print $2}')
-        size=$(cat $Config_Dir/MIX${i}/${jobnum}-*.log | grep bs | awk -F "=" '{print $2}' | head -n1)
-        run_time=$(cat $Config_Dir/MIX${i}/${jobnum}-*.log | grep runtime | awk -F "=" '{print $2}')
-        if [ -z "$readiops" ]; then
-            readiops=0
-        fi
-        if [[ -z $writeiops ]]; then
-            writeiops=0
-        fi
-        if [[ -z $readbw_temp ]]; then
-            #readbw_temp=0
-            readbw=0
-        else
-            readbw=$(div "$readbw_temp")
-        fi
-        if [[ -z $writebw_temp ]]; then
-            #readbw_temp=0
-            writebw=0
-        else
-            writebw=$(div "$writebw_temp")
-        fi
-        if [[ $readiops =~ "k" ]] || [[ $writeiops =~ "k" ]]; then
-            readiops_temp=$(echo "$readiops" | sed 's/k//g')
-            writeiops_temp=$(echo "$writeiops" | sed 's/k//g')
-            iops=$(echo "$readiops_temp + $writeiops_temp" | bc)
-            iops=$(echo "$iops"k)
-        else
-            readiops_temp=$(echo "$readiops")
-            writeiops_temp=$(echo "$writeiops")
-           iops=$(echo "$readiops_temp + $writeiops_temp" | bc)
-           iops=$(echo "$iops")
-        fi
 
-        readbw_temp1=$(echo "$readbw" | sed 's/M//g' | sed 's/i//g' | sed 's/B//g' | sed 's/\///g' | sed 's/s//g')
-        writebw_temp1=$(echo "$writebw" | sed 's/M//g' | sed 's/i//g' | sed 's/B//g' | sed 's/\///g' | sed 's/s//g')
-        bw=$(echo "$readbw_temp1 + $writebw_temp1" | bc | awk '{printf "%.2f", $0}')
-        bw=$(echo "$bw"MiB)
-        if [ -z $read_percentage ]; then
-            rw=$rw_temp
-        else
-            rw=$(echo "$rw_temp-$read_percentage")
-        fi
-
-        printf "%-10s %-12s %-10s %-12s %-10s %-10s %-8s %-18s %-18s %-12s %-11s %-10s %-10s\n" $rw, $iodepth, $size, $jobs_run, $readiops, $writeiops, $iops, $readbw, $writebw, $bw, $Lat, $CPUusr, $CPUsys >>$Result_Dir/MIX${i}/result.csv
-        echo "**********" $(date +%m-%d" "%H:%M:%S) "Running FIO As All ${ttype}**********" >>$Result_Dir/MIX${i}/result.log
-	echo "iodepth=$iodepth, transfer request size=$size, 100% $rw, runtime=$run_time, $jobs_run  " | tee -a $Result_Dir/MIX${i}/result.log
-        echo "ReadIOPs=$readiops" | tee -a $Result_Dir/MIX${i}/result.log
-        echo "WriteIOPs=$writeiops" | tee -a $Result_Dir/MIX${i}/result.log
-        echo "IOPs=$iops" | tee -a $Result_Dir/MIX${i}/result.log
-        echo "Readbw=$readbw" | tee -a $Result_Dir/MIX${i}/result.log
-        echo "Writebw=$writebw" | tee -a $Result_Dir/MIX${i}/result.log
-        echo "bw=$bw" | tee -a $Result_Dir/MIX${i}/result.log
-        echo "Lat(usec)=$Lat" | tee -a $Result_Dir/MIX${i}/result.log
-        echo "CPUusr=$CPUusr" | tee -a $Result_Dir/MIX${i}/result.log
-        echo "CPUsys=$CPUsys" | tee -a $Result_Dir/MIX${i}/result.log
-        echo -e "\n\n" | tee -a $Result_Dir/MIX${i}/result.log
-
-    done
-
-
-}
 
 
 
@@ -1358,14 +913,7 @@ fio_output_has_successful_io()
     ' "$output_file"
 }
 
-# MIX_FAIL_ON_ANY=yes: any unexpected FIO error (nonzero rc, io_u/err=) fails the job.
-# MIX_FAIL_ON_ANY=no (default): record those errors and keep running. IOPS=0 is not a failure.
-mix_fail_on_any_enabled()
-{
-    local raw
-    raw=$(echo "${MIX_FAIL_ON_ANY:-no}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
-    [[ "$raw" == "yes" || "$raw" == "true" || "$raw" == "1" ]]
-}
+
 
 # Disk names mentioned in FIO error lines (io_u error on /dev/X, or job err= nonzero).
 fio_error_disks()
@@ -1547,8 +1095,7 @@ run_fio_with_watchdog()
         return "$fio_rc"
     fi
     if [[ $fio_rc -ne 0 ]]; then
-        # Non-MIX: any FIO/disk IO error fails the stage immediately.
-        # MIX soft-continue is handled separately via MIX_FAIL_ON_ANY in run_mix paths.
+        # Any FIO/disk IO error fails the stage immediately.
         echo "FIO command failed, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file" "$Result_Dir/result.log"
         append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
         # If EIO and we missed the live window, collect ASAP after exit.
@@ -1596,220 +1143,33 @@ append_fio_error_detail()
 
 
 
-function run_single()
-{
-echo "**********" `date +%m-%d" "%H:%M:%S` "Running FIO As Single Mode,Reports For Single Disk **********"
-num=`ls -p $Config_Dir | grep -v / | wc -l`
-totalnum=$num
-cd $Config_Dir
-jobnum=1
-#echo "Test-Mode,Queue-Depth,Blocksize,ReadIOPS,WriteIOPS,IOPS,Read_Bandwidth,Write_Bandwindth,Bandwidth,Latency,CPUusr%,CPUsys%"
-for configuration in `ls -p $Config_Dir | grep -v / | grep '\.log$' | sort -n -k 1 -t -`
-do
-   echo "fio $configuration"
-   echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/"${loop}_$jobnum.txt"
-#   fio "$configuration" >> $Result_Dir/detresult-single/"${loop}_$jobnum.txt"
-   #test_disk=`echo ${test_disk[@]} | sed 's/,/ /g'`
-   OLD_IFS="$IFS"
-   IFS=" "
-   test_disk=`echo ${test_disk[@]} | sed 's/,/ /g'`
-   test_disk=($test_disk)
-   IFS="$OLD_IFS"
-   local single_disk_ok=0
-   for str1 in ${test_disk[@]}
-   do
-      assert_not_system_disk "$str1" "run fio single mode" || return $?
-      ####modify by wuwei for multi-threads
-      echo "[$str1]" >>$configuration
-      echo "filename=/dev/"$str1 >>$configuration
-      echo "size=100%" >> $configuration
-      ###################
-      ####for BTP,do not modify this,please!!!####
-      ################
 
-      run_fio_with_watchdog "$configuration" "$Result_Dir/detresult/${loop}_$jobnum.txt"
-      local fio_rc=$?
-      if [[ $fio_rc -ne 0 ]]; then
-          echo "FIO command failed on disk ${str1}, model=${FIO_LAST_MODEL:-unknown}, config=${FIO_LAST_CONFIG:-$(basename "$configuration")}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, planned_runtime=${FIO_LAST_PLANNED_RUNTIME:-?}s, rc=${fio_rc}" | tee -a $Result_Dir/result.log
-          echo "$(date '+%F %T') [FIO] fail on disk ${str1}; any disk IO error fails (non-MIX)" | tee -a $Result_Dir/result.log
-          sed -i '$d' $configuration
-          sed -i '$d' $configuration
-          sed -i '$d' $configuration
-          return "$fio_rc"
-      fi
-      single_disk_ok=1
-
-
-      sed -i '$d' $configuration
-      sed -i '$d' $configuration
-
-      result_handle_pre
-      if [[ $jobnum == 1 ]];then
-          printf "%-25s %-12s %-10s %-6s %-11s %-10s %-11s %-6s %-8s %-10s %-11s %-10s %-10s %-10s\n" sn, rw, iodepth, size, jobs_run, readiops, writeiops, iops, readbw, writebw, bw, Lat, CPUusr, CPUsys >> $Result_Dir/${str1}_${loop}.csv
-       fi
-       printf "%-25s %-12s %-10s %-6s %-11s %-10s %-11s %-6s %-8s %-10s %-11s %-10s %-10s %-10s\n" $sn, $rw, $iodepth, $size, $jobs_run, $readiops, $writeiops, $iops, $readbw, $writebw, $bw, $Lat, $CPUusr, $CPUsys >> $Result_Dir/${str1}_${loop}.csv
-       echo "**********" $(date +%m-%d" "%H:%M:%S) "Running FIO As Single Disk**********" >>$Result_Dir/result.log
-       echo "Test Disk: $sn--${str1}" | tee -a $Result_Dir/result.log
-
-       result_handle_after
-   done
-   if [[ $single_disk_ok -eq 0 ]]; then
-       echo "FIO command failed, all disks failed for config $(basename "$configuration")" | tee -a $Result_Dir/result.log
-       return 1
-   fi
-   jobnum=`expr $jobnum + 1`
-done
-#cd $Result_Dir
-#for file in `ls *.csv|grep -v "result.csv"`
-#do
-#   sed -i '1i\Serial_Number,Test_Disk,Test-Mode,Queue-Depth,Blocksize,ReadIOPS,WriteIOPS,IOPS,Read_Bandwidth,Write_Bandwindth,Bandwidth,Latency,CPUusr%,CPUsys%' $file
-#done
-#cd $Job_Dir
-}
 function run_all()
 {
-    if [[ $mix_io == NO ]];then
-        cd $Config_Dir
-        echo "**********" `date +%m-%d" "%H:%M:%S` "Running FIO As All Mode,Reports For ALL Disk  **********"
-        if [[ $item == FILESYSTEMSTRESS ]]; then
-            totalnum=$(find "$Config_Dir" -maxdepth 1 -type f -name '*.log' | wc -l)
-        else
-            num=`cat $Cur_Dir/$filename |grep -v -i 'End'|wc -l`
-            totalnum=`expr $num - 1`
-        fi
-        jobnum=1
-        printf "%-10s %-12s %-10s %-12s %-10s %-10s %-8s %-18s %-18s %-12s %-11s %-10s %-10s\n" Test-Mode, Queue-Depth, Blocksize, NumJbs, ReadIOPS, WriteIOPS, IOPS, Read_Bandwidth, Write_Bandwindth, Bandwidth, Latency, CPUusr%, CPUsys% >>$Result_Dir/result_$loop.csv
-        rm -rf stor*
-	for configuration in `ls -p $Config_Dir | grep -v / | grep '\.log$' | sort -n -k 1 -t -`
-        do
-            echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/"${loop}_$jobnum.txt"
-            echo "Job $jobnum/$totalnum is Running.."
-
-            ###################
-            ####for BTP,do not modify this,please!!!####
-            ##################
-
-
-            run_fio_with_watchdog "$configuration" "$Result_Dir/detresult/${loop}_$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio
-            local fio_rc=$?
-            if [[ $fio_rc -ne 0 ]]; then
-                echo "FIO stage abort, model=${FIO_LAST_MODEL:-unknown}, config=${FIO_LAST_CONFIG:-$(basename "$configuration")}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, planned_runtime=${FIO_LAST_PLANNED_RUNTIME:-?}s, rc=${fio_rc}" | tee -a $Result_Dir/result.log
-                return $fio_rc
-            fi
-
-            result_handle_pre
-            printf "%-10s %-12s %-10s %-12s %-10s %-10s %-8s %-18s %-18s %-12s %-11s %-10s %-10s\n" $rw, $iodepth, $size, $jobs_run, $readiops, $writeiops, $iops, $readbw, $writebw, $bw, $Lat, $CPUusr, $CPUsys >>$Result_Dir/result_$loop.csv
-            echo "**********" $(date +%m-%d" "%H:%M:%S) "Running FIO As All Disk**********" >>$Result_Dir/result.log
-
-            result_handle_after
-            jobnum=`echo "$jobnum + 1" | bc -l`
-        done
-        cd $Job_Dir
-    elif [[ $mix_io == YES ]];then
-        echo "*********" `date +%m-%d" "%H:%M:%S` "Running MIX IO on All Mode, Reports For All Disk *********"
-        if mix_fail_on_any_enabled; then
-            echo "$(date '+%F %T') [FIO] MIX_FAIL_ON_ANY=yes: any FIO error or nonzero rc fails the job (IOPS=0 is not a failure)"
-        else
-            echo "$(date '+%F %T') [FIO] MIX_FAIL_ON_ANY=no: record FIO errors and continue (IOPS=0 is not a failure)"
-        fi
-        num=`sed -n '2,$p' $File_Dir/MixIO1.csv | grep -v -i 'End' | wc -l`
-        totalnum=$num
-        for((jobnum=1;jobnum<=num;jobnum++));do
-            echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/MIX1/$jobnum.txt
-            echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/MIX2/$jobnum.txt
-            echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/MIX3/$jobnum.txt
-            echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/MIX4/$jobnum.txt
-
-            echo "Job $jobnum/$totalnum is Running.."
-              
-            run_fio_with_watchdog $Config_Dir/MIX1/$jobnum-*.log "$Result_Dir/detresult/MIX1/$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio &
-            local fio_pid1=$!
-            run_fio_with_watchdog $Config_Dir/MIX2/$jobnum-*.log "$Result_Dir/detresult/MIX2/$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio &
-            local fio_pid2=$!
-            run_fio_with_watchdog $Config_Dir/MIX3/$jobnum-*.log "$Result_Dir/detresult/MIX3/$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio &
-            local fio_pid3=$!
-            run_fio_with_watchdog $Config_Dir/MIX4/$jobnum-*.log "$Result_Dir/detresult/MIX4/$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio
-            local fio_rc4=$?
-            wait $fio_pid1; local fio_rc1=$?
-            wait $fio_pid2; local fio_rc2=$?
-            wait $fio_pid3; local fio_rc3=$?
-            local mix_i
-            local mix_error_disks=""
-            for mix_i in 1 2 3 4; do
-                mix_error_disks=$(printf '%s\n%s' "$mix_error_disks" "$(fio_error_disks "$Result_Dir/detresult/MIX${mix_i}/${jobnum}.txt")" | sed '/^$/d' | sort -u)
-            done
-            local mix_any_rc=0
-            if [[ $fio_rc1 -ne 0 || $fio_rc2 -ne 0 || $fio_rc3 -ne 0 || $fio_rc4 -ne 0 ]]; then
-                mix_any_rc=1
-            fi
-            local mix_error_count=0
-            if [[ -n "$mix_error_disks" ]]; then
-                mix_error_count=$(printf '%s\n' "$mix_error_disks" | grep -c .)
-            fi
-            if [[ $mix_any_rc -ne 0 || $mix_error_count -gt 0 ]]; then
-                if mix_fail_on_any_enabled; then
-                    echo "FIO command failed in MIX mode job ${jobnum}, model=${FIO_LAST_MODEL:-mix-job-${jobnum}}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, rc=${fio_rc1}/${fio_rc2}/${fio_rc3}/${fio_rc4}, error_disks=${mix_error_count}; MIX_FAIL_ON_ANY=yes, fail" | tee -a $Result_Dir/result.log
-                    return 1
-                fi
-                echo "$(date '+%F %T') [FIO] MIX job ${jobnum} recorded FIO/disk errors rc=${fio_rc1}/${fio_rc2}/${fio_rc3}/${fio_rc4} disks=${mix_error_disks//$'\n'/,}; MIX_FAIL_ON_ANY=no, continue" | tee -a $Result_Dir/result.log
-            fi
-       
-            result_handle_for_mix_io 
-        done
-
-    fi
-}
-
-function run_suball()
-{
     cd $Config_Dir
-    echo "**********" `date +%m-%d" "%H:%M:%S` "Running FIO As Suball Mode,Reports For Single Disk **********"
-    printf "%-25s %-12s %-10s %-6s %-11s %-10s %-11s %-6s %-8s %-10s %-11s %-10s %-10s %-10s\n" Disk, rw, iodepth, size, jobs_run, readiops, writeiops, iops, readbw, writebw, bw, Lat, CPUusr, CPUsys >> $Result_Dir/result_${loop}.csv
+    echo "**********" `date +%m-%d" "%H:%M:%S` "Running FIO As All Mode,Reports For ALL Disk  **********"
     num=`cat $Cur_Dir/$filename |grep -v -i 'End'|wc -l`
     totalnum=`expr $num - 1`
     jobnum=1
-    #echo " Disk Test-Mode,Queue-Depth,Blocksize,ReadIOPS,WriteIOPS,IOPS,Read_Bandwidth,Write_Bandwindth,Bandwidth,Latency,CPUusr%,CPUsys%">> $Result_Dir/result_"$loop".csv
+    printf "%-10s %-12s %-10s %-12s %-10s %-10s %-8s %-18s %-18s %-12s %-11s %-10s %-10s\n" Test-Mode, Queue-Depth, Blocksize, NumJbs, ReadIOPS, WriteIOPS, IOPS, Read_Bandwidth, Write_Bandwindth, Bandwidth, Latency, CPUusr%, CPUsys% >>$Result_Dir/result_$loop.csv
+    rm -rf stor*
     for configuration in `ls -p $Config_Dir | grep -v / | grep '\.log$' | sort -n -k 1 -t -`
     do
         echo `date +%m-%d" "%H:%M:%S` >>$Result_Dir/detresult/"${loop}_$jobnum.txt"
         echo "Job $jobnum/$totalnum is Running.."
-
-        ###################
-        ####for BTP,do not modify this,please!!!####
-        ##################
-
-
         run_fio_with_watchdog "$configuration" "$Result_Dir/detresult/${loop}_$jobnum.txt" --write_bw_log=$LogAd/test-fio --write_iops_log=$LogAd/test-fio
         local fio_rc=$?
         if [[ $fio_rc -ne 0 ]]; then
             echo "FIO stage abort, model=${FIO_LAST_MODEL:-unknown}, config=${FIO_LAST_CONFIG:-$(basename "$configuration")}, elapsed=${FIO_LAST_ELAPSED_SECONDS:-?}s, planned_runtime=${FIO_LAST_PLANNED_RUNTIME:-?}s, rc=${fio_rc}" | tee -a $Result_Dir/result.log
             return $fio_rc
         fi
-
-        OLD_IFS="$IFS"
-        IFS=" "
-        test_disk=`echo ${test_disk[@]} | sed 's/,/ /g'`
-        test_disk=($test_disk)
-        IFS="$OLD_IFS"
-        #test_disk=`echo ${test_disk[@]} | sed 's/,/ /g'`
-        for str1 in ${test_disk[@]}
-        do
-            echo "**************$str1"
-            result_handle_pre
-            if [[ $jobnum == 1 ]];then
-                printf "%-25s %-12s %-10s %-6s %-11s %-10s %-11s %-6s %-8s %-10s %-11s %-10s %-10s %-10s\n" sn, rw, iodepth, size, jobs_run, readiops, writeiops, iops, readbw, writebw, bw, Lat, CPUusr, CPUsys >> $Result_Dir/${str1}_${loop}.csv
-
-            fi
-            printf "%-25s %-12s %-10s %-6s %-11s %-10s %-11s %-6s %-8s %-10s %-11s %-10s %-10s %-10s\n" $str1, $rw, $iodepth, $size, $jobs_run, $readiops, $writeiops, $iops, $readbw, $writebw, $bw, $Lat, $CPUusr, $CPUsys >> $Result_Dir/result_${loop}.csv
-            printf "%-25s %-12s %-10s %-6s %-11s %-10s %-11s %-6s %-8s %-10s %-11s %-10s %-10s %-10s\n" $sn, $rw, $iodepth, $size, $jobs_run, $readiops, $writeiops, $iops, $readbw, $writebw, $bw, $Lat, $CPUusr, $CPUsys >> $Result_Dir/${str1}_${loop}.csv
-            echo "**********" $(date +%m-%d" "%H:%M:%S) "Running FIO As SubAll Disk**********" >>$Result_Dir/result.log
-            echo "Test Disk: $sn--${str1}" | tee -a $Result_Dir/result.log
-            result_handle_after
-
-        done
-    jobnum=`echo "$jobnum + 1" | bc -l`
+        result_handle_pre
+        printf "%-10s %-12s %-10s %-12s %-10s %-10s %-8s %-18s %-18s %-12s %-11s %-10s %-10s\n" $rw, $iodepth, $size, $jobs_run, $readiops, $writeiops, $iops, $readbw, $writebw, $bw, $Lat, $CPUusr, $CPUsys >>$Result_Dir/result_$loop.csv
+        echo "**********" $(date +%m-%d" "%H:%M:%S) "Running FIO As All Disk**********" >>$Result_Dir/result.log
+        result_handle_after
+        jobnum=`echo "$jobnum + 1" | bc -l`
     done
-
+    cd $Job_Dir
 }
 
 
@@ -1921,229 +1281,64 @@ function comparebw()
 
 
 
-function single_config()
-{
-   for conf in `ls -p $Config_Dir | grep -v / | sort -n -k 1 -t -`
-   do
-      sed -i '/group_reporting/d' $Config_Dir/$conf
-   done
-}
 
-
-function change_config()
-{
-	for conf in `ls -p $Config_Dir | grep -v / | sort -n -k 1 -t -`
-	do
-        [ -f "$Config_Dir/$conf" ] || continue
-	    sed -i '/time_based/d' $Config_Dir/$conf
-	    sed -i '/runtime/d' $Config_Dir/$conf
-	    sizeori=`sed -n '/size/p' $Config_Dir/$conf`
-		if [[ "$item" == *STRESS ]]; then
-			sizenew="size=100%"
-			if [ "$sizeori" != "" ]; then
-				sed -i "s/$sizeori/$sizenew/" $Config_Dir/$conf
-			else
-			 	sed -i "8i \\$sizenew\ " $Config_Dir/$conf
-			fi
-		elif [[ "$item" == "PERFORMANCE" ]];then
-			sizenew="size=1%"
-			if [ "$sizeori" != "" ]; then
-				sed -i "s/$sizeori/$sizenew/" $Config_Dir/$conf
-			else
-			 	sed -i "8i \\$sizenew\ " $Config_Dir/$conf
-			fi
-		else
-			echo "Input wrong test mode ($item), you can only input stress or performance"
-			# return 1
-		fi
-   	done
-}
-
-
-function prepare()
-{
-    # 仅选取 TYPE=disk 的真实块设备，排除 loop/rom 等虚拟设备，并剔除系统盘
-    local disks="${disk[*]}"
-    if [[ -z "$disks" ]]; then
-        disks=$(select_auto_test_disks)
-    fi
-    i=1
-    unset disk
-    for str in $disks
-    do
-        assert_not_system_disk "$str" "prepare filesystem mode" || return $?
-        mkdir -p /test_disk$i
-        parted -s /dev/$str mklabel gpt
-        parted -s /dev/$str mkpart primary 1 200G
-        if [[ $str =~ nvme ]]; then
-            part="/dev/${str}p1"
-        else
-            part="/dev/${str}1"
-        fi
-        assert_not_system_disk "$(basename "$part")" "mkfs filesystem mode" || return $?
-        mkfs -t "$fs_type" "$part"
-        mount "$part" /test_disk$i
-        touch /test_disk$i/test$i
-        disk[${i}]=/test_disk$i/test$i
-        i=`expr $i + 1`
-    done
-    sed -i '$a\size=Size' configuration
-}
 
 
 ########Modify by wuwei for multithreads and random-configuration
-single()
-{
-##modify by wuwei for random generating config
-      jobnum=1
-      for a in $config_list
-      do
-          rm -rf $Job_Dir/*.log >/dev/null
-          rm -rf $Job_Dir/MIX* >/dev/null
-          echo "(LOOP-Diskmode)$loop - single" >>$Result_Dir/result.log
 
-          echo "Run $a" >>$Result_Dir/result.log
-          echo "" >>$File_Dir/$a
-          echo "End" >>$File_Dir/$a
-          configure
-          #single_config
-           run_single "$a" || return $?
-      done
-cd $Result_Dir
-for file in `ls *.csv|grep -v "result*.csv"`
-do
-   sed -i '1i\Serial_Number,Test_Disk,Test-Mode,Queue-Depth,Blocksize,ReadIOPS,WriteIOPS,IOPS,Read_Bandwidth,Write_Bandwindth,Bandwidth,Latency,CPUusr%,CPUsys%' $file
-done
-cd $Cur_Dir
-}
 all()
 {
     rm -rf $Result_Dir/*.log $Result_Dir/*.html $Result_Dir/.fio*
-    if [ "$mix_io" = "NO" ];then
-        jobnum=1
-        for b in $config_list
-        do
-            rm -rf $Job_Dir/*.log >/dev/null
-            rm -rf $Job_Dir/MIX* >/dev/null
-            echo "(LOOP-Diskmode)$loop - all" >>$Result_Dir/result.log
-            echo "Run $b" >>$Result_Dir/result.log
-            echo "" >>$File_Dir/$b
-            echo "End" >>$File_Dir/$b
-            configure
-            run_all $b || return $?
-        done
-        if [[ -n "$loop" ]] && [ "$loop" -gt 1 ]; then
-            comparebw
-            if [ "$error_flag" = "true" ]; then
-                echo "FIO + DC test fail occur great difference between $beforeloop and $loop,more detail message to see $result/error.log"
-            fi
+    jobnum=1
+    for b in $config_list
+    do
+        rm -rf $Job_Dir/*.log >/dev/null
+        echo "(LOOP-Diskmode)$loop - all" >>$Result_Dir/result.log
+        echo "Run $b" >>$Result_Dir/result.log
+        echo "" >> $File_Dir/$b
+        echo "End" >> $File_Dir/$b
+        configure
+        run_all $b || return $?
+    done
+    if [[ -n "$loop" ]] && [ "$loop" -gt 1 ]; then
+        comparebw
+        if [ "$error_flag" = "true" ]; then
+            echo "FIO + DC test fail occur great difference between $beforeloop and $loop,more detail message to see $result/error.log"
         fi
-    elif [ "$mix_io" = "YES" ];then
-	for i in 1 2 3 4;do
-	    mkdir -p $Config_Dir/MIX$i
-            mkdir -p $Result_Dir/MIX$i
-            mkdir -p $Result_Dir/detresult/MIX$i
-            printf "%-10s %-12s %-10s %-12s %-10s %-10s %-8s %-18s %-18s %-12s %-11s %-10s %-10s\n" Test-Mode, Queue-Depth, Blocksize, NumJbs, ReadIOPS, WriteIOPS, IOPS, Read_Bandwidth, Write_Bandwindth, Bandwidth, Latency, CPUusr%, CPUsys% >>$Result_Dir/MIX$i/result.csv
-            configure_mixio $i
-	done
-        run_all
     fi
 }
 
-sub_all()
-{
-##modify by wuwei for random generating config
-      #cp $Cur_Dir/configuration $Cur_Dir/configuration.tmp
-      jobnum=1
-#      echo "Test-Mode,Queue-Depth,Blocksize,ReadIOPS,WriteIOPS,IOPS,Read_Bandwidth,Write_Bandwindth,Bandwidth,Latency,CPUusr%,CPUsys%">> $Result_Dir/result.csv
-      for b in $config_list
-      do
-          rm -rf $Job_Dir/*.log >/dev/null
-          rm -rf $Job_Dir/MIX* >/dev/null
-
-          echo "(LOOP-Diskmode)$loop - suball" >>$Result_Dir/result.log
-          echo "Run $b" >>$Result_Dir/result.log
-          echo "" >>$File_Dir/$b
-          echo "End" >>$File_Dir/$b
-          configure
-          run_suball $b
-      done
-#      if [ "$loop" -gt 1 ]; then
-#        comparebw
-#        if [ "$error_flag" = "true" ]; then
-#                echo "FIO + DC test fail occur great difference between $beforeloop and $loop,more detail message to see $result/error.log"
-#                #exit 1
-#        fi
-#      fi
-
-}
 
 function get_config_filelist() {
     rm -rf $File_Dir/*
-    if [[ $mix_io == NO ]];then
-        cp -r $Cur_Dir/$filename $File_Dir/ >/dev/null
-        # Only append End to the copy in File_Dir if not already present
-        if ! grep -q "End" $File_Dir/$filename; then
-            echo "End" >> $File_Dir/$filename
-        fi
-        
-        rm -rf $Cur_Dir/config_list1.log
-        ls -p $File_Dir | grep -v / | grep "\.csv" | awk '{print $NF}' > $Cur_Dir/config_list.log
-        while read i
-        do
-            echo "$i $RANDOM"
-        done<$Cur_Dir/config_list.log|sort -k2n|cut -d " " -f1>$Cur_Dir/config_list1.log
-        #rm -rf $Cur_Dir/config_list.log >/dev/null &
-        config_list=`cat $Cur_Dir/config_list1.log`
-        rm -rf $Cur_Dir/config_list.log >/dev/null
-    elif [[ $mix_io == YES ]];then
-        cd $File_Dir
-	rm -rf MixIO*.csv
-	# IO_BS_ALIGN=4k|512 (default 4k). random_choice.py dispatches.
-	for i in {1..4};do
-	    python3 $Cur_Dir/random_choice.py
-	    mv random_choice.csv MixIO$i.csv
-	done
-        cd $Cur_Dir
+    if [[ -z "$filename" ]]; then
+        echo "PowerCycle FIO requires filename=powercycle_auto.csv (prepare_powercycle_plan)."
+        return 1
     fi
+    cp -r $Cur_Dir/$filename $File_Dir/ >/dev/null
+    if ! grep -q "End" $File_Dir/$filename; then
+        echo "End" >> $File_Dir/$filename
+    fi
+    rm -rf $Cur_Dir/config_list1.log
+    ls -p $File_Dir | grep -v / | grep "\.csv" | awk '{print $NF}' > $Cur_Dir/config_list.log
+    while read i
+    do
+        echo "$i $RANDOM"
+    done<$Cur_Dir/config_list.log|sort -k2n|cut -d " " -f1>$Cur_Dir/config_list1.log
+    config_list=`cat $Cur_Dir/config_list1.log`
+    rm -rf $Cur_Dir/config_list.log >/dev/null
 }
 
 
-
-function do_stress(){
-
-#sleep 300
-
-###################
-####for BTP, do not modify this,please!!!####
-##################
-
-sleep 1
-sync
-echo 3 > /proc/sys/vm/drop_caches
-
-echo "runing"
-do_reboot
-sleep 1
-
-}
 
 
 
 function run_mode() {
-    if [ "$disk_mode" = "BOTH" ];then
-        all || return $?
-        single || return $?
-    elif [ "$disk_mode" = "ALL" ];then
-        all || return $?
-    elif [ "$disk_mode" = "SUBALL" ];then
-        sub_all || return $?
-    elif [ "$disk_mode" = "SINGLE" ];then
-        single || return $?
-    else
-        echo "do not support disk mode $disk_mode"
+    if [ "$disk_mode" != "ALL" ]; then
+        echo "PowerCycle only supports disk_mode=ALL, got $disk_mode"
         return 1
     fi
+    all || return $?
     return 0
 }
 
@@ -2224,10 +1419,4 @@ function do_fio() {
 
 
 
-function fio_cycle()
-{
-    cd ${Cur_Dir}
-    sh run_fio.sh "$item" "$check" "$bmc_reset" "$flag" "$delay" "$mode" "$wait" "$port" "$server_ip" "$LOOP" "$acserverport" "$safe" "$sysStaticIP" "$blackBoxStaticIP" "$runtime" "$filename" "$fs_type" "$disk_mode" "$specified_disk" "$remote" "$mix_io" "$log_interval"
-    # Propagate FIO/run_fio failure so Fio_All.sh / pytest cannot stay green.
-    exit $?
-}
+

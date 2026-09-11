@@ -113,7 +113,7 @@ def test_infra_failure_card_shows_stats_without_detail_log(tmp_path, monkeypatch
 def test_hard_fio_summary_overrides_green_junit_to_failure(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "failure_summary.txt").write_text(
-        "- test_execution_192.168.22.134.log: FIO stage failed in LAWDISKSTRESS mode, "
+        "- test_execution_192.168.22.134.log: FIO stage failed in REBOOT mode, "
         "model=randread bs=4m qd=32 runtime=30s (#22), elapsed=46s, planned_runtime=30s, rc=1\n",
         encoding="utf-8",
     )
@@ -156,7 +156,7 @@ def test_mix_fail_on_any_no_continue_does_not_force_failure(tmp_path, monkeypatc
         "runtime=30s (#22), config=22-randread-4m-32-30.log, elapsed=46s(46s), "
         "planned_runtime=30s, rc=96\n"
         "- test_execution_192.168.22.134.log: MIX job 22 recorded FIO/disk errors "
-        "rc=96/96/96/96 disks=dp0-vd1; MIX_FAIL_ON_ANY=no, continue\n",
+        "rc=96/96/96/96 disks=dp0-vd1; FIO soft-continue\n",
         encoding="utf-8",
     )
     for key, value in {

@@ -19,9 +19,10 @@ test_powercycle_01_reboot 1
 
 # ============================================================
 # 各用例参数
-# FIO_CONFIG 指向 IO_Stress/ 下 CSV
 # FIO_CYCLES：电源循环次数（仅 reboot / dc）
 # IGNORE_ERROR：MachineCheck 不一致时是否继续（yes/no）
+# FIO_DISKS：指定数据盘；空=全部非系统数据盘
+# FIO 模型由 powercycle_random.py 每圈生成 powercycle_auto.csv，无需静态 CSV
 # ============================================================
 
 [test_powercycle_00_env_prepare]
@@ -30,12 +31,10 @@ test_powercycle_01_reboot 1
 
 [test_powercycle_01_reboot]
 FIO_CYCLES      = 100
-FIO_CONFIG      = Input_Config_reboot_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =
 
 [test_powercycle_02_dc]
 FIO_CYCLES      = 5
-FIO_CONFIG      = Input_Config_dc_4k.csv
 IGNORE_ERROR    = yes
 FIO_DISKS       =

@@ -18,7 +18,6 @@ NODE_REPORT_RE = re.compile(r"^report_.+\..+\.xml$")
 EXECUTION_HARD_MARKERS = (
     "FIO stage failed",
     "FIO stage abort",
-    "MIX_FAIL_ON_ANY=yes, fail",
     "idle watchdog timeout",
     "idle watchdog fired",
 )
