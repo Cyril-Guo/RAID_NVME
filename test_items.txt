@@ -19,8 +19,8 @@
 # test_ci_00_env_prepare 0
 # test_ci_01_lawdisk 1
 # test_ci_02_filesystem 2
-test_ci_03_mix_4k 3
-# test_ci_04_mix_512 4
+# test_ci_03_mix_4k 3
+test_ci_04_mix_512 4
 # test_ci_05_random_io_4k 5
 # test_ci_06_random_io_512 6
 # === END SELECTION ===
