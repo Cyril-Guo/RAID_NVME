@@ -7,7 +7,7 @@
 
 - 多节点：Jenkins `TARGET_IPS` 并发调度
 - 远程部署：`/root/Cyril/Jenkins/<JOB>/<BRANCH>/build-<N>/`
-- reboot/dc 异步触发后，由 `powercycle/wait_powercycle_completion.sh` 闭环多圈
+- reboot/dc（dc=S5 软关，非真掉电） 异步触发后，由 `powercycle/wait_powercycle_completion.sh` 闭环多圈
 - Allure / JUnit 回收与飞书通知
 
 ## 目录

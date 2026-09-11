@@ -25,6 +25,7 @@ if [[ "$item" != "REBOOT" && "$item" != "DC" ]]; then
     exit 2
 fi
 
+# One-shot: only the initial pytest/Jenkins trigger sets this. Resume must not.
 export POWER_CYCLE_FORCE_ONCE=1
 export POWER_CYCLE_COMMAND_GRACE="${POWER_CYCLE_COMMAND_GRACE:-90}"
 
@@ -38,7 +39,18 @@ intializer
 echo "$(date '+%F %T') [DIRECT] initialized item=$item LOOP=$LOOP flag=$flag disks=${specified_disk:-null}" | tee -a "$command_log"
 
 info_check
-echo "$(date '+%F %T') [DIRECT] machinecheck before finished" | tee -a "$command_log"
+info_rc=$?
+echo "$(date '+%F %T') [DIRECT] machinecheck before finished rc=$info_rc" | tee -a "$command_log"
+if [[ $info_rc -ne 0 ]]; then
+    echo "ERROR: MachineCheck before FIO failed, rc=$info_rc" | tee -a "$command_log"
+    if [[ "$flag" == "STOP" ]]; then
+        collect_log
+        teardown_powercycle_resume
+        test_end "$info_rc"
+    else
+        echo "flag=NON-STOP: continue after MachineCheck before failure" | tee -a "$command_log"
+    fi
+fi
 
 loop=0
 beforeloop=0
@@ -49,8 +61,8 @@ fio_rc=$?
 echo "$(date '+%F %T') [DIRECT] do_fio rc=$fio_rc" | tee -a "$command_log"
 if [[ $fio_rc -ne 0 ]]; then
     collect_log
-    test_end
-    exit $fio_rc
+    teardown_powercycle_resume
+    test_end "$fio_rc"
 fi
 
 info_diff
@@ -64,6 +76,12 @@ reboot_rc=$?
 echo "$(date '+%F %T') [DIRECT] do_reboot rc=$reboot_rc" | tee -a "$command_log"
 if [[ $reboot_rc -eq 2 ]]; then
     collect_log
-    test_end
+    teardown_powercycle_resume
+    test_end 0
 fi
-exit $reboot_rc
+if [[ $reboot_rc -ne 0 ]]; then
+    collect_log
+    teardown_powercycle_resume
+    test_end "$reboot_rc"
+fi
+exit "$reboot_rc"

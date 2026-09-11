@@ -29,11 +29,12 @@ if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
     if [ $fio_rc -ne 0 ]; then
         echo "FIO stage failed in $item_ mode, rc=$fio_rc"
         collect_log
-        test_end
-        exit $fio_rc
+        teardown_powercycle_resume
+        test_end "$fio_rc"
     fi
 
     info_diff
+    # info_diff may call test_end 3 on MachineCheck STOP; if it returns, continue.
 
     collect_powercycle_dmesg
     echo "$(date '+%F %T') [RESUME] dmesg captured for loop=${loop:-0}"
@@ -43,15 +44,13 @@ if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
     if [ $reboot_rc -eq 2 ]; then
         echo "Power-cycle test completed all $LOOP loops."
         collect_log
-        if command -v systemctl >/dev/null 2>&1; then
-            systemctl disable raid-nvme-powercycle-resume.service >/dev/null 2>&1
-            rm -f /etc/systemd/system/raid-nvme-powercycle-resume.service
-            rm -f "$Cur_Dir/powercycle_resume.sh"
-            systemctl daemon-reload >/dev/null 2>&1
-        fi
-        test_end
+        teardown_powercycle_resume
+        test_end 0
     elif [ $reboot_rc -ne 0 ]; then
-        exit $reboot_rc
+        echo "Power-cycle reboot/dc command failed, rc=$reboot_rc"
+        collect_log
+        teardown_powercycle_resume
+        test_end "$reboot_rc"
     fi
 
 elif [ "$item_" = "RESTORE" ];then
@@ -64,5 +63,4 @@ else
 fi
 
 collect_log
-
-test_end
+test_end 0

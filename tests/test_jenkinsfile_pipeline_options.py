@@ -283,17 +283,12 @@ def test_physical_host_ssh_uses_password_with_default_and_override():
     source = pipeline_sources()
 
     assert "name: 'TARGET_PASSWORD'" in jenkinsfile
-    assert "defaultValue: '123456'" in jenkinsfile
-    assert 'TARGET_PASSWORD = "${params.TARGET_PASSWORD?.trim() ?: \'123456\'}"' in jenkinsfile
-    assert "PreferredAuthentications=password" in jenkinsfile
-    assert "PubkeyAuthentication=no" in jenkinsfile
-    assert "def hostSshCmd(ip)" in jenkinsfile
-    assert "def hostScpCmd()" in jenkinsfile
-    assert "powercycle/ensure_sshpass.sh" in jenkinsfile
-    assert 'hostSshCmd(ip)' in jenkinsfile
-    assert '    "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"' not in jenkinsfile
-    assert "TARGET_PASSWORD=${TARGET_PASSWORD:-123456}" in source
+    assert "defaultValue: ''" in jenkinsfile
+    assert "TARGET_PASSWORD is required" in jenkinsfile
+    assert "SSHPASS=" in source
     assert "sshpass -e ssh" in source
+    assert "sshpass -e scp" in source
+
 
 
 def test_draid_driver_and_test_dependency_steps_target_physical_host_only():

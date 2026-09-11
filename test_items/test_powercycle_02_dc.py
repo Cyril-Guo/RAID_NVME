@@ -1,5 +1,5 @@
 """
-Smoke 测试 —— DC 电源循环（掉电）压力测试。
+Smoke 测试 —— DC 电源循环（S5 软关：RTC wake + poweroff，非 BMC/PDU 真掉电）。
 
 本用例流程自洽；通过 powercycle_launch / build_fio_args 组装并异步触发：
   1. 从环境变量（由 test_items.txt 注入）解析循环次数与错误处理策略；
@@ -37,7 +37,7 @@ def test_dc_powercycle():
     # ---------- 3. Allure 报告标题与描述 ----------
     allure.dynamic.title(f"FIO 测试: dc (循环 {loops} 次)")
     allure.dynamic.description(
-        f"掉电电源循环压力测试，循环 {loops} 次；"
+        f"DC（S5 软关）电源循环压力测试，循环 {loops} 次；"
         f"出现 MachineCheck 错误时{'不停止' if ignore_error else '停止'}。"
     )
 
@@ -46,6 +46,6 @@ def test_dc_powercycle():
     cmd_str = f"bash ./powercycle_direct.sh {' '.join(fio_args)}"
     with allure.step(f"异步触发 FIO 指令: {cmd_str}"):
         print(f"{_ts()} [START] cwd={stress_dir} {cmd_str}")
-        print("检测到掉电任务，采用异步(setsid)触发模式...")
+        print("检测到 DC（S5 软关）任务，采用异步(setsid)触发模式...")
         trigger_background_fio(stress_dir, "dc", fio_args)
         print("测试已触发（request start）；多圈完成由 Jenkins wait_powercycle_completion 闭环。")

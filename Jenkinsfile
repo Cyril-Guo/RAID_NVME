@@ -137,6 +137,9 @@ pipeline {
     options {
         disableConcurrentBuilds()
         skipDefaultCheckout()
+        // Absolute ceiling for long powercycle runs (FIO_CYCLES * ~30min can be days).
+        // Prefer POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES on the wait script for tighter bounds.
+        timeout(time: 72, unit: 'HOURS')
     }
 
     parameters {
@@ -169,16 +172,16 @@ pipeline {
         )
         string(
             name: 'TARGET_PASSWORD',
-            defaultValue: '123456',
+            defaultValue: '',
             trim: true,
-            description: 'Physical host SSH password for TARGET_USER (default 123456).'
+            description: 'Physical host SSH password for TARGET_USER (required; no hardcoded default).'
         )
     }
 
     environment {
         FEISHU_WEBHOOK = credentials('feishu-webhook')
         TARGET_USER = 'root'
-        TARGET_PASSWORD = "${params.TARGET_PASSWORD?.trim() ?: '123456'}"
+        TARGET_PASSWORD = "${params.TARGET_PASSWORD?.trim() ?: ''}"
         TEST_IDLE_TIMEOUT_MINUTES = '15'
         ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
         TEST_EXECUTION_ATTEMPTED = 'false'
@@ -196,6 +199,16 @@ pipeline {
     }
 
     stages {
+        stage('Validate Parameters') {
+            steps {
+                script {
+                    if (!(env.TARGET_PASSWORD?.trim())) {
+                        error 'TARGET_PASSWORD is required (no hardcoded default).'
+                    }
+                }
+            }
+        }
+
         stage('Prepare Workspace') {
             steps {
                 cleanWs()

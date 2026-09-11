@@ -63,7 +63,7 @@ def test_repository_test_items_file_is_valid():
     assert all(name in catalog for name in selected)
     assert "defaults" not in params
     assert params["test_powercycle_01_reboot"]["FIO_CYCLES"] == "100"
-    assert params["test_powercycle_01_reboot"]["IGNORE_ERROR"] == "yes"
+    assert params["test_powercycle_01_reboot"]["IGNORE_ERROR"] == "no"
     assert params["test_powercycle_02_dc"]["FIO_CYCLES"] == "5"
     assert "test_powercycle_00_env_prepare" in params
     assert "reboot" not in catalog

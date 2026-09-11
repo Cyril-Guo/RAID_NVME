@@ -292,10 +292,14 @@ function do_reboot()
 
     echo "$(date '+%F %T') [POWER] enter do_reboot item=$item loop=$loop LOOP=$LOOP force=${POWER_CYCLE_FORCE_ONCE:-0}" | tee -a "$command_log"
 
-    if [ "$POWER_CYCLE_FORCE_ONCE" = "1" ] && [ "$loop" -ge "$LOOP" ]; then
-        echo "$(date '+%F %T') [POWER] force one power-cycle for initial Jenkins trigger" | tee -a "$command_log"
-        loop=0
-        LOOP=1
+    # One-shot for initial direct trigger only. Consume immediately so resume never rewrites LOOP.
+    if [ "${POWER_CYCLE_FORCE_ONCE:-0}" = "1" ]; then
+        export POWER_CYCLE_FORCE_ONCE=0
+        if [ "$loop" -ge "$LOOP" ]; then
+            echo "$(date '+%F %T') [POWER] stale loop>=LOOP on initial trigger; force one power-cycle" | tee -a "$command_log"
+            loop=0
+            LOOP=1
+        fi
     fi
 
     if [ "$loop" -ge "$LOOP" ]; then

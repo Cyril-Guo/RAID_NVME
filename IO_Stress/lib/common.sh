@@ -52,6 +52,18 @@ function install_fio()
     fi
 }
 
+teardown_powercycle_resume()
+{
+    # Always safe to call: disable leftover resume unit on success OR failure.
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl disable raid-nvme-powercycle-resume.service >/dev/null 2>&1 || true
+        systemctl stop raid-nvme-powercycle-resume.service >/dev/null 2>&1 || true
+        rm -f /etc/systemd/system/raid-nvme-powercycle-resume.service
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
+    rm -f "${Cur_Dir:-}/powercycle_resume.sh" 2>/dev/null || true
+}
+
 function dotrap()
 {
    # Preserve the original exit status after cleanup (do not force exit 0).

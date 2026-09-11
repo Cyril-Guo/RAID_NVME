@@ -202,6 +202,7 @@ item_failed() {
     local -a patterns=(
         "FIO stage failed"
         "FIO stage abort"
+        "FIO command failed"
         "FIO failed"
         "verify failed"
         "Refuse to run"
@@ -209,18 +210,24 @@ item_failed() {
         "Fail to detect system disk"
         "idle watchdog timeout"
         "PowerCycle FIO requires filename="
+        "ERROR: MachineCheck before FIO failed"
+        "ERROR: MachineCheck inconsistencies found"
+        "ERROR: MachineCheck Log Inconsistency"
+        "Whitelist field differences"
+        "stop_flag is STOP,so exit"
     )
     log_name="$(powercycle_log_name "${item}")"
     while IFS= read -r root; do
         for pattern in "${patterns[@]}"; do
+            # Prefer known log locations (command/resume + fio_result/result.log).
             # shellcheck disable=SC2086
-            text="$(eval ${REMOTE_SSH_COMMAND} "grep -F $(printf '%q' "${pattern}") ${root}/${log_name} ${root}/powercycle_resume.log ${root}/result.log 2>/dev/null" || true)"
+            text="$(eval ${REMOTE_SSH_COMMAND} "grep -F $(printf '%q' "${pattern}") ${root}/${log_name} ${root}/powercycle_resume.log ${root}/fio_result/result.log 2>/dev/null" || true)"
             if [[ -n "${text}" ]]; then
                 echo "[${NODE_IP}] detected failure marker in ${item}: ${pattern}" >&2
                 return 0
             fi
         done
-        # also scan ResultLog recursively for hard failures
+        # Recursive fallback under ResultLog.
         for pattern in "${patterns[@]}"; do
             # shellcheck disable=SC2086
             text="$(eval ${REMOTE_SSH_COMMAND} "grep -R -F -e $(printf '%q' "${pattern}") ${root} 2>/dev/null | head -n 1" || true)"

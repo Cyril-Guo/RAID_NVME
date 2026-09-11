@@ -23,6 +23,7 @@ test_powercycle_01_reboot 1
 # IGNORE_ERROR：MachineCheck 不一致时是否继续（yes/no）
 # FIO_DISKS：指定数据盘；空=全部非系统数据盘
 # FIO 模型由 powercycle_random.py 每圈生成 powercycle_auto.csv，无需静态 CSV
+# dc：RTC wake + poweroff（S5 软关），不是 BMC/PDU 真掉电
 # ============================================================
 
 [test_powercycle_00_env_prepare]
@@ -31,10 +32,10 @@ test_powercycle_01_reboot 1
 
 [test_powercycle_01_reboot]
 FIO_CYCLES      = 100
-IGNORE_ERROR    = yes
+IGNORE_ERROR    = no
 FIO_DISKS       =
 
 [test_powercycle_02_dc]
 FIO_CYCLES      = 5
-IGNORE_ERROR    = yes
+IGNORE_ERROR    = no
 FIO_DISKS       =
