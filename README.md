@@ -186,5 +186,5 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 
 ## Concurrent builds
 
-Job allows parallel builds; pin `AGENT_LABEL` to a multi-executor node if needed.
-Same `TARGET_IP` is still serialized by `lock(raid-nvme-dut-<ip>)`.
+Job allows parallel builds (needs enough Jenkins executors).
+Different `TARGET_IP`s run in parallel; same `TARGET_IP` is serialized by `lock(raid-nvme-dut-<ip>)`.

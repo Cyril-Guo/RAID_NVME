@@ -145,8 +145,7 @@ pipeline {
         // BUILD_NUMBER (/root/Cyril/Jenkins/<job>/<branch>/build-<N>), so
         // workspace trees do not collide. Same TARGET_IP is serialized via
         // lock(resource: "raid-nvme-dut-<ip>") (requires Lockable Resources plugin).
-        // True parallelism also needs enough Jenkins executors on the agent
-        // (or pin AGENT_LABEL to a multi-executor node).
+        // Different IPs can run in parallel; Jenkins agent needs enough executors.
         skipDefaultCheckout()
     }
 
@@ -177,12 +176,6 @@ pipeline {
             defaultValue: '',
             trim: true,
             description: 'Optional: kernel_driver branch to test. Empty means main; ignored when MANUAL_MR_IID is set.'
-        )
-        string(
-            name: 'AGENT_LABEL',
-            defaultValue: '',
-            trim: true,
-            description: 'Optional Jenkins agent label for this build. Empty = any agent. For concurrent builds, point this at a node with multiple executors (same TARGET_IP is still lock-serialized).'
         )
         string(
             name: 'TARGET_PASSWORD',
@@ -222,11 +215,7 @@ pipeline {
                 sh 'chmod +x ci/ensure_sshpass.sh && ci/ensure_sshpass.sh'
 
                 script {
-                    def agentLabel = (params.AGENT_LABEL ?: '').trim()
-                    if (agentLabel) {
-                        echo "AGENT_LABEL=${agentLabel} requested; ensure this run landed on a matching node (declarative agent is 'any' — pin the job default node or use a dedicated job for labeled agents)."
-                    }
-                    echo "Jenkins node=${env.NODE_NAME}. Concurrent builds need multiple executors on this node (or different nodes). Same TARGET_IP remains lock-serialized."
+                    echo "Jenkins node=${env.NODE_NAME}. Different TARGET_IPs can run in parallel; same TARGET_IP is lock-serialized. Concurrent builds need enough executors on this node."
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
                     def jenkinsPrepare = load 'ci/jenkins_prepare.groovy'
 

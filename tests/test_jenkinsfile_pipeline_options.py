@@ -11,11 +11,6 @@ def pipeline_sources():
     return "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
 
-def test_jenkins_agent_label_param_documents_executors():
-    jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
-    assert "name: 'AGENT_LABEL'" in jenkinsfile
-    assert "multiple executors" in jenkinsfile
-
 
 def test_jenkins_allows_concurrent_builds():
 
