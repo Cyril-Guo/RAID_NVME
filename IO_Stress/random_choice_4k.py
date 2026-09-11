@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Mix IO block-size model (4k) — memory-capped.
+"""Mix IO block-size model (4k) — dense pitfall set, memory-capped.
 
-Peak fio buffer memory (all 4 MixIO streams at max bs simultaneously):
-  mem ≈ 4 * disks * numjobs(12) * iodepth(32) * bs
-
-With disks=20 and bs_max=4m → ≈120 GiB (budget ≤170 GiB on a 200 GiB host).
-Larger than 4m is excluded. Pool favors 4k / small-mid sizes; few large sizes.
+- "4k" weight 3 (3%); plus 97 other 4KiB-aligned sizes at weight 1 each (97%).
+- All sizes ≤4m so 20-disk ×4 MixIO ×QD32 ×jobs12 peak ≈120GiB (<170GiB).
+- Mix of dense small/mid steps and near power-of-2 edges up to 4m.
 Weights sum to 100. Generates MixIO CSV with total=3500 rows.
 """
 from __future__ import annotations
@@ -13,63 +11,41 @@ from __future__ import annotations
 import copy
 import random
 
-# Cap: 4m. Do not add 5m..16m — those push 20-disk peak above ~150 GiB.
+
+def _bs_bytes(label: str) -> int:
+    text = label.strip().lower()
+    if text.endswith("k"):
+        return int(text[:-1]) * 1024
+    if text.endswith("m"):
+        return int(text[:-1]) * 1024 * 1024
+    if text.endswith("b"):
+        return int(text[:-1])
+    return int(text)
+
+
 temp_dict = {
-    # primary
-    "4k": 20,
-    # small 4k-aligned
-    "8k": 6,
-    "12k": 3,
-    "16k": 5,
-    "20k": 2,
-    "24k": 2,
-    "28k": 1,
-    "32k": 5,
-    "36k": 1,
-    "40k": 1,
-    "48k": 3,
-    "56k": 1,
-    "64k": 5,
-    "80k": 1,
-    "96k": 2,
-    # mid
-    "112k": 1,
-    "128k": 4,
-    "160k": 1,
-    "192k": 2,
-    "224k": 1,
-    "256k": 4,
-    "320k": 1,
-    "384k": 2,
-    "448k": 1,
-    "512k": 4,
-    "640k": 1,
-    "768k": 2,
-    "896k": 1,
-    # large but ≤4m (sparse)
-    "1m": 4,
-    "1280k": 1,
-    "1536k": 2,
-    "1792k": 1,
-    "2m": 3,
-    "2560k": 1,
-    "3m": 2,
-    "3584k": 1,
-    "4m": 2,
+    "4k": 3,
+    "8k": 1, "12k": 1, "16k": 1, "20k": 1, "24k": 1, "28k": 1, "32k": 1, "36k": 1,
+    "40k": 1, "44k": 1, "48k": 1, "52k": 1, "56k": 1, "60k": 1, "64k": 1, "68k": 1,
+    "72k": 1, "76k": 1, "80k": 1, "84k": 1, "88k": 1, "92k": 1, "96k": 1, "100k": 1,
+    "104k": 1, "108k": 1, "112k": 1, "116k": 1, "120k": 1, "124k": 1, "128k": 1, "132k": 1,
+    "136k": 1, "140k": 1, "144k": 1, "148k": 1, "152k": 1, "156k": 1, "160k": 1, "164k": 1,
+    "168k": 1, "172k": 1, "176k": 1, "180k": 1, "184k": 1, "192k": 1, "224k": 1, "240k": 1,
+    "248k": 1, "252k": 1, "260k": 1, "264k": 1, "272k": 1, "280k": 1, "288k": 1, "304k": 1,
+    "320k": 1, "336k": 1, "352k": 1, "368k": 1, "384k": 1, "400k": 1, "416k": 1, "432k": 1,
+    "448k": 1, "464k": 1, "480k": 1, "496k": 1, "508k": 1, "512k": 1, "516k": 1, "528k": 1,
+    "544k": 1, "576k": 1, "640k": 1, "704k": 1, "768k": 1, "896k": 1, "960k": 1, "1020k": 1,
+    "1m": 1, "1028k": 1, "1088k": 1, "1152k": 1, "1280k": 1, "1408k": 1, "1536k": 1, "1792k": 1,
+    "1920k": 1, "2m": 1, "2304k": 1, "2560k": 1, "3m": 1, "3328k": 1, "3584k": 1, "3840k": 1,
+    "4m": 1,
 }
 
 assert sum(temp_dict.values()) == 100, sum(temp_dict.values())
-assert temp_dict["4k"] == 20
-assert "4m" in temp_dict
+assert temp_dict["4k"] == 3
+assert len(temp_dict) == 98
 assert "5m" not in temp_dict and "8m" not in temp_dict and "16m" not in temp_dict
-assert max(
-    (
-        (int(k[:-1]) * 1024 if k.endswith("k") else int(k[:-1]) * 1024 * 1024)
-        if k[-1] in "km"
-        else int(k)
-    )
-    for k in temp_dict
-) == 4 * 1024 * 1024
+assert max(_bs_bytes(k) for k in temp_dict) <= 4 * 1024 * 1024
+assert all(_bs_bytes(k) % 4096 == 0 for k in temp_dict)
 
 total = 3500
 proportion_dict = {k: int(v * 0.01 * total) for k, v in temp_dict.items()}
