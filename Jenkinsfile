@@ -135,7 +135,10 @@ pipeline {
     agent any
 
     options {
-        disableConcurrentBuilds()
+        // Allow multiple builds in parallel. Remote workspaces already include
+        // BUILD_NUMBER (/root/Cyril/Jenkins/<job>/<branch>/build-<N>), so
+        // workspace trees do not collide. Avoid pointing two concurrent builds
+        // at the same TARGET_IP — they would still fight over the same DUT.
         skipDefaultCheckout()
     }
 

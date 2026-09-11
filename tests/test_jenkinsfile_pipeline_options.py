@@ -11,6 +11,13 @@ def pipeline_sources():
     return "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
 
+def test_jenkins_allows_concurrent_builds():
+    jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "disableConcurrentBuilds()" not in jenkinsfile
+    assert "skipDefaultCheckout()" in jenkinsfile
+
+
 def test_apt_get_waits_for_dpkg_lock():
     source = pipeline_sources()
 
