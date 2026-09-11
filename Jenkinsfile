@@ -78,6 +78,12 @@ printf '\\n'
     return branch
 }
 
+
+// Serialize all CI activity on one DUT across concurrent builds.
+def dutLockName(ip) {
+    return "raid-nvme-dut-${ip}"
+}
+
 // DUT layout: /root/Cyril/Jenkins/<JOB>/<BRANCH>/<build|restore>-<N>
 // Keeps CI/SMOKE, branches, and builds from mixing in one flat directory.
 def remoteWorkspaceRoot(kind = 'build') {
@@ -137,8 +143,8 @@ pipeline {
     options {
         // Allow multiple builds in parallel. Remote workspaces already include
         // BUILD_NUMBER (/root/Cyril/Jenkins/<job>/<branch>/build-<N>), so
-        // workspace trees do not collide. Avoid pointing two concurrent builds
-        // at the same TARGET_IP — they would still fight over the same DUT.
+        // workspace trees do not collide. Same TARGET_IP is serialized via
+        // lock(resource: "raid-nvme-dut-<ip>") (requires Lockable Resources plugin).
         skipDefaultCheckout()
     }
 
@@ -297,6 +303,7 @@ PY''',
                         def ip = targetIPs[i]
 
                         restoreTasks["Restore_${ip}"] = {
+                            lock(resource: dutLockName(ip)) {
                             stage("Restore on ${ip}") {
                                 def remoteDir = remoteWorkspaceRoot('restore')
 
@@ -327,6 +334,7 @@ PY''',
                                 echo "[${ip}] clean temporary directory"
                                 sh "${restoreSsh} 'rm -rf ${remoteDir}' || true"
                             }
+                            } // lock dut
                         }
                     }
 
@@ -369,6 +377,7 @@ PY''',
                         def ip = targetIPs[i]
 
                         parallelTasks["Node_${ip}"] = {
+                            lock(resource: dutLockName(ip)) {
                             stage("Test on ${ip}") {
                                 def remoteDir = remoteWorkspaceRoot('build')
                                 def envPrepareLog = "environment_prepare_${ip}.log"
@@ -461,6 +470,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                                 }
 
                             }
+                            } // lock dut
                         }
                     }
 

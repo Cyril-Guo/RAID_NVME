@@ -16,6 +16,9 @@ def test_jenkins_allows_concurrent_builds():
 
     assert "disableConcurrentBuilds()" not in jenkinsfile
     assert "skipDefaultCheckout()" in jenkinsfile
+    assert "def dutLockName" in jenkinsfile
+    assert 'lock(resource: dutLockName(ip))' in jenkinsfile
+    assert "raid-nvme-dut-" in jenkinsfile
 
 
 def test_apt_get_waits_for_dpkg_lock():
