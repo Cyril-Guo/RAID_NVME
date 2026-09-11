@@ -211,9 +211,10 @@ test_end()
     exit "${rc}"
 }
 
-FILESYSTEM_PARTITIONS_PER_DISK=16
+FILESYSTEM_PARTITIONS_PER_DISK=4
 FILESYSTEM_MODEL_RUNTIME=180
 FILESYSTEM_MODEL_SIZE_PAIRS=(
+    # Max aligned size 4m — drop 8m/16m for <=180GiB @32 disks (with parts=4, qd=16).
     "512:513"
     "1k:1025"
     "2k:2049"
@@ -227,9 +228,9 @@ FILESYSTEM_MODEL_SIZE_PAIRS=(
     "512k:524289"
     "1m:1048577"
     "2m:2097153"
+    "2560k:2621441"
+    "3m:3145729"
     "4m:4194305"
-    "8m:8388609"
-    "16m:16777215"
 )
 
 refresh_partition_devices()
@@ -336,7 +337,7 @@ function append_filesystem_model_jobs(){
             echo "rwmixread=$read_percentage"
             echo "bssplit=${aligned_size}/${aligned_percentage}:${unaligned_size}/${unaligned_percentage}"
             echo "bs_unaligned=1"
-            echo "iodepth=32"
+            echo "iodepth=16"
             echo "numjobs=1"
         } >> "$target_config"
     done
@@ -362,7 +363,7 @@ function configure_filesystem_rounds(){
             echo "direct=0"
             echo "runtime=$FILESYSTEM_MODEL_RUNTIME"
             echo "time_based=1"
-            echo "iodepth=32"
+            echo "iodepth=16"
             echo "numjobs=1"
             echo "size=100%"
             echo "randrepeat=0"

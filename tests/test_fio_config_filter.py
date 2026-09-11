@@ -34,11 +34,11 @@ def test_ci_filesystem_profile_is_random_mixed_aligned_and_unaligned_io():
     assert block_sizes.startswith("bssplit=")
     assert "512/4" in block_sizes
     assert "513/4" in block_sizes
-    assert "16777215/4" in block_sizes
-    assert "16m/4" in block_sizes
+    assert "4194305/4" in block_sizes
+    assert "4m/4" in block_sizes
     assert random_pct == "100"
     assert read_pct == "50"
-    assert iodepth == "32"
+    assert iodepth == "16"
     assert runtime == "180"
     assert numjobs == "1"
     assert offset == "0"
@@ -62,10 +62,10 @@ def test_ci_filesystem_profile_is_random_mixed_aligned_and_unaligned_io():
     assert sum(weight for size, weight in weighted_sizes if size % 512 != 0) == 50
 
 
-def test_ci_filesystem_prepares_sixteen_partitions_and_buffered_async_io():
+def test_ci_filesystem_prepares_four_partitions_and_buffered_async_io():
     source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
 
-    assert "FILESYSTEM_PARTITIONS_PER_DISK=16" in source
+    assert "FILESYSTEM_PARTITIONS_PER_DISK=4" in source
     assert "actual_partition_count != FILESYSTEM_PARTITIONS_PER_DISK" in source
     assert "refresh_partition_devices" in source
     assert 'partx -a "$device"' in source
@@ -74,10 +74,12 @@ def test_ci_filesystem_prepares_sixteen_partitions_and_buffered_async_io():
     assert len(models) == 16
     assert len(set(models)) == 16
     assert models[0] == "512:513"
-    assert models[-1] == "16m:16777215"
+    assert models[-1] == "4m:4194305"
+    assert "8m:8388609" not in models
+    assert "16m:16777215" not in models
     assert 'for model_index in "${!FILESYSTEM_MODEL_SIZE_PAIRS[@]}"' in source
     assert 'echo "numjobs=1"' in source
-    assert 'echo "iodepth=32"' in source
+    assert 'echo "iodepth=16"' in source
     assert 'echo "rw=randrw"' in source
     assert 'echo "rwmixread=$read_percentage"' in source
     assert "FILESYSTEM_MODEL_RUNTIME=180" in source
@@ -171,7 +173,7 @@ def test_ci_filesystem_appends_sixteen_distinct_fio_jobs(tmp_path):
     assert first_bssplits != second_bssplits
     assert first_read_mix != second_read_mix
     assert first_content.count("rw=randrw") == 16
-    assert first_content.count("iodepth=32") == 16
+    assert first_content.count("iodepth=16") == 16
     assert first_content.count("numjobs=1") == 16
 
 

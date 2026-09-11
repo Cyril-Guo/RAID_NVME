@@ -7,6 +7,7 @@ Design goals:
 - Single external knob: RANDOM_IO_DURATION (wall clock; default 43200s).
 - When the budget expires mid-round, finish that round (FILL->STRESS->VERIFY) then stop;
   do not start a new round. Slice/STRESS/loops are internal.
+- Block size pool capped at 4m (no 8m/16m) for multi-disk memory budget.
 """
 from __future__ import annotations
 
@@ -65,8 +66,7 @@ BLOCK_SIZES_512 = (
     "1m",
     "2m",
     "4m",
-    "8m",
-    "16m",
+    # 8m/16m removed: multi-disk FILL/VERIFY at PREP_IODEPTH=64 can exceed ~170GiB.
 )
 # Backward-compatible alias used by older imports/tests.
 BLOCK_SIZES = BLOCK_SIZES_512
@@ -78,7 +78,7 @@ RW_CHOICES = (
     {"random_pct": 100, "read_pct": 70, "name": "randrw"},
     {"random_pct": 0, "read_pct": 50, "name": "rw"},
 )
-IODEPTHS = (1, 4, 8, 16, 32, 64, 128, 256)
+IODEPTHS = (1, 4, 8, 16, 32, 64)  # cap 64: 32 disks ×16×64×4m ≈128GiB
 
 
 def block_size_bytes(label):
@@ -88,6 +88,10 @@ def block_size_bytes(label):
     if text.endswith("m"):
         return int(text[:-1]) * 1024 * 1024
     return int(text)
+
+
+assert max(block_size_bytes(x) for x in BLOCK_SIZES_512) <= 4 * 1024 * 1024
+assert "8m" not in BLOCK_SIZES_512 and "16m" not in BLOCK_SIZES_512
 
 
 def block_sizes_for_align(align: str):

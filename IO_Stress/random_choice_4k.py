@@ -2,7 +2,7 @@
 """Mix IO block-size model (4k) — dense pitfall set, memory-capped.
 
 - "4k" weight 3 (3%); plus 97 other 4KiB-aligned sizes at weight 1 each (97%).
-- All sizes ≤4m so 20-disk ×4 MixIO ×QD32 ×jobs12 peak ≈120GiB (<170GiB).
+- All sizes ≤4m so 20-disk ×4 MixIO ×QD32 ×jobs8 peak ≈120GiB (<170GiB).
 - Mix of dense small/mid steps and near power-of-2 edges up to 4m.
 Weights sum to 100. Generates MixIO CSV with total=3500 rows.
 """
@@ -93,5 +93,5 @@ with open("random_choice.csv", "w", encoding="utf-8", newline="\n") as fp:
     for b in bs:
         random_p_v = random_p[b].pop()
         read_p_v = read_p[b].pop()
-        fp.write(f"{b},{random_p_v},{read_p_v},32,30,12,0\n")
+        fp.write(f"{b},{random_p_v},{read_p_v},32,30,8,0\n")
     fp.write("End\n")

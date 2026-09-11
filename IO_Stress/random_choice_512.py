@@ -3,8 +3,7 @@
 
 Dropped (>~5–6MiB peak risk / very large): 8m, 16m, 6145k, 7169k, 10241k, 12289k.
 Their 8% weight moved to eight 4KiB-unaligned boundary sizes that often expose
-RMW / split-IO / alignment bugs. Max remaining large: 5121k (~5MiB) → ~150GiB
-peak @20 disks ×4 MixIO ×QD32 ×jobs12 (under 170GiB budget).
+RMW / split-IO / alignment bugs. Max remaining large: 5121k (~5MiB) → ~160GiB peak @32 disks ×4 MixIO ×QD32 ×jobs8 (under 180GiB).
 
 Weights sum to 100. Generates MixIO CSV with total=3500 rows.
 """
@@ -151,5 +150,5 @@ with open("random_choice.csv", "w", encoding="utf-8", newline="\n") as fp:
     for b in bs:
         random_p_v = random_p[b].pop()
         read_p_v = read_p[b].pop()
-        fp.write(f"{b},{random_p_v},{read_p_v},32,30,12,0\n")
+        fp.write(f"{b},{random_p_v},{read_p_v},32,30,8,0\n")
     fp.write("End\n")

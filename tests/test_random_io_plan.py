@@ -179,7 +179,11 @@ def test_parse_duration_seconds(monkeypatch):
 
 def test_adaptive_slice_bytes_clamps_small_and_large_bs():
     assert adaptive_slice_bytes("512") >= MIN_SLICE_BYTES
-    assert adaptive_slice_bytes("16m") <= MAX_SLICE_BYTES
+    assert adaptive_slice_bytes("4m") <= MAX_SLICE_BYTES
+    assert "8m" not in random_io_plan.BLOCK_SIZES_512
+    assert "16m" not in random_io_plan.BLOCK_SIZES_512
+    assert max(block_size_bytes(x) for x in random_io_plan.BLOCK_SIZES_512) <= 4 * 1024 * 1024
+    assert max(block_size_bytes(x) for x in random_io_plan_4k.BLOCK_SIZES) <= 4 * 1024 * 1024
     assert adaptive_slice_bytes("4k") % block_size_bytes("4k") == 0
 
 
