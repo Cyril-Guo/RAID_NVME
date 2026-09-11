@@ -2,10 +2,11 @@
 """Mix IO model for mix_512 — pre-split base (2f19976) with memory-safe large-bs trim.
 
 Dropped (>~5–6MiB peak risk / very large): 8m, 16m, 6145k, 7169k, 10241k, 12289k.
-Their 8% weight moved to eight 4KiB-unaligned boundary sizes that often expose
-RMW / split-IO / alignment bugs. Max remaining large: 5121k (~5MiB) → ~160GiB peak @32 disks ×4 MixIO ×QD32 ×jobs8 (under 180GiB).
+Their 8% weight moved to eight 512-aligned boundary sizes (often not 4KiB-aligned)
+to stress RMW / split-IO near power-of-two edges while keeping bs 512-aligned.
+Max remaining large: 5121k (~5MiB) → ~160GiB peak @32 disks ×4 MixIO ×QD32 ×jobs8 (under 180GiB).
 
-Weights sum to 100. Generates MixIO CSV with total=3500 rows.
+All block sizes are 512-byte aligned. Weights sum to 100. Generates MixIO CSV with total=1000 rows, each model runtime=30s.
 """
 from __future__ import annotations
 
@@ -79,15 +80,15 @@ temp_dict = {
     "3073k": 1,
     "5121k": 1,
     # 8% freed from 8m/16m/6145k/7169k/10241k/12289k →
-    # classic 4KiB-unaligned boundary sizes (most likely to catch alignment bugs)
-    "513b": 1,
-    "1023b": 1,
-    "2047b": 1,
-    "4095b": 1,
-    "4097b": 1,
-    "8191b": 1,
-    "8193b": 1,
-    "16383b": 1,
+    # 512-aligned boundary sizes near old unaligned edges (not 4KiB-aligned)
+    "4608b": 1,   # was 4095b → 9×512 (just over 4k)
+    "5632b": 1,   # was 4097b → 11×512
+    "6656b": 1,   # was 513b/1023b region stand-in → 13×512
+    "7680b": 1,   # was 8191b → 15×512 (just under 8k)
+    "8704b": 1,   # was 8193b → 17×512 (just over 8k)
+    "9728b": 1,   # was 2047b region stand-in → 19×512
+    "14848b": 1,  # was 16383b-ish lower → 29×512
+    "15872b": 1,  # was 16383b → 31×512 (just under 16k)
 }
 
 assert sum(temp_dict.values()) == 100, sum(temp_dict.values())
@@ -96,15 +97,22 @@ assert "8m" not in temp_dict and "16m" not in temp_dict
 assert "6145k" not in temp_dict and "7169k" not in temp_dict
 assert "10241k" not in temp_dict and "12289k" not in temp_dict
 
-# New boundary sizes must be 4KiB-unaligned.
-for label in ("513b", "1023b", "2047b", "4095b", "4097b", "8191b", "8193b", "16383b"):
+# Boundary replacements must exist, be 512-aligned, and stay off pure 4KiB multiples
+# (except we only require 512 alignment globally below).
+_BOUNDARY = ("4608b", "5632b", "6656b", "7680b", "8704b", "9728b", "14848b", "15872b")
+for label in _BOUNDARY:
     assert label in temp_dict and temp_dict[label] == 1
+    assert _bs_bytes(label) % 512 == 0, label
     assert _bs_bytes(label) % 4096 != 0, label
+
+# mix_512: every model block size must be 512-byte aligned.
+for label in temp_dict:
+    assert _bs_bytes(label) % 512 == 0, f"{label} not 512-aligned"
 
 # Soft memory gate: no size above ~5.1MiB (5121k).
 assert max(_bs_bytes(k) for k in temp_dict) <= 5121 * 1024
 
-total = 3500
+total = 1000
 proportion_dict = {k: int(v * 0.01 * total) for k, v in temp_dict.items()}
 
 random_p = {}

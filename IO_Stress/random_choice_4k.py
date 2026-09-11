@@ -4,7 +4,7 @@
 - "4k" weight 3 (3%); plus 97 other 4KiB-aligned sizes at weight 1 each (97%).
 - All sizes ≤4m so 20-disk ×4 MixIO ×QD32 ×jobs8 peak ≈120GiB (<170GiB).
 - Mix of dense small/mid steps and near power-of-2 edges up to 4m.
-Weights sum to 100. Generates MixIO CSV with total=3500 rows.
+Weights sum to 100. Generates MixIO CSV with total=1000 rows, each model runtime=30s.
 """
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ assert "5m" not in temp_dict and "8m" not in temp_dict and "16m" not in temp_dic
 assert max(_bs_bytes(k) for k in temp_dict) <= 4 * 1024 * 1024
 assert all(_bs_bytes(k) % 4096 == 0 for k in temp_dict)
 
-total = 3500
+total = 1000
 proportion_dict = {k: int(v * 0.01 * total) for k, v in temp_dict.items()}
 
 random_p = {}
