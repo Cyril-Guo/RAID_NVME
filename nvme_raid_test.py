@@ -16,7 +16,6 @@ ALLOWED_PARAM_KEYS = (
     "FIO_CYCLES",
     "IGNORE_ERROR",
     "FIO_DISKS",
-    "FIO_RUNTIME",
 )
 ALL_PARAM_KEYS = sorted(ALLOWED_PARAM_KEYS)
 
@@ -458,7 +457,7 @@ def collect_failure_bundle(base_dir, run_key, reason="item_failure"):
 
     Returns absolute path to the created archive when available.
     """
-    script = os.path.join(base_dir, "ci", "collect_failure_bundle.sh")
+    script = os.path.join(base_dir, "powercycle", "collect_failure_bundle.sh")
     if not os.path.isfile(script):
         print(f"[WARN] Missing failure bundle script: {script}")
         return None
@@ -568,7 +567,7 @@ def resolve_failure_bundle_for_item(base_dir, run_key, exit_code):
 
 def enable_failure_coredumps(base_dir):
     """Best-effort ulimit/core_pattern setup before the run plan."""
-    script = os.path.join(base_dir, "ci", "enable_failure_coredumps.sh")
+    script = os.path.join(base_dir, "powercycle", "enable_failure_coredumps.sh")
     if not os.path.isfile(script):
         return
     env = os.environ.copy()
@@ -582,7 +581,7 @@ def enable_failure_coredumps(base_dir):
 
 def enable_draid_pending_debug(base_dir):
     """Best-effort RAID1 pending debug knobs before the run plan."""
-    script = os.path.join(base_dir, "ci", "enable_draid_pending_debug.sh")
+    script = os.path.join(base_dir, "powercycle", "enable_draid_pending_debug.sh")
     if not os.path.isfile(script):
         return
     env = os.environ.copy()
@@ -713,7 +712,7 @@ def _attach_named_file_to_allure(item, base_dir, source_name, display_name, mime
 
 def collect_case_outputs(case_dir, repo_root, run_key):
     """Copy per-case junit/allure artifacts back to the build root for Jenkins collect."""
-    from ci.case_artifacts import copy_case_outputs
+    from powercycle.case_artifacts import copy_case_outputs
     copy_case_outputs(case_dir, repo_root, run_key)
 
 

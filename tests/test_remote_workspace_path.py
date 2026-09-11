@@ -1,4 +1,4 @@
-from ci.remote_workspace_path import case_workdir, remote_workspace_root, sanitize_segment
+from powercycle.remote_workspace_path import case_workdir, remote_workspace_root, sanitize_segment
 
 
 def test_sanitize_segment_strips_origin_and_unsafe_chars():

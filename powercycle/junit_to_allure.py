@@ -7,12 +7,12 @@ import uuid
 import xml.etree.ElementTree as ET
 
 try:
-    from ci.build_status import console_was_manually_aborted
-    from ci.extract_failure_summary import extract_failure_lines
-    from ci.report_metrics import execution_log_has_explicit_failure, is_node_junit_report
-    from ci.report_identity import native_case_exists, normalize_results, discard_junit_placeholders, case_run_key
-    from ci.allure_fixture_cleanup import flatten_fixtures
-    from ci.report_artifacts import attach_workspace_artifacts
+    from powercycle.build_status import console_was_manually_aborted
+    from powercycle.extract_failure_summary import extract_failure_lines
+    from powercycle.report_metrics import execution_log_has_explicit_failure, is_node_junit_report
+    from powercycle.report_identity import native_case_exists, normalize_results, discard_junit_placeholders, case_run_key
+    from powercycle.allure_fixture_cleanup import flatten_fixtures
+    from powercycle.report_artifacts import attach_workspace_artifacts
 except ModuleNotFoundError:
     from build_status import console_was_manually_aborted
     from extract_failure_summary import extract_failure_lines

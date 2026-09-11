@@ -35,7 +35,7 @@ FIO_EIO_BUNDLE_TRIGGERED="${FIO_EIO_BUNDLE_TRIGGERED:-0}"
 # Background collect by default so watchdog idle timer is not blocked by gcore/tar.
 FIO_LIVE_BUNDLE_BG="${FIO_LIVE_BUNDLE_BG:-1}"
 
-# Walk up from known roots looking for ci/collect_failure_bundle.sh.
+# Walk up from known roots looking for powercycle/collect_failure_bundle.sh.
 find_raid_nvme_repo_root() {
     local base d i
     for base in \
@@ -49,7 +49,7 @@ find_raid_nvme_repo_root() {
         [ -n "${base}" ] || continue
         d=$(cd "${base}" 2>/dev/null && pwd) || continue
         for i in 1 2 3 4 5 6; do
-            if [ -f "${d}/ci/collect_failure_bundle.sh" ]; then
+            if [ -f "${d}/powercycle/collect_failure_bundle.sh" ]; then
                 printf '%s\n' "${d}"
                 return 0
             fi
@@ -89,11 +89,11 @@ trigger_live_failure_bundle() {
     fi
 
     repo_root=$(find_raid_nvme_repo_root) || {
-        echo "$(date '+%F %T') [FIO] WARN: cannot locate ci/collect_failure_bundle.sh; skip live bundle" \
+        echo "$(date '+%F %T') [FIO] WARN: cannot locate powercycle/collect_failure_bundle.sh; skip live bundle" \
             | tee -a "${Result_Dir:-/tmp}/result.log" 2>/dev/null || true
         return 0
     }
-    script="${repo_root}/ci/collect_failure_bundle.sh"
+    script="${repo_root}/powercycle/collect_failure_bundle.sh"
     run_key="${RAID_NVME_RUN_KEY:-${FIO_LAST_CONFIG:-fio_live}}"
     remote_dir="${REMOTE_DIR:-${repo_root}}"
     safe_key=$(_fio_safe_token "${run_key}")
@@ -1300,7 +1300,7 @@ all()
         configure
         run_all $b || return $?
     done
-    if [[ -n "$loop" ]] && [ "$loop" -gt 1 ]; then
+    if [[ -n "$loop" ]] && [ "$loop" -gt 1 ] && ! powercycle_mode_enabled; then
         comparebw
         if [ "$error_flag" = "true" ]; then
             echo "FIO + DC test fail occur great difference between $beforeloop and $loop,more detail message to see $result/error.log"
@@ -1385,11 +1385,6 @@ function do_fio() {
             echo "No non-system test disk found. Set FIO_DISKS to the target data disk, for example sdb or nvme1n1." | tee -a "$power_log"
             return 1
         fi
-        if [ "$fs_type" != "NON-FS" ];then
-            echo "**********" `date +%m-%d" "%H:%M:%S` "preparing **********"
-            prepare
-            change_config
-        fi
 
         if powercycle_mode_enabled; then
             prepare_powercycle_plan
@@ -1398,7 +1393,7 @@ function do_fio() {
             [[ $plan_rc -ne 0 ]] && return $plan_rc
         fi
 
-        get_config_filelist
+        get_config_filelist || return $?
         echo "$(date '+%F %T') [FIO] config_list=$(cat "$Cur_Dir/config_list1.log" 2>/dev/null | tr '\n' ' ')" | tee -a "$power_log"
         set_Disk
         set_disk_rc=$?

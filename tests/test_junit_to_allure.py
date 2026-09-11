@@ -1,6 +1,6 @@
 import json
 
-from ci import junit_to_allure
+from powercycle import junit_to_allure
 
 
 def _section(result, name):

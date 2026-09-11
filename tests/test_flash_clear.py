@@ -1,8 +1,8 @@
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-FLASH_CLEAR_SCRIPT = REPO_ROOT / "ci" / "flash-clear.sh"
-CLEAR_8P_SCRIPT = REPO_ROOT / "ci" / "clear_8p_csd_flash.sh"
+FLASH_CLEAR_SCRIPT = REPO_ROOT / "powercycle" / "flash-clear.sh"
+CLEAR_8P_SCRIPT = REPO_ROOT / "powercycle" / "clear_8p_csd_flash.sh"
 
 
 def test_flash_clear_includes_cache_clear_opcode():

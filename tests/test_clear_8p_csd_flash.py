@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-CLEAR_SCRIPT = REPO_ROOT / "ci" / "clear_8p_csd_flash.sh"
+CLEAR_SCRIPT = REPO_ROOT / "powercycle" / "clear_8p_csd_flash.sh"
 DAPU_LINE = (
     "0000:95:00.0 Non-Volatile memory controller: "
     "Shenzhen DAPU Microelectronics Co., Ltd Device 50d1 (rev 01)"

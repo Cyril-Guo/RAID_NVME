@@ -1,6 +1,6 @@
 import json
 
-from ci import mark_allure_target_context
+from powercycle import mark_allure_target_context
 
 
 def write_result(path, name, history_id, attachment_source):

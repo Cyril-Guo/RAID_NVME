@@ -1,4 +1,4 @@
-from ci import collect_console_output
+from powercycle import collect_console_output
 
 
 def test_collect_console_uses_downloaded_jenkins_output(tmp_path, monkeypatch):

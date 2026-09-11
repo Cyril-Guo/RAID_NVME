@@ -160,20 +160,20 @@ REMOTE_RELOAD
 install_driver_build_deps() {
     host_ssh "REMOTE_DIR='${REMOTE_DIR}' NODE_IP='${NODE_IP}' bash -s" <<'REMOTE_DEPS'
 set -euo pipefail
-# if [ -f "${REMOTE_DIR}/ci/enable_failure_coredumps.sh" ]; then
-#     chmod +x "${REMOTE_DIR}/ci/enable_failure_coredumps.sh" 2>/dev/null || true
+# if [ -f "${REMOTE_DIR}/powercycle/enable_failure_coredumps.sh" ]; then
+#     chmod +x "${REMOTE_DIR}/powercycle/enable_failure_coredumps.sh" 2>/dev/null || true
 #     NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR}" \
-#         bash "${REMOTE_DIR}/ci/enable_failure_coredumps.sh" || true
+#         bash "${REMOTE_DIR}/powercycle/enable_failure_coredumps.sh" || true
 # fi
-# if [ -f "${REMOTE_DIR}/ci/enable_failure_kdump.sh" ]; then
-#     chmod +x "${REMOTE_DIR}/ci/enable_failure_kdump.sh" 2>/dev/null || true
+# if [ -f "${REMOTE_DIR}/powercycle/enable_failure_kdump.sh" ]; then
+#     chmod +x "${REMOTE_DIR}/powercycle/enable_failure_kdump.sh" 2>/dev/null || true
 #     NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR}" \
-#         bash "${REMOTE_DIR}/ci/enable_failure_kdump.sh" || true
+#         bash "${REMOTE_DIR}/powercycle/enable_failure_kdump.sh" || true
 # fi
-# if [ -f "${REMOTE_DIR}/ci/enable_draid_pending_debug.sh" ]; then
-#     chmod +x "${REMOTE_DIR}/ci/enable_draid_pending_debug.sh" 2>/dev/null || true
+# if [ -f "${REMOTE_DIR}/powercycle/enable_draid_pending_debug.sh" ]; then
+#     chmod +x "${REMOTE_DIR}/powercycle/enable_draid_pending_debug.sh" 2>/dev/null || true
 #     NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR}" \
-#         bash "${REMOTE_DIR}/ci/enable_draid_pending_debug.sh" || true
+#         bash "${REMOTE_DIR}/powercycle/enable_draid_pending_debug.sh" || true
 # fi
 need_driver_deps=0
 for tool in make gcc insmod modinfo rg; do
@@ -183,9 +183,9 @@ done
 if [ "${need_driver_deps}" = "1" ]; then
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
-        if [ -f "${REMOTE_DIR}/ci/ensure_ubuntu_china_mirrors.sh" ]; then
-            chmod +x "${REMOTE_DIR}/ci/ensure_ubuntu_china_mirrors.sh" 2>/dev/null || true
-            NODE_IP="${NODE_IP:-unknown}" bash "${REMOTE_DIR}/ci/ensure_ubuntu_china_mirrors.sh" || true
+        if [ -f "${REMOTE_DIR}/powercycle/ensure_ubuntu_china_mirrors.sh" ]; then
+            chmod +x "${REMOTE_DIR}/powercycle/ensure_ubuntu_china_mirrors.sh" 2>/dev/null || true
+            NODE_IP="${NODE_IP:-unknown}" bash "${REMOTE_DIR}/powercycle/ensure_ubuntu_china_mirrors.sh" || true
         fi
         apt_retry() {
             for attempt in 1 2 3; do

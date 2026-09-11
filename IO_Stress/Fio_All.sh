@@ -12,39 +12,14 @@ chmod +x lib/*
 . lib/common.sh
 . lib/fio.sh
 
-
-
-
 arguments_parse "$@"
-
-
 check_arguments
 
-if [[ $item == "RESTORE" ]];then
+if [[ $item == "RESTORE" ]]; then
     restore
     exit 0
 fi
 
-intializer
-#######################
-
-# Stress paths (lawdisk/filesystem/mix) must not rewrite getty/tty login policy.
-# Reboot/dc use powercycle_direct.sh + autoopen instead.
-
-#install_HPL
-#install_fio
-
-echo "[STAGE] item=${item} phase=machinecheck_before start"
-info_check
-machinecheck_rc=$?
-if [[ $machinecheck_rc -ne 0 ]]; then
-    echo "[STAGE] item=${item} phase=machinecheck_before failed rc=${machinecheck_rc}"
-    exit "$machinecheck_rc"
-fi
-echo "[STAGE] item=${item} phase=machinecheck_before finish rc=0"
-
-
-echo "[STAGE] item=${item} phase=fio_cycle start"
-fio_cycle
-
-
+echo "Fio_All.sh on PowerCycle branch only supports -i restore (got item=$item)."
+echo "Use powercycle_direct.sh / run_fio.sh for reboot/dc."
+exit 1

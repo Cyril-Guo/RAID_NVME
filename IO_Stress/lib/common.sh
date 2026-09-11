@@ -54,11 +54,12 @@ function install_fio()
 
 function dotrap()
 {
+   # Preserve the original exit status after cleanup (do not force exit 0).
    trap '
-    # Cleanup background monitoring if any
+    ec=$?
     ps -ef | grep -E "APERF_FREQ|python3 main.py" | grep -v grep | awk "{print \$2}" | xargs kill -9 > /dev/null 2>&1
-
-    exit 0' EXIT 2
+    exit $ec' EXIT
+   trap 'exit 130' INT
 }
 
 function autologin()

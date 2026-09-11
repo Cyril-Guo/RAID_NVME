@@ -2,12 +2,15 @@ from pathlib import Path
 
 
 def test_wait_powercycle_completion_script_exists_and_checks_markers():
-    source = Path("ci/wait_powercycle_completion.sh").read_text(encoding="utf-8")
+    source = Path("powercycle/wait_powercycle_completion.sh").read_text(encoding="utf-8")
     assert "BEGIN SELECTION" in source
     assert "all power-cycle loops completed" in source
     assert "Power-cycle test completed all" in source
     assert "request start" in source
     assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES" in source
+    assert "item_failed" in source
+    assert "cycles * 30" in source
+    assert "FIO stage failed" in source
     assert "is_powercycle_item" in source
     assert "item_short_name" in source
     assert "powercycle_log_name" in source

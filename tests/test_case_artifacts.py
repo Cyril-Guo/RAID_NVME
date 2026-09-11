@@ -3,7 +3,7 @@ import tarfile
 
 
 def test_case_logs_survive_missing_pytest_finalization(tmp_path):
-    from ci.case_artifacts import recover_case_outputs
+    from powercycle.case_artifacts import recover_case_outputs
     case = tmp_path / "cases" / "test_powercycle_02_dc__2"
     logs = case / "IO_Stress" / "log" / "ResultLog"
     logs.mkdir(parents=True)
@@ -21,7 +21,7 @@ def test_case_logs_survive_missing_pytest_finalization(tmp_path):
 
 
 def test_case_sidecars_do_not_overwrite_each_other(tmp_path):
-    from ci.case_artifacts import recover_case_outputs
+    from powercycle.case_artifacts import recover_case_outputs
     for key in ("test_powercycle_02_dc__2", "mix__5"):
         root = tmp_path / "cases" / key / "allure-results"
         root.mkdir(parents=True)
@@ -36,7 +36,7 @@ def test_case_sidecars_do_not_overwrite_each_other(tmp_path):
 
 
 def test_downloaded_fallback_bundle_attaches_to_matching_case(tmp_path, monkeypatch):
-    from ci import junit_to_allure
+    from powercycle import junit_to_allure
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "allure-results"
     root.mkdir()
@@ -58,7 +58,7 @@ def test_downloaded_fallback_bundle_attaches_to_matching_case(tmp_path, monkeypa
 
 
 def test_case_archive_is_bounded_and_records_truncation(tmp_path, monkeypatch):
-    from ci import case_artifacts
+    from powercycle import case_artifacts
     case = tmp_path / "cases" / "test_powercycle_02_dc__2"
     case.mkdir(parents=True)
     (case / "fio.log").write_bytes(b"0123456789")
@@ -70,7 +70,7 @@ def test_case_archive_is_bounded_and_records_truncation(tmp_path, monkeypatch):
 
 
 def test_recovery_repairs_partial_json_without_overwriting_completed_results(tmp_path):
-    from ci.case_artifacts import recover_case_outputs
+    from powercycle.case_artifacts import recover_case_outputs
     source = tmp_path / "cases" / "test_powercycle_02_dc__2" / "allure-results"
     source.mkdir(parents=True)
     root = tmp_path / "allure-results"
@@ -85,7 +85,7 @@ def test_recovery_repairs_partial_json_without_overwriting_completed_results(tmp
 
 
 def test_collection_after_success_has_no_false_case_attribution(tmp_path):
-    from ci.report_artifacts import last_run
+    from powercycle.report_artifacts import last_run
     log = tmp_path / "node.log"
     log.write_text("[ITEM_START] test_powercycle_02_dc__2\n[ITEM_END] test_powercycle_02_dc__2 exit_code=0\n")
     assert last_run(log) == ""
@@ -94,8 +94,8 @@ def test_collection_after_success_has_no_false_case_attribution(tmp_path):
 
 
 def test_interrupted_case_logs_attach_to_execution_failure_without_junit(tmp_path, monkeypatch):
-    from ci import junit_to_allure, mark_allure_target_context
-    from ci.case_artifacts import recover_case_outputs
+    from powercycle import junit_to_allure, mark_allure_target_context
+    from powercycle.case_artifacts import recover_case_outputs
     monkeypatch.chdir(tmp_path)
     case = tmp_path / "cases" / "test_powercycle_02_dc__2"
     case.mkdir(parents=True)

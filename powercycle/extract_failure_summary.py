@@ -67,7 +67,7 @@ def extract_failure_lines(text, limit=8):
 
 def junit_failure_lines(paths=None):
     try:
-        from ci.report_metrics import is_node_junit_report
+        from powercycle.report_metrics import is_node_junit_report
     except ModuleNotFoundError:
         from report_metrics import is_node_junit_report
 

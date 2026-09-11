@@ -5,7 +5,7 @@ import os
 import xml.etree.ElementTree as ET
 
 try:
-    from ci.report_identity import case_run_key, function_name, host, run_key
+    from powercycle.report_identity import case_run_key, function_name, host, run_key
 except ModuleNotFoundError:
     from report_identity import case_run_key, function_name, host, run_key
 

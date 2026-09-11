@@ -1,6 +1,6 @@
 import json
 
-from ci import extract_failure_summary
+from powercycle import extract_failure_summary
 
 
 def test_failure_summary_collects_junit_and_watchdog_errors(tmp_path, monkeypatch):

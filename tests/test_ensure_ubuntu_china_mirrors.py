@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-MIRROR_SCRIPT = REPO_ROOT / "ci" / "ensure_ubuntu_china_mirrors.sh"
+MIRROR_SCRIPT = REPO_ROOT / "powercycle" / "ensure_ubuntu_china_mirrors.sh"
 
 
 def _bash():
@@ -27,9 +27,9 @@ def test_mirror_script_targets_aliyun_and_official_hosts():
 
 
 def test_install_and_prepare_call_china_mirrors():
-    install = (REPO_ROOT / "ci" / "install_test_dependencies.sh").read_text(encoding="utf-8")
-    prepare = (REPO_ROOT / "ci" / "prepare_env.sh").read_text(encoding="utf-8")
-    draid = (REPO_ROOT / "ci" / "prepare_draid_driver.sh").read_text(encoding="utf-8")
+    install = (REPO_ROOT / "powercycle" / "install_test_dependencies.sh").read_text(encoding="utf-8")
+    prepare = (REPO_ROOT / "powercycle" / "prepare_env.sh").read_text(encoding="utf-8")
+    draid = (REPO_ROOT / "powercycle" / "prepare_draid_driver.sh").read_text(encoding="utf-8")
     assert "ensure_ubuntu_china_mirrors" in install
     assert "ensure_ubuntu_china_mirrors.sh" in prepare
     assert "ensure_ubuntu_china_mirrors.sh" in draid

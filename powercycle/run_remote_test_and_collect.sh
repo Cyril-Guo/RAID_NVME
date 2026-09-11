@@ -100,7 +100,7 @@ collect_fallback_failure_bundle() {
     local transport_timeout_seconds
 
     transport_timeout_seconds=$((failure_bundle_collect_timeout_seconds + failure_bundle_kill_after_seconds + 30))
-    collect_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x ci/collect_failure_bundle.sh ci/enable_failure_coredumps.sh && timeout --kill-after=${failure_bundle_kill_after_seconds}s ${failure_bundle_collect_timeout_seconds}s env NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} RUN_KEY=remote_runner BUNDLE_REASON=remote_test_rc_${test_rc} bash -c 'ci/enable_failure_coredumps.sh && ci/collect_failure_bundle.sh'\""
+    collect_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x powercycle/collect_failure_bundle.sh powercycle/enable_failure_coredumps.sh && timeout --kill-after=${failure_bundle_kill_after_seconds}s ${failure_bundle_collect_timeout_seconds}s env NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} RUN_KEY=remote_runner BUNDLE_REASON=remote_test_rc_${test_rc} bash -c 'powercycle/enable_failure_coredumps.sh && powercycle/collect_failure_bundle.sh'\""
 
     run_cleanup_command "fallback failure bundle" \
         "${transport_timeout_seconds}" bash -c "${collect_command}"
@@ -120,14 +120,14 @@ copy_exact_failure_bundle() {
 
 collect_io_signature() {
     timeout --kill-after=5s 20s bash -c "
-        ${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x ci/io_progress_signature.sh && ci/io_progress_signature.sh\"
+        ${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x powercycle/io_progress_signature.sh && powercycle/io_progress_signature.sh\"
     " 2>/dev/null | sha256sum | awk '{ print $1 }'
 }
 
 echo "[${NODE_IP}] run ${test_label}"
 set +e
 # Arm coredumps + kdump + RAID1 pending debug on the DUT before the test session (new SSH / sudo shell).
-# eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x ci/enable_failure_coredumps.sh ci/enable_failure_kdump.sh ci/enable_draid_pending_debug.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} ci/enable_failure_coredumps.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} ci/enable_failure_kdump.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} ci/enable_draid_pending_debug.sh\"" || true
+# eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x powercycle/enable_failure_coredumps.sh powercycle/enable_failure_kdump.sh powercycle/enable_draid_pending_debug.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} powercycle/enable_failure_coredumps.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} powercycle/enable_failure_kdump.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} powercycle/enable_draid_pending_debug.sh\"" || true
 remote_test_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} sudo -E bash -c 'ulimit -c unlimited; cd ${REMOTE_DIR} && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} python3 nvme_raid_test.py'\""
 setsid bash -c "set -o pipefail; ${remote_test_command} 2>&1 | awk '{ print strftime(\"[%Y-%m-%d %H:%M:%S]\"), \$0; fflush() }' | tee '${execution_log}'" &
 test_pid=$!
@@ -186,7 +186,7 @@ fi
 
 # Best-effort remote cleanup/report salvage after kill or normal exit.
 # Keep the monitor pattern out of this SSH cmdline; salvage script uses a self-safe pkill pattern.
-salvage_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && python3 ci/salvage_junit_reports.py --stop-monitor --output report.xml\""
+salvage_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && python3 powercycle/salvage_junit_reports.py --stop-monitor --output report.xml\""
 run_cleanup_command "salvage remote reports" "${report_command_timeout_seconds}" \
     bash -c "${salvage_command}" || true
 
@@ -219,7 +219,7 @@ run_cleanup_command "copy Allure results" "${report_copy_timeout_seconds}" \
     bash -c "${allure_copy_command}" || true
 if [ -d "${tmp_results}" ]; then
     run_cleanup_command "mark Allure target context" "${report_command_timeout_seconds}" \
-        python3 ci/mark_allure_target_context.py "${tmp_results}" "${NODE_IP}" || true
+        python3 powercycle/mark_allure_target_context.py "${tmp_results}" "${NODE_IP}" || true
     run_cleanup_command "merge Allure results" "${report_copy_timeout_seconds}" \
         cp -R "${tmp_results}/." ./allure-results/ || true
     rm -rf "${tmp_results}"
@@ -236,7 +236,7 @@ if [ ! -f "${report_file}" ]; then
     run_cleanup_command "copy per-item JUnit reports" "${report_copy_timeout_seconds}" \
         bash -c "${item_copy_command}" 2>/dev/null || true
     run_cleanup_command "merge per-item JUnit reports" "${report_command_timeout_seconds}" \
-        python3 ci/salvage_junit_reports.py --from-dir "${item_dir}" --output "${report_file}" || true
+        python3 powercycle/salvage_junit_reports.py --from-dir "${item_dir}" --output "${report_file}" || true
     rm -rf "${item_dir}"
 fi
 

@@ -18,7 +18,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import nvme_raid_test
-from ci.case_artifacts import recover_case_outputs
+from powercycle.case_artifacts import recover_case_outputs
 
 # Bracket trick so `pkill -f` does not match the shell/python cmdline that embeds this text.
 MONITOR_PKILL_PATTERN = "[S]tress_Monitor/main.py"

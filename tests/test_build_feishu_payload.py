@@ -1,6 +1,6 @@
 import json
 
-from ci import build_feishu_payload
+from powercycle import build_feishu_payload
 
 
 def test_zero_total_does_not_generate_feishu_payload(tmp_path, monkeypatch, capsys):

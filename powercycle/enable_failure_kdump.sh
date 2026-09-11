@@ -108,7 +108,7 @@ ensure_crashkernel_cmdline() {
 
     if [ -d "${grub_d}" ] && [ -w "${grub_d}" ]; then
         cat >"${dropin}" <<EOF
-# Managed by RAID_NVME ci/enable_failure_kdump.sh
+# Managed by RAID_NVME powercycle/enable_failure_kdump.sh
 GRUB_CMDLINE_LINUX_DEFAULT="\${GRUB_CMDLINE_LINUX_DEFAULT} ${CRASHKERNEL_CMDLINE}"
 EOF
         changed=1

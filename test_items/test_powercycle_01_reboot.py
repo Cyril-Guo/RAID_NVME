@@ -5,7 +5,7 @@ Smoke 测试 —— Reboot 电源循环（重启）压力测试。
   1. 从环境变量（由 test_items.txt 注入）解析循环次数与错误处理策略；
   2. 组装并以异步(setsid)方式触发 powercycle_direct.sh 的 reboot 流程。
      重启会中断 SSH，因此本用例只验证到达 request start；
-     Jenkins 侧 ci/wait_powercycle_completion.sh 负责多圈完成闭环。
+     Jenkins 侧 powercycle/wait_powercycle_completion.sh 负责多圈完成闭环。
 """
 import os
 from datetime import datetime
@@ -31,7 +31,7 @@ def test_reboot_powercycle():
     # IGNORE_ERROR=yes 表示忽略 MachineCheck 错误继续 -> 不停止
     ignore_error = os.environ.get("IGNORE_ERROR", "").strip().lower() == "yes"
 
-    # ---------- 2. 组装 powercycle 参数（本用例独立 CSV）----------
+    # ---------- 2. 组装 powercycle 参数（模型由 powercycle_random.py 生成）----------
     fio_args = build_fio_args("reboot", "reboot", extra=["-l", str(loops)])
 
     # ---------- 3. Allure 报告标题与描述 ----------

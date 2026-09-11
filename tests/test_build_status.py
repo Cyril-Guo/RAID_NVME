@@ -1,4 +1,4 @@
-from ci.build_status import is_manual_abort_text
+from powercycle.build_status import is_manual_abort_text
 
 
 def test_detects_jenkins_manual_abort_line():

@@ -87,7 +87,7 @@ cd "${WORK_DIR}" || exit 0
     echo "      gcore cannot dump them; see draid_kthreads/ for stacks/status."
     echo "      Real work often runs on kworker/* — see kworker_stacks/ (filtered by stack)."
     echo "      Point-in-time driver state: draid_diag/ (dpraid show*, sysfs/debugfs)."
-    echo "      RAID1 pending debug: enabled via ci/enable_draid_pending_debug.sh when possible."
+    echo "      RAID1 pending debug: enabled via powercycle/enable_draid_pending_debug.sh when possible."
     echo "      Kernel panic dumps (kdump vmcore): see kdump/ (paths/status; files stay on DUT if huge)."
     echo
     echo "Also see: dmesg.txt, dpraid_*.txt, versions.txt, draid.ko, logs/"

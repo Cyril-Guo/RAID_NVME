@@ -77,28 +77,36 @@ function arguments_parse()
 
 function help(){
    echo "Usage :" 
-   echo "   DC run as:     $0 -i dc"
-   echo "   stress run as:     $0 -i lawdiskstress  or  $0 -i filesystemstress"
-
-   echo "   release run as: $0 -i release"
+   echo "   reboot run as:  $0 -i reboot -l <cycles> [-f STOP|NON-STOP] [-u disks]"
+   echo "   dc run as:      $0 -i dc -l <cycles> [-f STOP|NON-STOP] [-u disks]"
+   echo "   restore run as: $0 -i restore"
    echo "Optional Parameters:"
    echo "   DC: -m <RTC|UTC>: the default value is UTC"
-   echo "   -i <lawdiskstress|filesystemstress|dc|reboot|restore>: run mode, default is lawdiskstress"
+   echo "   -i <reboot|dc|restore>: run mode"
    echo "   -c <YES|NO>: If check the info, and the default is YES"
    echo "   -b <YES|NO>: If bmc cold reset or no, the default value is NO"
-   echo "   -f <STOP|NON-STOP>: when diff occurs it will stop or not,the default is stop"
+   echo "   -f <STOP|NON-STOP>: when MachineCheck diff occurs stop or not (default STOP; applies to reboot/dc)"
    echo "   -d <20|...>: S0 delay time,the default value is 10s"
    echo "   -w <60|...>: S5 delay time, the default value is 120s"
    echo "   -l <500|...>: the LOOPs, and the default value is 1000"
-   #echo "   -r <43200|...>: runtime for stress"
-   echo "   -t <non-fs|...>: fs_type for stress"
-   echo "   -o <all|single|both>: disk_mode for Disk"
-   echo "   -u <sda,sdb,...>: specify disk"
-   echo "   -q <100|200|...>: log avg msec,default is 100"
-
-   exit
-
+   echo "   -p <623|...>: IPMI port,and the default value is 623"
+   echo "   -a <ip>: AC Server IP"
+   echo "   -o <port>: AC Server Port,and the default is 5000"
+   echo "   -s <YES|NO>: safe mode"
+   echo "   -e <ip>: DUT static IP"
+   echo "   -k <ip>: blackbox static IP"
+   echo "   -t <ext4|xfs|...>: filesystem type (PowerCycle uses NON-FS)"
+   echo "   -g <ALL>: disk mode (PowerCycle only ALL)"
+   echo "   -u <disk1,disk2>: specified data disks"
+   echo "   -r <seconds>: legacy runtime (unused by PowerCycle auto plan)"
+   echo "   -z <interval>: log interval"
+   echo -e "eg:
+"
+   echo "   $0 -i reboot -l 100 -f NON-STOP"
+   echo "   $0 -i dc -l 5 -f STOP -u nvme1n1,nvme2n1"
+   echo "   $0 -i restore"
 }
+
 function check_arguments()
 {
     # Initialize loop counters if not set
@@ -209,9 +217,6 @@ function check_arguments()
         remote="-"
     fi
     mix_io=NO
-    if [[ $item == "DC" ]];then
-        flag="NON-STOP"
-    fi
     if [[ -z "$log_interval" ]];then
         log_interval=100                           ##the default time of delay before reboot is 10s
     else

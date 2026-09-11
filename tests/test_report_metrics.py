@@ -1,6 +1,6 @@
 import json
 
-from ci import report_metrics
+from powercycle import report_metrics
 
 
 def test_report_metrics_counts_testcase_nodes_when_testsuites_root_is_zero(tmp_path, monkeypatch):

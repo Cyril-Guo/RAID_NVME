@@ -74,8 +74,10 @@ def test_diff_sh_uses_whitelist_fingerprint():
     assert 'tee -a "$TestErrorLog/machine_diff_error.log" "$Result_Dir/result.log"' in source
 
 
-def test_fio_all_skips_autologin_for_stress():
+def test_fio_all_restore_only_on_powercycle_branch():
     source = Path("IO_Stress/Fio_All.sh").read_text(encoding="utf-8")
     assert "\nautologin\n" not in source
-    assert "\nbackup\n" not in source
-    assert "info_check" in source
+    assert "only supports -i restore" in source
+    assert "fio_cycle" not in source
+    assert "RESTORE" in source
+

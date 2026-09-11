@@ -194,28 +194,81 @@ item_triggered() {
     return 1
 }
 
+
+item_failed() {
+    local run_key="$1"
+    local item="${run_key%%__*}"
+    local log_name root text
+    local -a patterns=(
+        "FIO stage failed"
+        "FIO stage abort"
+        "FIO failed"
+        "verify failed"
+        "Refuse to run"
+        "No non-system test disk found"
+        "Fail to detect system disk"
+        "idle watchdog timeout"
+        "PowerCycle FIO requires filename="
+    )
+    log_name="$(powercycle_log_name "${item}")"
+    while IFS= read -r root; do
+        for pattern in "${patterns[@]}"; do
+            # shellcheck disable=SC2086
+            text="$(eval ${REMOTE_SSH_COMMAND} "grep -F $(printf '%q' "${pattern}") ${root}/${log_name} ${root}/powercycle_resume.log ${root}/result.log 2>/dev/null" || true)"
+            if [[ -n "${text}" ]]; then
+                echo "[${NODE_IP}] detected failure marker in ${item}: ${pattern}" >&2
+                return 0
+            fi
+        done
+        # also scan ResultLog recursively for hard failures
+        for pattern in "${patterns[@]}"; do
+            # shellcheck disable=SC2086
+            text="$(eval ${REMOTE_SSH_COMMAND} "grep -R -F -e $(printf '%q' "${pattern}") ${root} 2>/dev/null | head -n 1" || true)"
+            if [[ -n "${text}" ]]; then
+                echo "[${NODE_IP}] detected failure marker in ${item}: ${pattern}" >&2
+                return 0
+            fi
+        done
+    done < <(result_roots_for_item "${run_key}")
+    return 1
+}
+
 wait_one_item() {
     local run_key="$1"
     local item="${run_key%%__*}"
     local cycles timeout_min deadline now remaining
     cycles="$(read_item_cycles "${item}")"
-    # Default budget: each loop can include long FIO (CSV 3600s) + reboot/boot margin.
-    timeout_min="${POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES:-$((cycles * 90))}"
+    # Auto plan budget per loop: FILL windows + 5x45s STRESS + VERIFY + reboot/DC boot margin.
+    # Override with POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES when needed.
+    timeout_min="${POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES:-$((cycles * 30))}"
     deadline=$(( $(date +%s) + timeout_min * 60 ))
+    local trigger_window="${POWER_CYCLE_TRIGGER_CONFIRM_SECONDS:-1800}"
 
     echo "[${NODE_IP}] waiting for ${item} powercycle completion (cycles=${cycles}, timeout=${timeout_min}m)"
 
-    # Fast path: never triggered (e.g. skipped earlier) -> do not burn full timeout.
+    # Confirm trigger: request start, already completed, host unreachable (reboot/DC in flight),
+    # or explicit failure. Pytest already required request start before this wait runs.
     local saw_trigger=0
-    local trigger_deadline=$(( $(date +%s) + 600 ))
+    local trigger_deadline=$(( $(date +%s) + trigger_window ))
     while [ "$(date +%s)" -lt "${trigger_deadline}" ]; do
-        if remote_reachable && item_triggered "${run_key}"; then
-            saw_trigger=1
-            break
-        fi
         if item_completed "${run_key}"; then
             echo "[${NODE_IP}] ${item} already completed"
             return 0
+        fi
+        if remote_reachable; then
+            if item_failed "${run_key}"; then
+                echo "[${NODE_IP}] ERROR: ${item} failed before/during powercycle" >&2
+                return 1
+            fi
+            if item_triggered "${run_key}"; then
+                saw_trigger=1
+                break
+            fi
+        else
+            # Host down after pytest start => reboot/DC already underway.
+            saw_trigger=1
+            echo "[${NODE_IP}] ${item} host unreachable; treat powercycle as triggered"
+            break
         fi
         sleep "${POLL_SECONDS}"
     done
@@ -226,15 +279,21 @@ wait_one_item() {
     fi
 
     while [ "$(date +%s)" -lt "${deadline}" ]; do
-        if remote_reachable && item_completed "${run_key}"; then
-            echo "[${NODE_IP}] ${item} powercycle completed"
-            return 0
-        fi
-        now=$(date +%s)
-        remaining=$(( (deadline - now) / 60 ))
         if remote_reachable; then
+            if item_failed "${run_key}"; then
+                echo "[${NODE_IP}] ERROR: ${item} failed during powercycle" >&2
+                return 1
+            fi
+            if item_completed "${run_key}"; then
+                echo "[${NODE_IP}] ${item} powercycle completed"
+                return 0
+            fi
+            now=$(date +%s)
+            remaining=$(( (deadline - now) / 60 ))
             echo "[${NODE_IP}] ${item} still running (SSH up, ~${remaining}m left)"
         else
+            now=$(date +%s)
+            remaining=$(( (deadline - now) / 60 ))
             echo "[${NODE_IP}] ${item} host unreachable during powercycle (~${remaining}m left)"
         fi
         sleep "${POLL_SECONDS}"

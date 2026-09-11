@@ -28,7 +28,7 @@ ulimit -c unlimited 2>/dev/null || true
 # Persist unlimited cores for future login/SSH/sudo sessions (pam_limits).
 if [ -d /etc/security/limits.d ] && [ -w /etc/security/limits.d ]; then
     cat >"${LIMITS_FILE}" <<'EOF'
-# Managed by RAID_NVME ci/enable_failure_coredumps.sh — unlimited userspace cores.
+# Managed by RAID_NVME powercycle/enable_failure_coredumps.sh — unlimited userspace cores.
 *       soft    core    unlimited
 *       hard    core    unlimited
 root    soft    core    unlimited
@@ -36,10 +36,10 @@ root    hard    core    unlimited
 EOF
     echo "[${NODE_IP}] wrote ${LIMITS_FILE}"
 elif [ -w /etc/security/limits.conf ] 2>/dev/null; then
-    if ! grep -q 'RAID_NVME ci/enable_failure_coredumps' /etc/security/limits.conf 2>/dev/null; then
+    if ! grep -q 'RAID_NVME powercycle/enable_failure_coredumps' /etc/security/limits.conf 2>/dev/null; then
         cat >>/etc/security/limits.conf <<'EOF'
 
-# Managed by RAID_NVME ci/enable_failure_coredumps.sh
+# Managed by RAID_NVME powercycle/enable_failure_coredumps.sh
 *       soft    core    unlimited
 *       hard    core    unlimited
 root    soft    core    unlimited
@@ -77,7 +77,7 @@ write_sysctl_live() {
 # Persist + apply kernel.core_pattern and ptrace_scope.
 if [ -d /etc/sysctl.d ] && [ -w /etc/sysctl.d ]; then
     cat >"${SYSCTL_FILE}" <<EOF
-# Managed by RAID_NVME ci/enable_failure_coredumps.sh
+# Managed by RAID_NVME powercycle/enable_failure_coredumps.sh
 kernel.core_pattern=${pattern}
 kernel.yama.ptrace_scope=0
 fs.suid_dumpable=1
@@ -115,7 +115,7 @@ fi
 PROFILE_FILE=/etc/profile.d/99-raid-nvme-coredump.sh
 if [ -d /etc/profile.d ] && [ -w /etc/profile.d ]; then
     cat >"${PROFILE_FILE}" <<'EOF'
-# Managed by RAID_NVME ci/enable_failure_coredumps.sh
+# Managed by RAID_NVME powercycle/enable_failure_coredumps.sh
 ulimit -c unlimited 2>/dev/null || true
 EOF
     echo "[${NODE_IP}] wrote ${PROFILE_FILE}"

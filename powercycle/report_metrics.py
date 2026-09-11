@@ -5,8 +5,8 @@ import re
 import xml.etree.ElementTree as ET
 
 try:
-    from ci.build_status import console_was_manually_aborted
-    from ci.report_test_records import merged_test_metrics
+    from powercycle.build_status import console_was_manually_aborted
+    from powercycle.report_test_records import merged_test_metrics
 except ModuleNotFoundError:
     from build_status import console_was_manually_aborted
     from report_test_records import merged_test_metrics

@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-COLLECT_SCRIPT = REPO_ROOT / "ci" / "collect_failure_bundle.sh"
-ENABLE_SCRIPT = REPO_ROOT / "ci" / "enable_failure_coredumps.sh"
+COLLECT_SCRIPT = REPO_ROOT / "powercycle" / "collect_failure_bundle.sh"
+ENABLE_SCRIPT = REPO_ROOT / "powercycle" / "enable_failure_coredumps.sh"
 
 
 def _bash():
@@ -55,7 +55,7 @@ def test_collect_script_contains_gcore_and_bundle_paths():
 
 
 def test_enable_draid_pending_debug_script_probes_module_params():
-    pending = REPO_ROOT / "ci" / "enable_draid_pending_debug.sh"
+    pending = REPO_ROOT / "powercycle" / "enable_draid_pending_debug.sh"
     source = pending.read_text(encoding="utf-8")
     assert "raid1_pending_debug" in source
     assert "/sys/module/draid/parameters" in source
@@ -90,10 +90,10 @@ def test_collect_script_prefers_primary_kworker_filter():
 
 def test_wiring_references_failure_bundle():
     nvme = (REPO_ROOT / "nvme_raid_test.py").read_text(encoding="utf-8")
-    remote = (REPO_ROOT / "ci" / "run_remote_test_and_collect.sh").read_text(encoding="utf-8")
+    remote = (REPO_ROOT / "powercycle" / "run_remote_test_and_collect.sh").read_text(encoding="utf-8")
     jenkins = (REPO_ROOT / "Jenkinsfile").read_text(encoding="utf-8")
-    prepare = (REPO_ROOT / "ci" / "prepare_env.sh").read_text(encoding="utf-8")
-    install = (REPO_ROOT / "ci" / "install_test_dependencies.sh").read_text(encoding="utf-8")
+    prepare = (REPO_ROOT / "powercycle" / "prepare_env.sh").read_text(encoding="utf-8")
+    install = (REPO_ROOT / "powercycle" / "install_test_dependencies.sh").read_text(encoding="utf-8")
 
     assert "collect_failure_bundle" in nvme
     assert "resolve_failure_bundle_for_item" in nvme
@@ -118,7 +118,7 @@ def test_wiring_references_failure_bundle():
 
 
 def test_remote_failure_bundle_reuses_live_capture_and_bounds_collection_copy():
-    source = (REPO_ROOT / "ci" / "run_remote_test_and_collect.sh").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "powercycle" / "run_remote_test_and_collect.sh").read_text(encoding="utf-8")
 
     assert "preferred_live_bundle_path.txt" in source
     assert "latest_bundle_path.txt" in source

@@ -441,11 +441,11 @@ def delete_existing_pds(log):
 
 
 def flash_clear_script_path():
-    return Path(__file__).resolve().parents[1] / "ci" / "flash-clear.sh"
+    return Path(__file__).resolve().parents[1] / "powercycle" / "flash-clear.sh"
 
 
 def clear_8p_script_path():
-    return Path(__file__).resolve().parents[1] / "ci" / "clear_8p_csd_flash.sh"
+    return Path(__file__).resolve().parents[1] / "powercycle" / "clear_8p_csd_flash.sh"
 
 
 def draid_ko_path():
@@ -574,12 +574,12 @@ def release_and_clear_csd(disks, log):
 def run_env_prepare(log):
     """DUT environment prepare used by the env_prepare test case.
 
-    Runs ci/prepare_env.sh: reclaim host, install dpraid, rebuild draid,
+    Runs powercycle/prepare_env.sh: reclaim host, install dpraid, rebuild draid,
     SMOKE-aligned CSD clear (rmmod/insmod/FORCE clear/rmmod/insmod), then
     clear leftover VD/PD.
     """
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "ci" / "prepare_env.sh"
+    script = repo_root / "powercycle" / "prepare_env.sh"
     if not script.is_file():
         raise AssertionError(f"Missing prepare script: {script}")
 

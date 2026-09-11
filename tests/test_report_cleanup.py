@@ -1,6 +1,6 @@
 import json
 
-from ci import junit_to_allure, mark_allure_target_context
+from powercycle import junit_to_allure, mark_allure_target_context
 
 
 def write_json(path, data):
@@ -126,7 +126,7 @@ def test_missing_attachment_has_explanation_not_dead_link(tmp_path, monkeypatch)
 
 def test_two_nodes_with_same_case_keep_separate_log_content(tmp_path, monkeypatch):
     import shutil
-    from ci.case_artifacts import recover_case_outputs
+    from powercycle.case_artifacts import recover_case_outputs
     monkeypatch.chdir(tmp_path)
     destination = tmp_path / "allure-results"
     destination.mkdir()

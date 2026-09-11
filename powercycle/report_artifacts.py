@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 
 try:
-    from ci.report_identity import host, read_json, run_key, save_json, set_label
+    from powercycle.report_identity import host, read_json, run_key, save_json, set_label
 except ModuleNotFoundError:
     from report_identity import host, read_json, run_key, save_json, set_label
 

@@ -11,7 +11,7 @@ import pytest
 
 def test_context_hook_and_real_fixture_evidence(tmp_path, monkeypatch):
     pytest.importorskip("allure_pytest")
-    from ci import junit_to_allure, mark_allure_target_context
+    from powercycle import junit_to_allure, mark_allure_target_context
     import nvme_raid_test
     shutil.copy2(Path(__file__).resolve().parents[1] / "conftest.py", tmp_path / "conftest.py")
     (tmp_path / "test_dummy.py").write_text(

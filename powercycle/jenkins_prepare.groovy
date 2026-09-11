@@ -124,7 +124,7 @@ def preparePhysicalIoDriver(Map cfg) {
               "${env.KERNEL_DRIVER_GITLAB_API}/projects/${env.KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests/${manualMrIid}" \\
               -o kernel_driver_manual_mr.json
 
-            python3 ci/gitlab_mr_to_properties.py kernel_driver_manual_mr.json > kernel_driver_manual_mr.properties
+            python3 powercycle/gitlab_mr_to_properties.py kernel_driver_manual_mr.json > kernel_driver_manual_mr.properties
             """
         }
 

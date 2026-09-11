@@ -7,7 +7,7 @@
 
 - 多节点：Jenkins `TARGET_IPS` 并发调度
 - 远程部署：`/root/Cyril/Jenkins/<JOB>/<BRANCH>/build-<N>/`
-- reboot/dc 异步触发后，由 `ci/wait_powercycle_completion.sh` 闭环多圈
+- reboot/dc 异步触发后，由 `powercycle/wait_powercycle_completion.sh` 闭环多圈
 - Allure / JUnit 回收与飞书通知
 
 ## 目录
@@ -19,7 +19,7 @@ RAID_NVME/
 ├── test_items.txt
 ├── IO_Stress/              # powercycle_direct.sh、fio_powercycle、powercycle_random
 ├── MachineCheck/
-├── ci/                     # wait_powercycle_completion.sh 等
+├── powercycle/                     # wait_powercycle_completion.sh 等
 └── test_items/
     ├── test_powercycle_00_env_prepare.py
     ├── test_powercycle_01_reboot.py
@@ -46,7 +46,7 @@ RAID_NVME/
 ## Jenkins
 
 - **Build with Parameters**：`TARGET_IPS`、`RESTORE`、`MANUAL_MR_IID` / `MANUAL_KERNEL_DRIVER_REF`、`TARGET_PASSWORD`
-- 密码 SSH：`sshpass`（`ci/ensure_sshpass.sh`）
+- 密码 SSH：`sshpass`（`powercycle/ensure_sshpass.sh`）
 - 选中 reboot/dc 时 Pipeline 会调用 `wait_powercycle_completion.sh`
 
 ## 注意
