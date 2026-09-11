@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Mix IO block-size model (512).
+"""Mix IO model for mix_512 — pre-split base (2f19976) with memory-safe large-bs trim.
 
-Primary: 512b weight 10 (10%).
-Others: 90 distinct 512-aligned sizes weight 1 each (90%).
+Dropped (>~5–6MiB peak risk / very large): 8m, 16m, 6145k, 7169k, 10241k, 12289k.
+Their 8% weight moved to eight 4KiB-unaligned boundary sizes that often expose
+RMW / split-IO / alignment bugs. Max remaining large: 5121k (~5MiB) → ~150GiB
+peak @20 disks ×4 MixIO ×QD32 ×jobs12 (under 170GiB budget).
+
 Weights sum to 100. Generates MixIO CSV with total=3500 rows.
 """
 from __future__ import annotations
@@ -10,26 +13,97 @@ from __future__ import annotations
 import copy
 import random
 
+
+def _bs_bytes(label: str) -> int:
+    text = label.strip().lower()
+    if text.endswith("k"):
+        return int(text[:-1]) * 1024
+    if text.endswith("m"):
+        return int(text[:-1]) * 1024 * 1024
+    if text.endswith("b"):
+        return int(text[:-1])
+    return int(text)
+
+
 temp_dict = {
-    "512b": 10,
-    "1k": 1, "1536b": 1, "2k": 1, "2560b": 1, "3k": 1, "3584b": 1, "4608b": 1, "5k": 1,
-    "5632b": 1, "6k": 1, "6656b": 1, "7k": 1, "7680b": 1, "8704b": 1, "9k": 1,
-    "9728b": 1, "10k": 1, "10752b": 1, "11k": 1, "11776b": 1, "12800b": 1, "13k": 1,
-    "13824b": 1, "14k": 1, "14848b": 1, "15k": 1, "15872b": 1, "16896b": 1, "17k": 1,
-    "17920b": 1, "18k": 1, "18944b": 1, "19k": 1, "19968b": 1, "20992b": 1, "21k": 1,
-    "22016b": 1, "22k": 1, "23040b": 1, "23k": 1, "24064b": 1, "25088b": 1, "25k": 1,
-    "26112b": 1, "26k": 1, "27136b": 1, "27k": 1, "28160b": 1, "29184b": 1, "29k": 1,
-    "30208b": 1, "30k": 1, "31232b": 1, "31k": 1, "32256b": 1, "33280b": 1, "33k": 1,
-    "34304b": 1, "34k": 1, "35328b": 1, "35k": 1, "36352b": 1, "37376b": 1, "37k": 1,
-    "38400b": 1, "38k": 1, "39424b": 1, "39k": 1, "40448b": 1, "41472b": 1, "41k": 1,
-    "42496b": 1, "42k": 1, "43520b": 1, "43k": 1, "44544b": 1, "45568b": 1, "45k": 1,
-    "46592b": 1, "46k": 1, "47616b": 1, "47k": 1, "48640b": 1, "49664b": 1, "49k": 1,
-    "50688b": 1, "50k": 1, "51712b": 1, "51k": 1, "52736b": 1
+    "512b": 4,
+    "1k": 1,
+    "1536b": 4,
+    "2k": 1,
+    "2560b": 1,
+    "3k": 2,
+    "3584b": 1,
+    "4k": 19,
+    "8k": 6,
+    "16k": 5,
+    "32k": 3,
+    "64k": 3,
+    "1m": 2,
+    "2m": 2,
+    "4m": 2,
+    # removed: 8m, 16m (was 2+2) — memory
+    # +40 mid/large non-4k-aligned (trimmed: drop 6145k/7169k/10241k/12289k)
+    "5k": 1,
+    "6k": 1,
+    "7k": 1,
+    "9k": 1,
+    "10k": 1,
+    "11k": 1,
+    "12k": 1,
+    "13k": 1,
+    "14k": 1,
+    "15k": 1,
+    "17k": 1,
+    "18k": 1,
+    "20k": 1,
+    "25k": 1,
+    "29k": 1,
+    "37k": 1,
+    "41k": 1,
+    "49k": 1,
+    "57k": 1,
+    "73k": 1,
+    "81k": 1,
+    "97k": 1,
+    "113k": 1,
+    "129k": 1,
+    "161k": 1,
+    "193k": 1,
+    "225k": 1,
+    "257k": 1,
+    "321k": 1,
+    "385k": 1,
+    "449k": 1,
+    "513k": 1,
+    "769k": 1,
+    "897k": 1,
+    "3073k": 1,
+    "5121k": 1,
+    # 8% freed from 8m/16m/6145k/7169k/10241k/12289k →
+    # classic 4KiB-unaligned boundary sizes (most likely to catch alignment bugs)
+    "513b": 1,
+    "1023b": 1,
+    "2047b": 1,
+    "4095b": 1,
+    "4097b": 1,
+    "8191b": 1,
+    "8193b": 1,
+    "16383b": 1,
 }
 
 assert sum(temp_dict.values()) == 100, sum(temp_dict.values())
-assert temp_dict["512b"] == 10
-assert len(temp_dict) == 91
+assert temp_dict["4k"] == 19
+assert "8m" not in temp_dict and "16m" not in temp_dict
+assert "6145k" not in temp_dict and "7169k" not in temp_dict
+assert "10241k" not in temp_dict and "12289k" not in temp_dict
+
+# New boundary sizes must be 4KiB-unaligned.
+for label in ("513b", "1023b", "2047b", "4095b", "4097b", "8191b", "8193b", "16383b"):
+    assert label in temp_dict and temp_dict[label] == 1
+    assert _bs_bytes(label) % 4096 != 0, label
+
+# Soft memory gate: no size above ~5.1MiB (5121k).
+assert max(_bs_bytes(k) for k in temp_dict) <= 5121 * 1024
 
 total = 3500
 proportion_dict = {k: int(v * 0.01 * total) for k, v in temp_dict.items()}

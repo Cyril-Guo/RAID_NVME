@@ -18,7 +18,7 @@ def test_mix_stress():
     fail_on_any = os.environ.get("MIX_FAIL_ON_ANY", "no").strip().lower()
     allure.dynamic.title(f"FIO 测试: {item} (混合 IO)")
     allure.dynamic.description(
-        f"混合读写；4 路 MixIO 由 random_choice_512.py 生成。"
+        f"混合读写；4 路 MixIO 由 random_choice_512.py 生成（=拆分前统一 random_choice.py @2f19976 原样）。"
         f" MIX_FAIL_ON_ANY={fail_on_any or 'no'}。"
     )
     print(
