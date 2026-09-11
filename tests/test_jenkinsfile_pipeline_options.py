@@ -20,19 +20,21 @@ def test_apt_get_waits_for_dpkg_lock():
     assert "apt_retry apt-get -o DPkg::Lock::Timeout=600 install -y \\\n            python3-pip python3-pytest" in source
 
 
-def test_jenkins_ignore_error_and_mix_fail_params():
+def test_jenkins_ui_keeps_ignore_and_mix_fail_in_test_items_only():
     jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
     run_remote = Path("ci/run_remote_test_and_collect.sh").read_text(encoding="utf-8")
     runner = Path("nvme_raid_test.py").read_text(encoding="utf-8")
+    items = Path("test_items.txt").read_text(encoding="utf-8")
 
-    assert "name: 'IGNORE_ERROR'" in jenkinsfile
-    assert "name: 'MIX_FAIL_ON_ANY'" in jenkinsfile
-    assert "FORCE_IGNORE_ERROR=" in jenkinsfile
-    assert "FORCE_MIX_FAIL_ON_ANY=" in jenkinsfile
-    assert "FORCE_IGNORE_ERROR" in run_remote
-    assert "FORCE_MIX_FAIL_ON_ANY" in run_remote
-    assert "def apply_jenkins_force_overrides" in runner
-    assert "FORCE_IGNORE_ERROR" in runner or "FORCE_{key}" in runner
+    assert "name: 'IGNORE_ERROR'" not in jenkinsfile
+    assert "name: 'MIX_FAIL_ON_ANY'" not in jenkinsfile
+    assert "FORCE_IGNORE_ERROR" not in jenkinsfile
+    assert "FORCE_MIX_FAIL_ON_ANY" not in jenkinsfile
+    assert "FORCE_IGNORE_ERROR" not in run_remote
+    assert "FORCE_MIX_FAIL_ON_ANY" not in run_remote
+    assert "apply_jenkins_force_overrides" not in runner
+    assert "IGNORE_ERROR" in items
+    assert "MIX_FAIL_ON_ANY" in items
 
 
 def test_debug_no_feishu_only_skips_notification():

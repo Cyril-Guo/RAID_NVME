@@ -150,16 +150,6 @@ pipeline {
             defaultValue: false,
             description: 'Debug mode: run the same pipeline but skip Feishu notification.'
         )
-        booleanParam(
-            name: 'IGNORE_ERROR',
-            defaultValue: true,
-            description: 'MachineCheck 结果不一致时是否继续 (非停止模式)。覆盖 test_items.txt 中各用例的 IGNORE_ERROR。'
-        )
-        booleanParam(
-            name: 'MIX_FAIL_ON_ANY',
-            defaultValue: true,
-            description: 'mix 用例任一 FIO 失败是否判失败。覆盖 test_items.txt 中 MIX_FAIL_ON_ANY。'
-        )
         text(
             name: 'TARGET_IPS',
             defaultValue: '192.168.22.134',
@@ -437,8 +427,6 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
  REMOTE_SSH_COMMAND="${targetSsh}" \
  REMOTE_SCP_COMMAND="${targetScp}" \
  TEST_IDLE_TIMEOUT_MINUTES='${env.TEST_IDLE_TIMEOUT_MINUTES}' \
- FORCE_IGNORE_ERROR='${params.IGNORE_ERROR ? 'yes' : 'no'}' \
- FORCE_MIX_FAIL_ON_ANY='${params.MIX_FAIL_ON_ANY ? 'yes' : 'no'}' \
  ci/run_remote_test_and_collect.sh
  """
                                 )

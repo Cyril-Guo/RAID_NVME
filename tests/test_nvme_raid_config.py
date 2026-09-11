@@ -347,36 +347,6 @@ def test_validate_powercycle_plan_rejects_mixed_or_multiple_powercycle_runs():
         )
 
 
-def test_run_single_item_applies_jenkins_force_overrides(monkeypatch, tmp_path):
-    captured = {}
-
-    def fake_main(args):
-        captured["IGNORE_ERROR"] = os.environ.get("IGNORE_ERROR")
-        captured["MIX_FAIL_ON_ANY"] = os.environ.get("MIX_FAIL_ON_ANY")
-        return 0
-
-    monkeypatch.setattr(nvme_raid_test.pytest, "main", fake_main)
-    monkeypatch.setattr(nvme_raid_test.importlib.util, "find_spec", lambda name: None)
-    monkeypatch.setenv("FORCE_IGNORE_ERROR", "no")
-    monkeypatch.setenv("FORCE_MIX_FAIL_ON_ANY", "no")
-
-    case = tmp_path / "case"
-    case.mkdir()
-    (case / "test_items").mkdir()
-    test_file = case / "test_items" / "test_ci_04_mix_512.py"
-    test_file.write_text("def test_dummy():\n    assert True\n", encoding="utf-8")
-
-    assert nvme_raid_test.run_single_item(
-        "test_ci_04_mix_512",
-        {"IGNORE_ERROR": "yes", "MIX_FAIL_ON_ANY": "yes"},
-        clean_allure=False,
-        test_items={"test_ci_04_mix_512": "test_items/test_ci_04_mix_512.py"},
-        work_dir=str(case),
-    ) == 0
-    assert captured["IGNORE_ERROR"] == "no"
-    assert captured["MIX_FAIL_ON_ANY"] == "no"
-
-
 def test_run_single_item_omits_allure_args_without_plugin(monkeypatch, tmp_path):
     captured = {}
 

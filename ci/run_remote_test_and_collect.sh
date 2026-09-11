@@ -128,17 +128,7 @@ echo "[${NODE_IP}] run ${test_label}"
 set +e
 # Arm coredumps + kdump + RAID1 pending debug on the DUT before the test session (new SSH / sudo shell).
 # eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x ci/enable_failure_coredumps.sh ci/enable_failure_kdump.sh ci/enable_draid_pending_debug.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} ci/enable_failure_coredumps.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} ci/enable_failure_kdump.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} ci/enable_draid_pending_debug.sh\"" || true
-# Optional Jenkins overrides (yes/no); empty means keep test_items.txt values.
-FORCE_IGNORE_ERROR="${FORCE_IGNORE_ERROR:-}"
-FORCE_MIX_FAIL_ON_ANY="${FORCE_MIX_FAIL_ON_ANY:-}"
-force_env=""
-if [[ -n "${FORCE_IGNORE_ERROR}" ]]; then
-    force_env="${force_env} FORCE_IGNORE_ERROR=${FORCE_IGNORE_ERROR}"
-fi
-if [[ -n "${FORCE_MIX_FAIL_ON_ANY}" ]]; then
-    force_env="${force_env} FORCE_MIX_FAIL_ON_ANY=${FORCE_MIX_FAIL_ON_ANY}"
-fi
-remote_test_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES}${force_env} sudo -E bash -c 'ulimit -c unlimited; cd ${REMOTE_DIR} && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES}${force_env} python3 nvme_raid_test.py'\""
+remote_test_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} sudo -E bash -c 'ulimit -c unlimited; cd ${REMOTE_DIR} && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} python3 nvme_raid_test.py'\""
 setsid bash -c "set -o pipefail; ${remote_test_command} 2>&1 | awk '{ print strftime(\"[%Y-%m-%d %H:%M:%S]\"), \$0; fflush() }' | tee '${execution_log}'" &
 test_pid=$!
 last_progress_ts=$(date +%s)

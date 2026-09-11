@@ -722,21 +722,6 @@ def collect_case_outputs(case_dir, repo_root, run_key):
     copy_case_outputs(case_dir, repo_root, run_key)
 
 
-def apply_jenkins_force_overrides():
-    """Apply Jenkins FORCE_* overrides on top of test_items.txt params.
-
-    FORCE_IGNORE_ERROR / FORCE_MIX_FAIL_ON_ANY are set by Jenkins when the
-    corresponding build parameters are present (yes/no). Empty/unset means
-    keep the per-case values from test_items.txt.
-    """
-    for key in ("IGNORE_ERROR", "MIX_FAIL_ON_ANY"):
-        forced = os.environ.get(f"FORCE_{key}", "").strip()
-        if not forced:
-            continue
-        os.environ[key] = forced
-        print(f"  [OVERRIDE] {key}={forced} (Jenkins FORCE_{key})")
-
-
 def run_single_item(
     item,
     params,
@@ -766,8 +751,6 @@ def run_single_item(
             continue
         os.environ[key] = value
         print(f"  [CONFIG] {key}={value}")
-
-    apply_jenkins_force_overrides()
 
     pytest_args = ["-v", "-s", "--tb=short"]
     if importlib.util.find_spec("allure_pytest") is not None:
