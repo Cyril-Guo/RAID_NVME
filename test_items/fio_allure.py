@@ -122,7 +122,9 @@ def _read_text_file(path):
         return ""
 
 
-def attach_machinecheck_records(stress_dir, text="", ignore_error=False):
+def attach_machinecheck_records(stress_dir, text="", ignore_machinecheck=False, ignore_error=None):
+    if ignore_error is not None:
+        ignore_machinecheck = ignore_error
     from datetime import datetime
 
     from test_items.command_output import safe_console_print
@@ -148,8 +150,8 @@ def attach_machinecheck_records(stress_dir, text="", ignore_error=False):
     attach_named_text(detail, MACHINECHECK_ATTACHMENT_NAME)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     safe_console_print(f"{ts} [INFO] MachineCheck differences recorded")
-    if ignore_error:
-        safe_console_print(f"{ts} [WARN] IGNORE_ERROR=yes, record MachineCheck without failing")
+    if ignore_machinecheck:
+        safe_console_print(f"{ts} [WARN] IGNORE_MACHINECHECK=yes, record MachineCheck without failing")
     else:
-        safe_console_print(f"{ts} [INFO] IGNORE_ERROR=no, MachineCheck differences will fail the case")
+        safe_console_print(f"{ts} [INFO] IGNORE_MACHINECHECK=no, MachineCheck differences will fail the case")
     return True

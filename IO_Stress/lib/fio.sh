@@ -756,7 +756,7 @@ function set_Disk()
 {
     cp $Cur_Dir/configuration $Cur_Dir/configuration.tmp
     if [[ $disk_mode == ALL || $disk_mode == SUBALL ]];then
-        if [[ $item == LAWDISKSTRESS || $item == REBOOT || $item == DC || $item == AC ]];then
+        if [[ $item == LAWDISKSTRESS || $item == MIXSTRESS || $item == REBOOT || $item == DC || $item == AC ]];then
             # 仅对非系统盘的裸设备下发 IO（系统盘已在 do_fio 中被排除，不再对系统盘做任何 IO）
             for str in ${disk[@]}
             do
@@ -1367,11 +1367,11 @@ fio_output_has_successful_io()
 }
 
 # MIX_FAIL_ON_ANY=yes: any unexpected FIO error (nonzero rc, io_u/err=) fails the job.
-# MIX_FAIL_ON_ANY=no (default): record those errors and keep running. IOPS=0 is not a failure.
+# MIX_FAIL_ON_ANY=no: record those errors and keep running. Default is yes. IOPS=0 is not a failure.
 mix_fail_on_any_enabled()
 {
     local raw
-    raw=$(echo "${MIX_FAIL_ON_ANY:-no}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+    raw=$(echo "${MIX_FAIL_ON_ANY:-yes}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
     [[ "$raw" == "yes" || "$raw" == "true" || "$raw" == "1" ]]
 }
 
@@ -2114,7 +2114,7 @@ function get_config_filelist() {
     elif [[ $mix_io == YES ]];then
         cd $File_Dir
 	rm -rf MixIO*.csv
-	# IO_BS_ALIGN=4k|512 (default 4k). random_choice.py dispatches.
+	# IO_BS_ALIGN=4k|512 set by CI case scripts; random_choice.py dispatches.
 	for i in {1..4};do
 	    python3 $Cur_Dir/random_choice.py
 	    mv random_choice.csv MixIO$i.csv

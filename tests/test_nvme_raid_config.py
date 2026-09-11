@@ -71,7 +71,7 @@ def test_repository_test_items_file_is_valid():
     assert selected
     assert all(name in catalog for name in selected)
     assert "defaults" not in params
-    assert params["test_ci_01_lawdisk"]["IGNORE_ERROR"] == "yes"
+    assert params["test_ci_01_lawdisk"]["IGNORE_MACHINECHECK"] == "yes"
     assert params["test_ci_01_lawdisk"]["FIO_CONFIG"] == "Input_Config_lawdisk.csv"
     assert "FIO_CONFIG" not in params["test_ci_02_filesystem"]
     assert "FIO_CONFIG" not in params["test_ci_03_mix_4k"]
@@ -108,10 +108,10 @@ test_ci_01_lawdisk 3
 # === END SELECTION ===
 
 [test_ci_01_lawdisk]
-IGNORE_ERROR = no
+IGNORE_MACHINECHECK = no
 
 [test_ci_03_mix_4k]
-IGNORE_ERROR = no
+IGNORE_MACHINECHECK = no
 """,
         encoding="utf-8",
         newline="\n",
@@ -154,10 +154,10 @@ test_ci_01_lawdisk 3
 # === END SELECTION ===
 
 [test_ci_03_mix_4k]
-IGNORE_ERROR = no
+IGNORE_MACHINECHECK = no
 
 [test_ci_01_lawdisk]
-IGNORE_ERROR = no
+IGNORE_MACHINECHECK = no
 """,
         encoding="utf-8",
         newline="\n",
@@ -195,7 +195,7 @@ test_ci_03_mix_4k 5
 
 [test_ci_01_lawdisk]
 FIO_CYCLES = 3
-IGNORE_ERROR = no
+IGNORE_MACHINECHECK = no
 
 [test_ci_03_mix_4k]
 FIO_DISKS = sdb,sdc
@@ -207,7 +207,7 @@ STRESS_MONITOR = yes
     selected, params = parse_items_file(config)
 
     assert selected == ["test_ci_01_lawdisk", "test_ci_03_mix_4k"]
-    assert params["test_ci_01_lawdisk"] == {"FIO_CYCLES": "3", "IGNORE_ERROR": "no"}
+    assert params["test_ci_01_lawdisk"] == {"FIO_CYCLES": "3", "IGNORE_MACHINECHECK": "no"}
     assert params["test_ci_03_mix_4k"] == {"FIO_DISKS": "sdb,sdc", "STRESS_MONITOR": "yes"}
     assert "FIO_CYCLES" not in params["test_ci_03_mix_4k"]
 
@@ -224,10 +224,10 @@ test_ci_01_lawdisk 1
 # === END SELECTION ===
 
 [test_ci_03_mix_4k]
-IGNORE_ERROR = no
+IGNORE_MACHINECHECK = no
 
 [test_ci_01_lawdisk]
-IGNORE_ERROR = no
+IGNORE_MACHINECHECK = no
 
 [test_ci_01_lawdisk]
 FIO_CYCLES = 10
@@ -277,13 +277,13 @@ test_ci_05_random_io_4k 9
 # === END SELECTION ===
 
 [test_ci_03_mix_4k]
-IGNORE_ERROR = no
+IGNORE_MACHINECHECK = no
 
 [test_ci_03_mix_4k]
-IGNORE_ERROR = no
+IGNORE_MACHINECHECK = no
 
 [test_ci_05_random_io_4k]
-IGNORE_ERROR = no
+IGNORE_MACHINECHECK = no
 """,
         encoding="utf-8",
     )
@@ -314,7 +314,7 @@ test_ci_01_lawdisk 3
 # === END SELECTION ===
 
 [test_ci_01_lawdisk]
-IGNORE_ERROR = no
+IGNORE_MACHINECHECK = no
 """,
         encoding="utf-8",
     )

@@ -21,7 +21,7 @@ HEADER = [
     "Random_Percentage",
     "Read_Percentage",
     "Queue_Depth",
-    "Run_Time(ss:mm:hh:dd)",
+    "Run_Time_Seconds",
     "Number_of_Jobs",
     "Offset",
     "Size",

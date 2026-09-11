@@ -7,7 +7,7 @@
 # 命名规范：test_ci_<NN>_<name>[ _4k|_512 ]
 #   - NN 连续编号（00..06）
 #   - lawdisk / filesystem：不区分 4k/512，靠手动改 FIO_CONFIG 指向的 CSV
-#   - mix / random_io：仍分 4k / 512（对齐由用例脚本内置，无需 IO_BS_ALIGN 参数）
+#   - mix / random_io：仍分 4k / 512（用例脚本内置 IO_BS_ALIGN，本文件无需再写）
 #   - Stress_Monitor 仅 lawdisk / filesystem 支持
 #   - 行格式：<完整用例名> <执行序号>；可写多个序号重复执行
 #   - 行首 # 表示不跑；去掉 # 即启用
@@ -34,9 +34,12 @@ test_ci_04_mix_512 4
 # RANDOM_IO_DURATION：空=默认 43200s；任意正数均可（Nh / Nm / Ns / 纯秒数）
 # 时长到点后不新开轮，当前轮 FILL→STRESS→VERIFY 跑完再结束
 #
-# IGNORE_ERROR / MIX_FAIL_ON_ANY：仅在本文件各用例块配置（不进 Jenkins UI）
-#   IGNORE_ERROR     — MachineCheck 不一致是否继续
-#   MIX_FAIL_ON_ANY  — mix 任一 FIO 失败是否判失败
+# IGNORE_MACHINECHECK / MIX_FAIL_ON_ANY：仅在本文件各用例块配置（不进 Jenkins UI）
+#   IGNORE_MACHINECHECK — MachineCheck 不一致是否继续（旧名 IGNORE_ERROR 仍可读）
+#   MIX_FAIL_ON_ANY     — mix 任一 FIO 失败是否判失败（默认 yes）
+# 时长旋钮：
+#   FIO_RUNTIME          — 仅 filesystem，秒，≥180 且整除 180
+#   RANDOM_IO_DURATION   — 仅 random_io，墙钟（Nh/Nm/Ns/秒）；到点不新开轮
 # ============================================================
 
 [test_ci_00_env_prepare]
@@ -45,36 +48,36 @@ test_ci_04_mix_512 4
 
 [test_ci_01_lawdisk]
 FIO_CONFIG      = Input_Config_lawdisk.csv
-IGNORE_ERROR    = yes
+IGNORE_MACHINECHECK    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
 [test_ci_02_filesystem]
 FIO_RUNTIME     = 43200
-IGNORE_ERROR    = yes
+IGNORE_MACHINECHECK    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
 [test_ci_03_mix_4k]
-IGNORE_ERROR    = yes
+IGNORE_MACHINECHECK    = yes
 FIO_DISKS       =
 MIX_FAIL_ON_ANY = yes
 
 [test_ci_04_mix_512]
-IGNORE_ERROR    = yes
+IGNORE_MACHINECHECK    = yes
 FIO_DISKS       =
 MIX_FAIL_ON_ANY = yes
 
 [test_ci_05_random_io_4k]
-IGNORE_ERROR       = yes
+IGNORE_MACHINECHECK       = yes
 FIO_DISKS          =
 # 空=默认 43200s；任意正数（Nh/Nm/Ns/秒）。到点后跑完当前轮再停。
 RANDOM_IO_DURATION =
 
 [test_ci_06_random_io_512]
-IGNORE_ERROR       = yes
+IGNORE_MACHINECHECK       = yes
 FIO_DISKS          =
 # 空=默认 43200s；任意正数（Nh/Nm/Ns/秒）。到点后跑完当前轮再停。
 RANDOM_IO_DURATION =

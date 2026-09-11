@@ -89,10 +89,10 @@ test_ci_03_mix_4k 3
 
 [test_ci_01_lawdisk]
 FIO_CONFIG      = Input_Config_lawdisk.csv
-IGNORE_ERROR    = yes
+IGNORE_MACHINECHECK    = yes
 
 [test_ci_03_mix_4k]
-IGNORE_ERROR    = yes
+IGNORE_MACHINECHECK    = yes
 MIX_FAIL_ON_ANY = yes
 ```
 
@@ -103,7 +103,7 @@ MIX_FAIL_ON_ANY = yes
 - `FIO_CONFIG`：仅 `lawdisk`；`filesystem` / `mix` / `random_io` 不需要 Input_Config CSV。
 - mix 的 4k/512 由用例脚本内置（`test_ci_03_mix_4k` / `test_ci_04_mix_512`），无需额外参数。
 - `MIX_FAIL_ON_ANY`：仅 mix；任一 FIO 失败是否判失败。
-- `IGNORE_ERROR`：MachineCheck 结果不一致时是否继续 (yes/no)。
+- `IGNORE_MACHINECHECK`：MachineCheck 结果不一致时是否继续 (yes/no)。旧名 `IGNORE_ERROR` 仍可读。
 - `FIO_DISKS`：指定数据盘 (如 `sdb,sdc`)，留空为全部数据盘。
 - `FIO_RUNTIME`：filesystem 的 fio 压测阶段总时长，单位秒且必须是 180 的整数倍。
 - `STRESS_MONITOR` / `MONITOR_RUNTIME`：仅 `test_ci_01_lawdisk` / `test_ci_02_filesystem`。

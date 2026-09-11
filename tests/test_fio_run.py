@@ -32,19 +32,15 @@ def test_build_fio_args_passes_case_csv(tmp_path, monkeypatch):
     (io_stress / "Input_Config_mix.csv").write_text("header\n", encoding="utf-8")
     monkeypatch.setenv("RAID_NVME_CASE_ROOT", str(tmp_path))
     monkeypatch.delenv("FIO_CONFIG", raising=False)
-    monkeypatch.setenv("IGNORE_ERROR", "yes")
+    monkeypatch.setenv("IGNORE_MACHINECHECK", "yes")
     monkeypatch.delenv("FIO_DISKS", raising=False)
 
-    args = build_fio_args("lawdiskstress", "test_ci_03_mix_4k", extra=["--mix_io", "yes"])
+    args = build_fio_args("mixstress", "test_ci_03_mix_4k")
     assert args == [
         "-i",
-        "lawdiskstress",
+        "mixstress",
         "-f",
         "NON-STOP",
-        "-n",
-        "Input_Config_mix.csv",
-        "--mix_io",
-        "yes",
     ]
 
 
@@ -53,7 +49,7 @@ def test_ci_cases_use_own_csv_and_do_not_import_siblings():
         "test_ci_00_env_prepare.py": "run_env_prepare(log)",
         "test_ci_01_lawdisk.py": 'build_fio_args("lawdiskstress"',
         "test_ci_02_filesystem.py": 'build_fio_args("filesystemstress"',
-        "test_ci_03_mix_4k.py": 'extra=["--mix_io", "yes"]',
+        "test_ci_03_mix_4k.py": 'build_fio_args("mixstress"',
         "test_ci_05_random_io_4k.py": 'write_fio_job(plan, disk_sizes, jobs["FILL"], "FILL")',
     }
     for name, needle in sources.items():
@@ -101,7 +97,7 @@ class _FakeProcess:
 def _configure_fio_runner(monkeypatch, tmp_path, lines, returncode, attachments):
     monkeypatch.setenv("RAID_NVME_CASE_ROOT", str(tmp_path))
     monkeypatch.setenv("RAID_NVME_RUN_KEY", "test_ci_03_mix_4k__5")
-    monkeypatch.delenv("IGNORE_ERROR", raising=False)
+    monkeypatch.delenv("IGNORE_MACHINECHECK", raising=False)
     monkeypatch.setattr(
         fio_run.subprocess,
         "Popen",
@@ -172,14 +168,13 @@ def test_run_and_check_argv_reports_fio_root_cause_not_broken_pipe(monkeypatch, 
 def test_build_fio_args_mix_skips_csv(monkeypatch, tmp_path):
     from test_items import fio_run
 
-    monkeypatch.setenv("IGNORE_ERROR", "yes")
+    monkeypatch.setenv("IGNORE_MACHINECHECK", "yes")
     monkeypatch.delenv("FIO_DISKS", raising=False)
     monkeypatch.setattr(fio_run, "io_stress_dir", lambda: str(tmp_path))
-    args = fio_run.build_fio_args(
-        "lawdiskstress", "test_ci_03_mix_4k", extra=["--mix_io", "yes"]
-    )
+    args = fio_run.build_fio_args("mixstress", "test_ci_03_mix_4k")
     assert "-n" not in args
-    assert "--mix_io" in args and "yes" in args
+    assert args[:4] == ["-i", "mixstress", "-f", "NON-STOP"]
+    assert "--mix_io" not in args
 
     # non-mix still requires CSV
     (tmp_path / "Input_Config_lawdisk.csv").write_text("End\n", encoding="utf-8")
@@ -191,7 +186,7 @@ def test_build_fio_args_mix_skips_csv(monkeypatch, tmp_path):
 def test_build_fio_args_filesystem_skips_csv(monkeypatch, tmp_path):
     from test_items import fio_run
 
-    monkeypatch.setenv("IGNORE_ERROR", "yes")
+    monkeypatch.setenv("IGNORE_MACHINECHECK", "yes")
     monkeypatch.delenv("FIO_DISKS", raising=False)
     monkeypatch.setattr(fio_run, "io_stress_dir", lambda: str(tmp_path))
     args = fio_run.build_fio_args("filesystemstress", "test_ci_02_filesystem")

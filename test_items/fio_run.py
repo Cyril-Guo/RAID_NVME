@@ -137,8 +137,23 @@ def resolve_fio_csv(item):
     return name
 
 
+def ignore_machinecheck_enabled():
+    """MachineCheck mismatch: yes → continue (-f NON-STOP); no → fail (-f STOP).
+
+    Reads IGNORE_MACHINECHECK first; IGNORE_ERROR remains a legacy alias.
+    """
+    for key in ("IGNORE_MACHINECHECK", "IGNORE_ERROR"):
+        raw = os.environ.get(key, "").strip().lower()
+        if raw == "yes":
+            return True
+        if raw == "no":
+            return False
+    return False
+
+
+# Back-compat name used by older call sites/tests.
 def ignore_error_enabled():
-    return os.environ.get("IGNORE_ERROR", "").strip().lower() == "yes"
+    return ignore_machinecheck_enabled()
 
 
 def _is_mix_extra(extra):
@@ -153,11 +168,18 @@ def _is_mix_extra(extra):
     return False
 
 
+def _is_mix_mode(mode, extra=None):
+    if str(mode).strip().lower() in ("mixstress", "mix"):
+        return True
+    return _is_mix_extra(extra)
+
+
 def build_fio_args(mode, item, extra=None):
-    flag_val = "NON-STOP" if ignore_error_enabled() else "STOP"
+    # NON-STOP/STOP is Fio_All MachineCheck policy (not "ignore all errors").
+    flag_val = "NON-STOP" if ignore_machinecheck_enabled() else "STOP"
     args = ["-i", mode, "-f", flag_val]
     # mix/filesystem build models in-engine; no Input_Config CSV needed.
-    needs_csv = (not _is_mix_extra(extra)) and str(mode).strip().lower() != "filesystemstress"
+    needs_csv = (not _is_mix_mode(mode, extra)) and str(mode).strip().lower() != "filesystemstress"
     if needs_csv:
         args.extend(["-n", resolve_fio_csv(item)])
     if extra:
@@ -212,7 +234,7 @@ def run_and_check_argv(
     attach=True,
     attach_persistent_log=True,
 ):
-    ignore_error = ignore_error_enabled()
+    ignore_machinecheck = ignore_machinecheck_enabled()
     capture = CommandOutputCapture(cwd, argv, extra_output=extra_output)
     started = time.monotonic()
     try:
@@ -251,7 +273,7 @@ def run_and_check_argv(
     capture.close()
     output_failures = collect_failure_lines(
         output_text,
-        ignore_machinecheck=ignore_error,
+        ignore_machinecheck=ignore_machinecheck,
         ignore_fio_job_errors=(exit_code == 0),
     )
     if attach or exit_code != 0 or output_failures:
@@ -273,7 +295,7 @@ def run_and_check_argv(
     attach_machinecheck_records(
         cwd if use_result_log else io_stress_dir(),
         text=output_text + "\n" + res_content,
-        ignore_error=ignore_error,
+        ignore_machinecheck=ignore_machinecheck,
     )
 
     if exit_code != 0:
@@ -298,7 +320,7 @@ def run_and_check_argv(
     if use_result_log:
         result_failures = collect_failure_lines(
             res_content,
-            ignore_machinecheck=ignore_error,
+            ignore_machinecheck=ignore_machinecheck,
             ignore_fio_job_errors=(exit_code == 0),
         )
         if result_failures:
@@ -310,7 +332,7 @@ def run_and_check_argv(
             )
             attach_named_text(message, FIO_FAILURE_SUMMARY_NAME)
             pytest.fail(message, pytrace=False)
-        if res_content and (not ignore_error) and "Fail" in res_content:
+        if res_content and (not ignore_machinecheck) and "Fail" in res_content:
             message = _failure_message(
                 "FIO 结果日志中检测到 Fail",
                 capture,

@@ -15,7 +15,8 @@ import pytest
 ALLOWED_PARAM_KEYS = (
     "FIO_CYCLES",
     "FIO_CONFIG",
-    "IGNORE_ERROR",
+    "IGNORE_MACHINECHECK",
+    "IGNORE_ERROR",  # legacy alias
     "FIO_DISKS",
     "STRESS_MONITOR",
     "MONITOR_RUNTIME",

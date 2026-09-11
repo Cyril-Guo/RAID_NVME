@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dispatch mix model by IO_BS_ALIGN=4k|512 (default 4k)."""
+"""Dispatch mix model by IO_BS_ALIGN=4k|512 (set by CI case scripts; default 4k)."""
 from __future__ import annotations
 
 import os

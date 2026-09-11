@@ -81,12 +81,12 @@ function arguments_parse()
 function help(){
    echo "Usage :" 
    echo "   DC run as:     $0 -i dc"
-   echo "   stress run as:     $0 -i lawdiskstress  or  $0 -i filesystemstress"
+   echo "   stress run as:     $0 -i lawdiskstress | filesystemstress | mixstress"
 
    echo "   release run as: $0 -i release"
    echo "Optional Parameters:"
    echo "   DC: -m <RTC|UTC>: the default value is UTC"
-   echo "   -i <lawdiskstress|filesystemstress|dc|reboot|restore>: run mode, default is lawdiskstress"
+   echo "   -i <lawdiskstress|filesystemstress|mixstress|dc|reboot|restore>: run mode, default is lawdiskstress"
    echo "   -c <YES|NO>: If check the info, and the default is YES"
    echo "   -b <YES|NO>: If bmc cold reset or no, the default value is NO"
    echo "   -f <STOP|NON-STOP>: when diff occurs it will stop or not,the default is stop"
@@ -160,13 +160,13 @@ function check_arguments()
     if [[ $item == "PERFORMANCE" ]];then
         show_produce_message "Performance test start"
         LOOP=1
-    elif [[ $item == "LAWDISKSTRESS" || $item == "FILESYSTEMSTRESS" ]];then
+    elif [[ $item == "LAWDISKSTRESS" || $item == "MIXSTRESS" || $item == "FILESYSTEMSTRESS" ]];then
         show_produce_message "$item test start"
         LOOP=1
         #runtime=43200
 #	    disk_mode="ALL"
         # filesystem/mix do not use Input_Config CSV
-        if [[ -z "$filename" && "$item" != "FILESYSTEMSTRESS" && "${mix_io^^}" != "YES" && "$mix_io" != "yes" ]];then
+        if [[ -z "$filename" && "$item" != "FILESYSTEMSTRESS" && "$item" != "MIXSTRESS" && "${mix_io^^}" != "YES" && "$mix_io" != "yes" ]];then
              filename="Input_Config_Disk_Full_Scan.csv"
         fi
         if [[ $item == "FILESYSTEMSTRESS" && -n "${FIO_RUNTIME:-}" ]]; then
@@ -246,8 +246,12 @@ function check_arguments()
     else
         mix_io=$(echo "$mix_io" | tr '[a-z]' '[A-Z]')
     fi
+    # mixstress implies mix_io=YES (do not borrow lawdiskstress + --mix_io).
+    if [[ "$item" == "MIXSTRESS" ]]; then
+        mix_io=YES
+    fi
     # mix uses random_choice -> MixIO*.csv; Input_Config CSV is unused.
-    if [[ "$mix_io" == "YES" ]]; then
+    if [[ "$mix_io" == "YES" || "$item" == "MIXSTRESS" ]]; then
         filename=""
     fi
     # filesystem uses built-in 16x16 round models; Input_Config CSV is unused.

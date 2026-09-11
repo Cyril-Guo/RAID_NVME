@@ -632,7 +632,7 @@ def test_mix_fail_on_any_enabled_reads_env():
             "bash",
             "-lc",
             "source IO_Stress/lib/fio.sh; "
-            "unset MIX_FAIL_ON_ANY; mix_fail_on_any_enabled || echo default=no; "
+            "unset MIX_FAIL_ON_ANY; mix_fail_on_any_enabled && echo default=yes; "
             "MIX_FAIL_ON_ANY=no mix_fail_on_any_enabled || echo no=no; "
             "MIX_FAIL_ON_ANY=yes mix_fail_on_any_enabled && echo yes=yes; "
             "MIX_FAIL_ON_ANY=YES mix_fail_on_any_enabled && echo YES=yes",
@@ -643,7 +643,7 @@ def test_mix_fail_on_any_enabled_reads_env():
         capture_output=True,
     )
 
-    assert "default=no" in result.stdout
+    assert "default=yes" in result.stdout
     assert "no=no" in result.stdout
     assert "yes=yes" in result.stdout
     assert "YES=yes" in result.stdout

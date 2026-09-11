@@ -36,6 +36,7 @@ def test_jenkins_ui_keeps_ignore_and_mix_fail_in_test_items_only():
     runner = Path("nvme_raid_test.py").read_text(encoding="utf-8")
     items = Path("test_items.txt").read_text(encoding="utf-8")
 
+    assert "name: 'IGNORE_MACHINECHECK'" not in jenkinsfile
     assert "name: 'IGNORE_ERROR'" not in jenkinsfile
     assert "name: 'MIX_FAIL_ON_ANY'" not in jenkinsfile
     assert "FORCE_IGNORE_ERROR" not in jenkinsfile
@@ -43,7 +44,7 @@ def test_jenkins_ui_keeps_ignore_and_mix_fail_in_test_items_only():
     assert "FORCE_IGNORE_ERROR" not in run_remote
     assert "FORCE_MIX_FAIL_ON_ANY" not in run_remote
     assert "apply_jenkins_force_overrides" not in runner
-    assert "IGNORE_ERROR" in items
+    assert "IGNORE_MACHINECHECK" in items
     assert "MIX_FAIL_ON_ANY" in items
 
 

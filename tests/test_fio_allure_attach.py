@@ -150,15 +150,15 @@ def test_attach_machinecheck_records_always_attaches_detail_log(tmp_path, monkey
         encoding="utf-8",
     )
 
-    assert attach_machinecheck_records(str(tmp_path), ignore_error=True) is True
+    assert attach_machinecheck_records(str(tmp_path), ignore_machinecheck=True) is True
     record = next(item for item in attached if item["name"] == "MachineCheck 差异记录")
     assert "LnkSta_Speed: 16GT/s -> 8GT/s" in record["body"]
     logged = capsys.readouterr().out
     assert "MachineCheck differences recorded" in logged
-    assert "IGNORE_ERROR=yes, record MachineCheck without failing" in logged
+    assert "IGNORE_MACHINECHECK=yes, record MachineCheck without failing" in logged
 
     attached.clear()
-    assert attach_machinecheck_records(str(tmp_path), ignore_error=False) is True
+    assert attach_machinecheck_records(str(tmp_path), ignore_machinecheck=False) is True
     assert [item["name"] for item in attached] == ["MachineCheck 差异记录"]
     logged = capsys.readouterr().out
-    assert "IGNORE_ERROR=no, MachineCheck differences will fail the case" in logged
+    assert "IGNORE_MACHINECHECK=no, MachineCheck differences will fail the case" in logged

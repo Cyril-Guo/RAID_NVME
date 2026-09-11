@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Mix IO model for mix_512 — pre-split base (2f19976) with memory-safe large-bs trim.
+"""Mix IO model for mix_512 (512-byte aligned, memory-capped).
 
-Dropped (>~5–6MiB peak risk / very large): 8m, 16m, 6145k, 7169k, 10241k, 12289k.
-Their 8% weight moved to eight 512-aligned boundary sizes (often not 4KiB-aligned)
-to stress RMW / split-IO near power-of-two edges while keeping bs 512-aligned.
-Max remaining large: 5121k (~5MiB) → ~160GiB peak @32 disks ×4 MixIO ×QD32 ×jobs8 (under 180GiB).
+Dropped large sizes (>~5–6MiB): 8m, 16m, 6145k, 7169k, 10241k, 12289k.
+Their weight moved to 512-aligned boundary sizes (often not 4KiB-aligned)
+to stress RMW / split-IO near power-of-two edges.
+Max size 5121k (~5MiB) → ~160GiB peak @32 disks ×4 MixIO ×QD32 ×jobs8.
 
-All block sizes are 512-byte aligned. Weights sum to 100. Generates MixIO CSV with total=1000 rows, each model runtime=30s.
+All block sizes are 512-byte aligned. Weights sum to 100.
+Generates MixIO CSV: total=1000 rows, Run_Time_Seconds=30, numjobs=8.
 """
 from __future__ import annotations
 
@@ -153,7 +154,7 @@ random.shuffle(bs)
 with open("random_choice.csv", "w", encoding="utf-8", newline="\n") as fp:
     fp.write(
         "Block_Size,Random_Percentage,Read_Percentage,Queue_Depth,"
-        "Run_Time(ss:mm:hh:dd),Number_of_Jobs,Offset\n"
+        "Run_Time_Seconds,Number_of_Jobs,Offset\n"
     )
     for b in bs:
         random_p_v = random_p[b].pop()

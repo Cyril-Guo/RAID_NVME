@@ -61,7 +61,7 @@ if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
         exit $reboot_rc
     fi
 
-elif [ "$item_" = "LAWDISKSTRESS" ] || [ "$item_" = "FILESYSTEMSTRESS" ];then
+elif [ "$item_" = "LAWDISKSTRESS" ] || [ "$item_" = "MIXSTRESS" ] || [ "$item_" = "FILESYSTEMSTRESS" ];then
 
     do_fio
     fio_rc=$?

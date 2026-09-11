@@ -14,8 +14,8 @@ def test_lawdisk_stress():
     item = _item_name()
     maybe_start_monitor()
     fio_args = build_fio_args("lawdiskstress", item)
-    allure.dynamic.title(f"FIO test: {item} raw disk")
+    allure.dynamic.title(f"FIO 测试: {item}（裸盘）")
     allure.dynamic.description(
-        f"Raw-disk FIO; FIO_CONFIG={os.environ.get('FIO_CONFIG', '')}."
+        f"裸盘 FIO；FIO_CONFIG={os.environ.get('FIO_CONFIG', '')}。"
     )
     run_and_check_fio(fio_args)

@@ -1,4 +1,4 @@
-"""Filesystem FIO stress. FIO_CONFIG points to CSV edited manually."""
+"""Filesystem FIO stress（无 Input_Config CSV，模型由 fio.sh 内置生成）。"""
 import os
 
 import allure
@@ -25,11 +25,10 @@ def test_filesystem_stress():
 
     maybe_start_monitor()
     fio_args = build_fio_args("filesystemstress", item)
-    allure.dynamic.title(f"FIO test: {item} random mixed IO")
+    allure.dynamic.title(f"FIO 测试: {item}（文件系统）")
     allure.dynamic.description(
-        "16 partitions per disk, 22 fio models, iodepth=4; "
-        "180s per round then change RW mix and align weights; "
-        f"{int(runtime_text) // 180} rounds, total {runtime_text}s; "
-        f"FIO_CONFIG={os.environ.get('FIO_CONFIG', '')}."
+        "每盘 16 分区、22 个 fio 模型、iodepth=4；"
+        "每轮 180s 后切换读写混合与对齐权重；"
+        f"共 {int(runtime_text) // 180} 轮，合计 {runtime_text}s。"
     )
     run_and_check_fio(fio_args)

@@ -88,7 +88,7 @@ random.shuffle(bs)
 with open("random_choice.csv", "w", encoding="utf-8", newline="\n") as fp:
     fp.write(
         "Block_Size,Random_Percentage,Read_Percentage,Queue_Depth,"
-        "Run_Time(ss:mm:hh:dd),Number_of_Jobs,Offset\n"
+        "Run_Time_Seconds,Number_of_Jobs,Offset\n"
     )
     for b in bs:
         random_p_v = random_p[b].pop()
