@@ -5,7 +5,7 @@ def preparePhysicalIoDriver(Map cfg) {
     def selectedTestItems = cfg.selectedTestItems ?: []
     def jenkinsHome = cfg.jenkinsHome ?: (env.JENKINS_HOME ?: '/var/lib/jenkins')
 
-    // Accept short env_prepare and full test_ci_00_env_prepare (and future _env_prepare).
+    // Accept short env_prepare and full test_powercycle_00_env_prepare (endsWith _env_prepare).
     def needsEnvPrepare = selectedTestItems.any { item ->
         def name = (item ?: '').toString()
         name == 'env_prepare' || name.endsWith('_env_prepare')

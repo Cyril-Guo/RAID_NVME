@@ -1,7 +1,7 @@
 """
 Smoke 测试 —— Reboot 电源循环（重启）压力测试。
 
-本用例完全自包含，不依赖任何共享辅助函数，读完本文件即可理解全部流程：
+本用例流程自洽；通过 powercycle_launch / build_fio_args 组装并异步触发：
   1. 从环境变量（由 test_items.txt 注入）解析循环次数与错误处理策略；
   2. 组装并以异步(setsid)方式触发 powercycle_direct.sh 的 reboot 流程。
      重启会中断 SSH，因此本用例只验证到达 request start；

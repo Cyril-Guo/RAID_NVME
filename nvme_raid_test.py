@@ -93,7 +93,7 @@ _SELECTION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 def parse_selection_entry(line):
     """Parse a selection line into (name, orders, enabled), or None.
 
-    Preferred: ``test_powercycle_01_reboot 1`` or ``test_powercycle_07_mix_4k 8 10``.
+    Preferred: ``test_powercycle_01_reboot 1`` or ``test_powercycle_01_reboot 8 10``.
     Also accepts short legacy names and order-first lines.
     """
     text = line.strip()
@@ -200,7 +200,7 @@ def read_enabled_selection(path):
 def build_run_plan(path, test_items=None):
     """Expand enabled selection lines into ordered run slots.
 
-    ``test_powercycle_07_mix_4k 8 10`` contributes two slots.
+    ``test_powercycle_01_reboot 8 10`` contributes two slots.
     Every slot uses ``run_key`` ``{item}__{order}`` for isolated artifacts and reporting.
     """
     catalog = test_items if test_items is not None else TEST_ITEMS
