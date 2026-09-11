@@ -364,7 +364,7 @@ def test_run_single_item_omits_allure_args_without_plugin(monkeypatch, tmp_path)
     args = captured["args"]
     assert "--clean-alluredir" not in args
     assert not any(arg.startswith("--alluredir=") for arg in args)
-    assert "--junitxml=report_test_ci_01_lawdisk.xml" in args
+    assert "--junitxml=case-report_test_ci_01_lawdisk.xml" in args
 
 
 def test_run_single_item_does_not_clear_csd(monkeypatch, tmp_path):
@@ -415,7 +415,7 @@ def test_run_single_item_uses_run_key_for_junit_and_env(monkeypatch, tmp_path):
         order=2,
     ) == 0
 
-    assert "--junitxml=report_lawdisk__2.xml" in captured["args"]
+    assert "--junitxml=case-case-report_lawdisk__2.xml" in captured["args"]
     assert captured["run_key"] == "lawdisk__2"
     assert captured["order"] == "2"
     assert captured["item"] == "test_ci_01_lawdisk"
@@ -424,7 +424,7 @@ def test_run_single_item_uses_run_key_for_junit_and_env(monkeypatch, tmp_path):
 
 def test_merge_junit_reports_keeps_duplicate_run_keys(tmp_path):
     for run_key in ("lawdisk__2", "lawdisk__5"):
-        (tmp_path / f"report_{run_key}.xml").write_text(
+        (tmp_path / f"case-report_{run_key}.xml").write_text(
             f"""<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
   <testcase classname="test_items.{run_key}" name="test_lawdiskstress" />
@@ -445,8 +445,8 @@ def test_merge_junit_reports_keeps_duplicate_run_keys(tmp_path):
 
 
 def test_discover_junit_run_keys_skips_node_reports(tmp_path):
-    (tmp_path / "report_lawdisk__2.xml").write_text("<testsuite/>", encoding="utf-8")
-    (tmp_path / "report_192.168.1.10.xml").write_text("<testsuite/>", encoding="utf-8")
+    (tmp_path / "case-report_lawdisk__2.xml").write_text("<testsuite/>", encoding="utf-8")
+    (tmp_path / "node-report_192.168.1.10.xml").write_text("<testsuite/>", encoding="utf-8")
 
     assert nvme_raid_test.discover_junit_run_keys(str(tmp_path)) == ["lawdisk__2"]
 

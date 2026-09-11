@@ -5,7 +5,7 @@ from ci import extract_failure_summary
 
 def test_failure_summary_collects_junit_and_watchdog_errors(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest">
   <testcase classname="test_items.test_ci" name="test_mix_stress">

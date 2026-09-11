@@ -11,7 +11,14 @@ def pipeline_sources():
     return "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
 
+def test_jenkins_agent_label_param_documents_executors():
+    jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
+    assert "name: 'AGENT_LABEL'" in jenkinsfile
+    assert "multiple executors" in jenkinsfile
+
+
 def test_jenkins_allows_concurrent_builds():
+
     jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
 
     assert "disableConcurrentBuilds()" not in jenkinsfile
@@ -394,5 +401,6 @@ def test_report_metrics_parse_is_tolerant_of_unexpected_output():
 def test_junit_glob_only_collects_node_level_reports():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
-    assert "junit testResults: 'report_*.*.*.*.xml', allowEmptyResults: true" in source
+    assert "node-report_*.*.*.*.xml" in source
+    assert "junit testResults:" in source
     assert "report_*_physical.xml" not in source

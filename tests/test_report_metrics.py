@@ -5,7 +5,7 @@ from ci import report_metrics
 
 def test_report_metrics_counts_testcase_nodes_when_testsuites_root_is_zero(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuites tests="0" failures="0" errors="0" skipped="0">
   <testsuite name="pytest">
@@ -95,14 +95,14 @@ def test_main_prints_kind(tmp_path, monkeypatch, capsys):
 
 def test_report_metrics_skips_per_item_junit_files(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "report_test_ci_01_lawdisk.xml").write_text(
+    (tmp_path / "case-report_test_ci_01_lawdisk.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="x" name="a"><failure message="x">y</failure></testcase>
 </testsuite>
 """,
         encoding="utf-8",
     )
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="x" name="b" />
 </testsuite>
@@ -121,7 +121,7 @@ def test_report_metrics_skips_per_item_junit_files(tmp_path, monkeypatch):
 
 def test_report_metrics_includes_infra_allure_alongside_junit(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="x" name="a" />
 </testsuite>
@@ -152,7 +152,7 @@ def test_report_metrics_includes_infra_allure_alongside_junit(tmp_path, monkeypa
 
 def test_report_metrics_merges_native_allure_failure_missing_from_junit(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="test_items.test_ci_03_mix_4k" name="test_mix_stress">
     <properties><property name="run_key" value="test_ci_03_mix_4k__1" /></properties>
@@ -223,7 +223,7 @@ def test_report_metrics_counts_each_failed_env_log_as_one_item(tmp_path, monkeyp
 
 def test_report_metrics_does_not_double_count_execution_when_junit_exists(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="x" name="a"><failure message="fio">trace</failure></testcase>
 </testsuite>
@@ -246,7 +246,7 @@ def test_report_metrics_does_not_double_count_execution_when_junit_exists(tmp_pa
 
 def test_report_metrics_counts_execution_failure_when_junit_only_passed(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="x" name="a" />
 </testsuite>
@@ -270,7 +270,7 @@ def test_report_metrics_counts_execution_failure_when_junit_only_passed(tmp_path
 
 def test_report_metrics_surfaces_hard_fio_fail_even_when_status_passed(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="x" name="a" />
 </testsuite>

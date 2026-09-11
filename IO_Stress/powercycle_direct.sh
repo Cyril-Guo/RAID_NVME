@@ -28,9 +28,9 @@ fi
 export POWER_CYCLE_FORCE_ONCE=1
 export POWER_CYCLE_COMMAND_GRACE="${POWER_CYCLE_COMMAND_GRACE:-90}"
 
-command_log="$ResultLog/reboot_command.log"
+command_log="$result_log/reboot_command.log"
 if [[ "$item" == "DC" ]]; then
-    command_log="$ResultLog/dc_command.log"
+    command_log="$result_log/dc_command.log"
 fi
 
 echo "POWER_CYCLE_DIRECT_START item=$item LOOP=$LOOP flag=$flag disks=${specified_disk:-null}"

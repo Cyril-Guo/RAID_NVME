@@ -6,7 +6,7 @@ from ci import salvage_junit_reports
 def test_merge_from_directory_writes_node_report(tmp_path):
     item_dir = tmp_path / "items"
     item_dir.mkdir()
-    (item_dir / "report_test_ci_01_lawdisk.xml").write_text(
+    (item_dir / "case-report_test_ci_01_lawdisk.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
   <testcase classname="test_items.lawdisk" name="test_lawdiskstress" />
@@ -14,7 +14,7 @@ def test_merge_from_directory_writes_node_report(tmp_path):
 """,
         encoding="utf-8",
     )
-    output = tmp_path / "report_192.168.22.134.xml"
+    output = tmp_path / "node-report_192.168.22.134.xml"
 
     items = salvage_junit_reports.merge_from_directory(str(item_dir), str(output))
 
@@ -27,7 +27,7 @@ def test_merge_from_directory_keeps_duplicate_run_keys(tmp_path):
     item_dir = tmp_path / "items"
     item_dir.mkdir()
     for run_key in ("test_ci_01_lawdisk__2", "test_ci_01_lawdisk__5"):
-        (item_dir / f"report_{run_key}.xml").write_text(
+        (item_dir / f"case-report_{run_key}.xml").write_text(
             f"""<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
   <testcase classname="test_items.{run_key}" name="test_lawdiskstress" />

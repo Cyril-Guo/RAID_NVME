@@ -175,3 +175,16 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 
 * 本框架会直接对远端测试盘执行破坏性 IO，请**务必确保远端测试设备并非生产环境且可以被格式化/清空数据**。
 * `Jenkinsfile` 中默认写入了特定的飞书 Webhook 地址与机器人 UI 解析卡片。如果在其他域/新环境中运行，请替换对应的 `FEISHU_WEBHOOK` 值。
+
+
+## CI artifact names
+
+- `case-report_<run_key>.xml` — per-case JUnit
+- `node-report.xml` — merged JUnit on DUT
+- `node-report_<IP>.xml` — Jenkins copy per node
+- See `ci/REPORTING.md` for the full table.
+
+## Concurrent builds
+
+Job allows parallel builds; pin `AGENT_LABEL` to a multi-executor node if needed.
+Same `TARGET_IP` is still serialized by `lock(raid-nvme-dut-<ip>)`.

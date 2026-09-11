@@ -226,8 +226,8 @@ function record_errorinfo(){
     fp_before=$(mktemp)
     fp_after=$(mktemp)
     formatted=$(mktemp)
-    machinecheck_fingerprint "$MachineCheckLog/info_before.log" > "$fp_before"
-    machinecheck_fingerprint "$MachineCheckLog/info_after.log" > "$fp_after"
+    machinecheck_fingerprint "$machinecheck_log/info_before.log" > "$fp_before"
+    machinecheck_fingerprint "$machinecheck_log/info_after.log" > "$fp_after"
     format_machinecheck_diff "$fp_before" "$fp_after" > "$formatted"
 
     {
@@ -237,15 +237,15 @@ function record_errorinfo(){
         echo "Time: $(date)"
         cat "$formatted"
         echo "--------------------------------------------------"
-    } | tee -a "$TestErrorLog/machine_diff_error.log" "$Result_Dir/result.log"
+    } | tee -a "$test_error_log/machine_diff_error.log" "$result_dir/result.log"
 
-    echo -e " ERROR: MachineCheck inconsistencies found at loop $loop. Check $TestErrorLog/machine_diff_error.log for details." | tee -a "$Result_Dir/result.log"
+    echo -e " ERROR: MachineCheck inconsistencies found at loop $loop. Check $test_error_log/machine_diff_error.log for details." | tee -a "$result_dir/result.log"
 
     # Also record to diff_all.log
     {
         echo -e "\n--- Loop $loop Error Record ---"
         cat "$formatted"
-    } >> "$MessageRecordLog/diff_all.log"
+    } >> "$message_record_log/diff_all.log"
     rm -f "$fp_before" "$fp_after" "$formatted"
 }
 
@@ -253,18 +253,18 @@ function diff_messages()
 {
     if [[ $check == "NO" ]];then
         echo "no check,exit"
-        echo "diff finish" >$LogAd/diff.flag
+        echo "diff finish" >$log_ad/diff.flag
         return 1
     else
         show_produce_message "Computed FIO deviation"
         if [[ -n "$loop" && "$loop" != "0" ]];then
-            date +%Y-%m-%d_%H:%M:%S | tee -a $Fio_Result_Dir/result_fio.log
-            if [[ -f $Fio_Result_Dir/result_0.csv && -f $Fio_Result_Dir/result_${loop}.csv ]]; then
-                fio_mode_list=($(cat $Fio_Result_Dir/result_0.csv 2>/dev/null | sed -n '2,$p' | awk '{print $1}'))
+            date +%Y-%m-%d_%H:%M:%S | tee -a $fio_result_dir/result_fio.log
+            if [[ -f $fio_result_dir/result_0.csv && -f $fio_result_dir/result_${loop}.csv ]]; then
+                fio_mode_list=($(cat $fio_result_dir/result_0.csv 2>/dev/null | sed -n '2,$p' | awk '{print $1}'))
                 for fio_mode in ${fio_mode_list[*]};do
                     if [[ ! $fio_mode ]];then continue; fi
-                    before_iops=$(cat $Fio_Result_Dir/result_0.csv 2>/dev/null | grep "^$fio_mode" | awk '{print $7}' | awk -F, '{print $1}')
-                    after_iops=$(cat $Fio_Result_Dir/result_${loop}.csv 2>/dev/null | grep "^$fio_mode" | awk '{print $7}' | awk -F, '{print $1}')
+                    before_iops=$(cat $fio_result_dir/result_0.csv 2>/dev/null | grep "^$fio_mode" | awk '{print $7}' | awk -F, '{print $1}')
+                    after_iops=$(cat $fio_result_dir/result_${loop}.csv 2>/dev/null | grep "^$fio_mode" | awk '{print $7}' | awk -F, '{print $1}')
                     
                     # Ensure values are numbers before processing
                     [[ -z "$before_iops" || -z "$after_iops" ]] && continue
@@ -273,61 +273,61 @@ function diff_messages()
                     if [[ $before_iops =~ k ]]; then before_iops=$(echo "$before_iops" | awk -Fk '{print $1}' | awk '{print $1*1000}'); fi
                     if [[ $after_iops =~ k ]]; then after_iops=$(echo "$after_iops" | awk -Fk '{print $1}' | awk '{print $1*1000}'); fi
                     
-                    before_bw=$(cat $Fio_Result_Dir/result_0.csv 2>/dev/null | grep "^$fio_mode" | awk '{print $11}' | awk -FM '{print $1}')
-                    after_bw=$(cat $Fio_Result_Dir/result_${loop}.csv 2>/dev/null | grep "^$fio_mode" | awk '{print $11}' | awk -FM '{print $1}')
+                    before_bw=$(cat $fio_result_dir/result_0.csv 2>/dev/null | grep "^$fio_mode" | awk '{print $11}' | awk -FM '{print $1}')
+                    after_bw=$(cat $fio_result_dir/result_${loop}.csv 2>/dev/null | grep "^$fio_mode" | awk '{print $11}' | awk -FM '{print $1}')
                     
                     [[ -z "$before_bw" || -z "$after_bw" ]] && continue
 
-                    echo "$fio_mode" | tee -a $Fio_Result_Dir/result_fio.log
-                    echo "Before Value: IOPS $before_iops, BW $before_bw" | tee -a $Fio_Result_Dir/result_fio.log
-                    echo "After Value: IOPS $after_iops, BW $after_bw" | tee -a $Fio_Result_Dir/result_fio.log
+                    echo "$fio_mode" | tee -a $fio_result_dir/result_fio.log
+                    echo "Before Value: IOPS $before_iops, BW $before_bw" | tee -a $fio_result_dir/result_fio.log
+                    echo "After Value: IOPS $after_iops, BW $after_bw" | tee -a $fio_result_dir/result_fio.log
                     
                     deviation_iops=$(echo "scale=2; if($after_iops > $before_iops) ($after_iops-$before_iops)/$before_iops*100 else ($before_iops-$after_iops)/$before_iops*100" | bc 2>/dev/null)
                     deviation_bw=$(echo "scale=2; if($after_bw > $before_bw) ($after_bw-$before_bw)/$before_bw*100 else ($before_bw-$after_bw)/$before_bw*100" | bc 2>/dev/null)
-                    echo "Deviation: IOPS ${deviation_iops-0}%, BW ${deviation_bw-0}%" | tee -a $Fio_Result_Dir/result_fio.log
+                    echo "Deviation: IOPS ${deviation_iops-0}%, BW ${deviation_bw-0}%" | tee -a $fio_result_dir/result_fio.log
                 done
             else
                 echo "Wait for first complete loop to show performance deviation..."
             fi
         fi
         
-        cd $MachineCheck_Dir >/dev/null
+        cd $machinecheck_dir >/dev/null
         show_produce_message "Start MachineCheck"
         bash MachineCheck.sh
 
         # compare_log
-        if [[ -f $MachineCheck_Dir/Result/machinecheck.log ]]; then
-            process_machinecheck_results "$MachineCheckLog/info_after.log"
+        if [[ -f $machinecheck_dir/Result/machinecheck.log ]]; then
+            process_machinecheck_results "$machinecheck_log/info_after.log"
         else
-            echo "Warning: MachineCheck.sh did not produce machinecheck.log" | tee -a $Result_Dir/result.log
+            echo "Warning: MachineCheck.sh did not produce machinecheck.log" | tee -a $result_dir/result.log
         fi
 
-        if [[ -f $MachineCheckLog/info_after.log ]]; then
-            echo "Machinecheck finish" >> $MachineCheckLog/info_after.log
-            cp -f $MachineCheckLog/info_after.log $MachineCheckLog/${loop}_machinecheck.log
+        if [[ -f $machinecheck_log/info_after.log ]]; then
+            echo "Machinecheck finish" >> $machinecheck_log/info_after.log
+            cp -f $machinecheck_log/info_after.log $machinecheck_log/${loop}_machinecheck.log
         fi
         
         # Whitelist field differences (disk/pcie_nvme/link/aer + counts)
-        if [[ ! -f $MachineCheckLog/info_before.log ]] || [[ ! -f $MachineCheckLog/info_after.log ]]; then
-            echo "ERROR: Missing log files for MachineCheck diff comparison." | tee -a $Result_Dir/result.log
-            echo "diff finish" >$LogAd/diff.flag
+        if [[ ! -f $machinecheck_log/info_before.log ]] || [[ ! -f $machinecheck_log/info_after.log ]]; then
+            echo "ERROR: Missing log files for MachineCheck diff comparison." | tee -a $result_dir/result.log
+            echo "diff finish" >$log_ad/diff.flag
             return 3
         fi
         local fp_before fp_after
         fp_before=$(mktemp)
         fp_after=$(mktemp)
-        machinecheck_fingerprint "$MachineCheckLog/info_before.log" > "$fp_before"
-        machinecheck_fingerprint "$MachineCheckLog/info_after.log" > "$fp_after"
+        machinecheck_fingerprint "$machinecheck_log/info_before.log" > "$fp_before"
+        machinecheck_fingerprint "$machinecheck_log/info_after.log" > "$fp_after"
         if ! diff -q "$fp_before" "$fp_after" > /dev/null; then
-            echo "Whitelist field differences detected between MachineCheck before/after logs." | tee -a $Result_Dir/result.log
+            echo "Whitelist field differences detected between MachineCheck before/after logs." | tee -a $result_dir/result.log
             rm -f "$fp_before" "$fp_after"
             record_errorinfo
-            echo "diff finish" >$LogAd/diff.flag
+            echo "diff finish" >$log_ad/diff.flag
             return 3
         fi
         rm -f "$fp_before" "$fp_after"
     fi
-    echo "diff finish" >$LogAd/diff.flag
+    echo "diff finish" >$log_ad/diff.flag
     return 1
 }
 

@@ -3,28 +3,28 @@
 function clear_log()
 {
 
-    rm -rf $Result_Dir
-    rm -rf $Config_Dir
-    rm -rf $LogAd
-    rm -rf $File_Dir
+    rm -rf $result_dir
+    rm -rf $config_dir
+    rm -rf $log_ad
+    rm -rf $file_dir
     # Removed nmon pkill
 
 
 
-    mkdir -p $LogAd >/dev/null
-    mkdir -p $File_Dir >/dev/null
-    mkdir -p $Cur_Dir/job_files >/dev/null
-    mkdir -p $Cur_Dir/job_files/MIX1 >/dev/null
-    mkdir -p $Cur_Dir/job_files/MIX2 >/dev/null
-    mkdir -p $Cur_Dir/job_files/MIX3 >/dev/null
-    mkdir -p $Cur_Dir/job_files/MIX4 >/dev/null
-    mkdir -p $Result_Dir/detresult >/dev/null
-    mkdir -p $TestErrorLog
-    mkdir -p $ResultLog
-    mkdir -p $RawLog
-    mkdir -p $MachineCheckLog > /dev/null
-	mkdir -p $MessageRecordLog > /dev/null
-	mkdir -p $SystemLog > /dev/null
+    mkdir -p $log_ad >/dev/null
+    mkdir -p $file_dir >/dev/null
+    mkdir -p $cur_dir/job_files >/dev/null
+    mkdir -p $cur_dir/job_files/MIX1 >/dev/null
+    mkdir -p $cur_dir/job_files/MIX2 >/dev/null
+    mkdir -p $cur_dir/job_files/MIX3 >/dev/null
+    mkdir -p $cur_dir/job_files/MIX4 >/dev/null
+    mkdir -p $result_dir/detresult >/dev/null
+    mkdir -p $test_error_log
+    mkdir -p $result_log
+    mkdir -p $raw_log
+    mkdir -p $machinecheck_log > /dev/null
+	mkdir -p $message_record_log > /dev/null
+	mkdir -p $system_log > /dev/null
 
 
    
@@ -35,8 +35,8 @@ function clear_log()
 function prepare_logfile()
 {
     rm -rf /root/.bash_profile.bak
-    echo "Loop   time   reboot_time" > $ResultLog/reboot.log
-    echo "0 `date +%s` " >> $ResultLog/reboot.log
+    echo "Loop   time   reboot_time" > $result_log/reboot.log
+    echo "0 `date +%s` " >> $result_log/reboot.log
 }
 
 function stop_sendmail()
@@ -73,8 +73,8 @@ function check_baseboardsn()
 function process_machinecheck_results() {
     local target_info_log=$1
 
-    if [[ -f $MachineCheck_Dir/Result/machinecheck.log ]]; then
-        cp -f $MachineCheck_Dir/Result/machinecheck.log "$target_info_log"
+    if [[ -f $machinecheck_dir/Result/machinecheck.log ]]; then
+        cp -f $machinecheck_dir/Result/machinecheck.log "$target_info_log"
     fi
 }
 
@@ -83,14 +83,14 @@ function info_check(){
       echo "Don't collect any info both HW and SW!"
    else
  	    show_produce_message "start first machinecheck"
-      cd $MachineCheck_Dir >/dev/null
+      cd $machinecheck_dir >/dev/null
       bash MachineCheck.sh
       machinecheck_rc=$?
 
-      process_machinecheck_results "$MachineCheckLog/info_before.log"
+      process_machinecheck_results "$machinecheck_log/info_before.log"
       
-      if [[ -f $MachineCheckLog/info_before.log ]]; then
-          echo "Machinecheck finish" >> $MachineCheckLog/info_before.log
+      if [[ -f $machinecheck_log/info_before.log ]]; then
+          echo "Machinecheck finish" >> $machinecheck_log/info_before.log
       fi
       cd - >/dev/null
       if [[ $machinecheck_rc -ne 0 ]]; then
@@ -116,7 +116,7 @@ function UPICheck(){
 
 function get_machinecheck()
 {
-	if [[ -d $MachineCheck_Dir ]];then
+	if [[ -d $machinecheck_dir ]];then
         echo -e " The machinecheck exists. The program continues to run.  \n"
     else
         echo -e " MachineCheck toolkit not found. Skipping machine check.  \n"

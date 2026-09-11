@@ -79,7 +79,7 @@ def merge_from_directory(directory, output):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Salvage/merge per-item JUnit reports.")
-    parser.add_argument("--from-dir", default=".", help="Directory containing report_<item>.xml files")
+    parser.add_argument("--from-dir", default=".", help="Directory containing case-report_<item>.xml files")
     parser.add_argument("--output", default=nvme_raid_test.JUNIT_FINAL)
     parser.add_argument("--stop-monitor", action="store_true")
     args = parser.parse_args(argv)

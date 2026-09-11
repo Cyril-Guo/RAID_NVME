@@ -53,7 +53,7 @@ if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
         if command -v systemctl >/dev/null 2>&1; then
             systemctl disable raid-nvme-powercycle-resume.service >/dev/null 2>&1
             rm -f /etc/systemd/system/raid-nvme-powercycle-resume.service
-            rm -f "$Cur_Dir/powercycle_resume.sh"
+            rm -f "$cur_dir/powercycle_resume.sh"
             systemctl daemon-reload >/dev/null 2>&1
         fi
         test_end

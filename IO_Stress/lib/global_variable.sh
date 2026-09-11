@@ -6,27 +6,47 @@ if [[ $product_name == "" ]];then
    product_name="SUT"
 fi
 
-CP_ROOT_DIR=$(cd "$(dirname "$0")";pwd)
-Cur_Dir=$(cd "$(dirname "$0")";pwd)
-Job_Dir=$Cur_Dir/job_files
-LogAd=$Cur_Dir/log
-TestErrorLog=$LogAd/TestErrorLog
-ResultLog=$LogAd/ResultLog
-RawLog=$LogAd/RawLog
-MachineCheckLog=$RawLog/MachineCheckLog
-MessageRecordLog=$MachineCheckLog/MessagesRecord
-SystemLog=$RawLog/SystemLog
-MachineCheck_Dir=$(cd "$Cur_Dir/.." && pwd)/MachineCheck
-File_Dir=$Cur_Dir/Config_file
-Fio_Result_Dir=$ResultLog/fio_result
-Result_Dir=$Fio_Result_Dir
+# Preferred snake_case directory names.
+cur_dir=$(cd "$(dirname "$0")";pwd)
+cp_root_dir=$cur_dir
+job_dir=$cur_dir/job_files
+log_ad=$cur_dir/log
+test_error_log=$log_ad/TestErrorLog
+result_log=$log_ad/ResultLog
+raw_log=$log_ad/RawLog
+machinecheck_log=$raw_log/MachineCheckLog
+message_record_log=$machinecheck_log/MessagesRecord
+system_log=$raw_log/SystemLog
+machinecheck_dir=$(cd "$cur_dir/.." && pwd)/MachineCheck
+file_dir=$cur_dir/Config_file
+fio_result_dir=$result_log/fio_result
+result_dir=$fio_result_dir
+lib_dir=$cur_dir/lib
+config_dir=$cur_dir/job_files
+machine_dir=$machinecheck_dir
+report_dir=$cur_dir/Report
+record_dir=$log_ad/Record
 
-Lib_Dir=$Cur_Dir/lib
-Config_Dir=$Cur_Dir/job_files
-
-Machine_Dir=$MachineCheck_Dir
-Report_Dir=$Cur_Dir/Report
-Record_Dir=$LogAd/Record
+# Legacy Camel_Dir aliases (external/old scripts may still use these).
+CP_ROOT_DIR=$cp_root_dir
+Cur_Dir=$cur_dir
+Job_Dir=$job_dir
+LogAd=$log_ad
+TestErrorLog=$test_error_log
+ResultLog=$result_log
+RawLog=$raw_log
+MachineCheckLog=$machinecheck_log
+MessageRecordLog=$message_record_log
+SystemLog=$system_log
+MachineCheck_Dir=$machinecheck_dir
+File_Dir=$file_dir
+Fio_Result_Dir=$fio_result_dir
+Result_Dir=$result_dir
+Lib_Dir=$lib_dir
+Config_Dir=$config_dir
+Machine_Dir=$machine_dir
+Report_Dir=$report_dir
+Record_Dir=$record_dir
 mce_log=/var/log/mcelog
 messages_log=/var/log/messages
 dmesg_log=/var/log/dmesg

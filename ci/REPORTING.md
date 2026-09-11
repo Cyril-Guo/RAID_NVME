@@ -33,3 +33,15 @@ JUnit、Allure 和轻量调试日志；已有用例快照会复用，不再次�
 修改影响下一次使用本代码的构建。旧报告需要保留原始结果和日志后重新
 组装、发布；未实际采回的日志无法靠修改页面恢复。手动 abort 的飞书
 通知策略保持不变。
+
+## JUnit / Allure 文件命名
+
+| 位置 | 文件名 | 含义 |
+|------|--------|------|
+| DUT 用例目录 / 仓根 | `case-report_<run_key>.xml` | 单用例 pytest JUnit |
+| DUT 仓根 | `node-report.xml` | 本节点全部用例合并后的 JUnit |
+| Jenkins workspace | `node-report_<IP>.xml` | 从 DUT 拷回的该节点合并 JUnit |
+| Jenkins 临时 | `allure-node-<IP>/` | 从 DUT 拷回的 Allure，合并前进 `allure-results/` |
+| Jenkins 最终 | `allure-results/` | 发布用 Allure 结果 |
+
+兼容：旧名 `report_<run_key>.xml` / `report.xml` / `report_<IP>.xml` 仍可被部分读取逻辑识别。

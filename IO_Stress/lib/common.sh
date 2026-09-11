@@ -44,7 +44,7 @@ function install_fio()
         
         if command -v fio &> /dev/null; then
             echo "FIO installation success."
-            touch $Cur_Dir/fio_install.flag
+            touch $cur_dir/fio_install.flag
         else
             echo "FIO installation fail, please check network or install manually."
             exit 1
@@ -101,7 +101,7 @@ function autologin()
         if [ -f /etc/os-release ] && grep -iq "Ubuntu" /etc/os-release ; then
             # Ubuntu: Use a dedicated systemd service for maximum reliability on modern versions (e.g. 25.04)
             show_produce_message "Setting up Systemd fio-test.service for Ubuntu"
-            abs_root=$(cd "$CP_ROOT_DIR"; pwd)
+            abs_root=$(cd "$cp_root_dir"; pwd)
             
             # Use "Nuclear" TTY option: disable existing getty on tty3 to avoid conflict
             systemctl stop getty@tty3.service >/dev/null 2>&1
@@ -220,14 +220,14 @@ function autoopen()
 {
     show_produce_message "autoopen"
     if command -v systemctl >/dev/null 2>&1; then
-        local resume_script="$CP_ROOT_DIR/powercycle_resume.sh"
+        local resume_script="$cp_root_dir/powercycle_resume.sh"
         local resume_service="/etc/systemd/system/raid-nvme-powercycle-resume.service"
         cat > "$resume_script" <<EOF
 #!/bin/bash
-cd "$CP_ROOT_DIR"
-mkdir -p "$ResultLog"
-echo "\$(date '+%F %T') [RESUME] start on boot, tty output=/dev/tty1" | tee -a "$ResultLog/powercycle_resume.log" /dev/tty1
-bash "$CP_ROOT_DIR/run_fio.sh" "$item" "$check" "$bmc_reset" "$flag" "$delay" "$mode" "$wait" "$port" "$server_ip" "$LOOP" "$acserverport" "$safe" "$sysStaticIP" "$blackBoxStaticIP" "$runtime" "$filename" "$fs_type" "$disk_mode" "$specified_disk" "$remote" "$mix_io" "$log_interval" 2>&1 | tee -a "$ResultLog/powercycle_resume.log" /dev/tty1
+cd "$cp_root_dir"
+mkdir -p "$result_log"
+echo "\$(date '+%F %T') [RESUME] start on boot, tty output=/dev/tty1" | tee -a "$result_log/powercycle_resume.log" /dev/tty1
+bash "$cp_root_dir/run_fio.sh" "$item" "$check" "$bmc_reset" "$flag" "$delay" "$mode" "$wait" "$port" "$server_ip" "$LOOP" "$acserverport" "$safe" "$sysStaticIP" "$blackBoxStaticIP" "$runtime" "$filename" "$fs_type" "$disk_mode" "$specified_disk" "$remote" "$mix_io" "$log_interval" 2>&1 | tee -a "$result_log/powercycle_resume.log" /dev/tty1
 exit \${PIPESTATUS[0]}
 EOF
         chmod +x "$resume_script"
@@ -249,26 +249,26 @@ WantedBy=multi-user.target
 EOF
         systemctl daemon-reload
         systemctl enable raid-nvme-powercycle-resume.service
-        echo "Installed systemd resume service: $resume_service" | tee -a "$ResultLog/powercycle_resume.log"
+        echo "Installed systemd resume service: $resume_service" | tee -a "$result_log/powercycle_resume.log"
         return 0
     fi
 	if [[ "$system_SUSE" -eq 1 ]];then
-	    echo "cd $CP_ROOT_DIR" >> /etc/bash.bashrc
-        echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /etc/bash.bashrc
+	    echo "cd $cp_root_dir" >> /etc/bash.bashrc
+        echo "sh $cp_root_dir/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /etc/bash.bashrc
     elif [[ $System_Sugon == 1 ]] || [[ $System_NFS_PC5 != 0 ]];then
 	cd ~
         echo "temp=\`tty |grep tty1 |wc -l\`" >> /root/.profile
         echo "if [[ \"\$temp\" -eq 1 ]];then" >> /root/.profile
-        echo "cd $Cur_Dir" >> /root/.profile
-        echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.profile
+        echo "cd $cur_dir" >> /root/.profile
+        echo "sh $cp_root_dir/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.profile
         echo "fi" >> /root/.profile
 	cat /root/.profile
 	cd - >/dev/null
     elif [[ "$system_Redhat" -eq 1 ]] || [[ "$system_CentOS" -eq 1 ]] || [[ "$system_Redhat7" -eq 1 ]] || [[ "$system_CentOS8" -eq 1 ]] || [[ "$system_NFS" -eq 1 ]] || [[ $system_NFS3 -ne 0 ]] || [[ "${system_Kylin}" -ne 0 ]] || [[ "${system_kylin}" -ne 0 ]] || [[ ${system_Redhat9} -eq 1 ]] || [[ ${system_ctyunos} -eq 1 ]] || [[ ${system_UOS_Server} -ne 0  ]] || [[ ${system_Rocky9} -ne 0 ]];then
         echo "temp=\`tty |grep tty1 |wc -l\`" >> /root/.bash_profile
         echo "if [[ \"\$temp\" -eq 1 ]];then" >> /root/.bash_profile
-        echo "cd $CP_ROOT_DIR" >> /root/.bash_profile
-        echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.bash_profile
+        echo "cd $cp_root_dir" >> /root/.bash_profile
+        echo "sh $cp_root_dir/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.bash_profile
         echo "fi" >> /root/.bash_profile
     elif [ -f /etc/os-release ] && grep -iq "Ubuntu" /etc/os-release ;then
         # Systemd handles auto-open for Ubuntu, no need to modify .profile
@@ -276,8 +276,8 @@ EOF
     elif [[ "$system_Debian" -eq 1 ]];then
         echo 'temp=`tty |grep tty1 |wc -l`' >> /root/.bash_profile
         echo 'if [ $temp -eq 1 ];then' >> /root/.bash_profile
-        echo "cd $CP_ROOT_DIR" >> /root/.bash_profile
-        echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.bash_profile
+        echo "cd $cp_root_dir" >> /root/.bash_profile
+        echo "sh $cp_root_dir/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.bash_profile
         echo "fi" >> /root/.bash_profile
     fi
 }
@@ -330,7 +330,7 @@ function restore()
         echo "- Cleaning up powercycle resume service..."
         systemctl disable raid-nvme-powercycle-resume.service >/dev/null 2>&1
         rm -f /etc/systemd/system/raid-nvme-powercycle-resume.service
-        rm -f "$CP_ROOT_DIR/powercycle_resume.sh"
+        rm -f "$cp_root_dir/powercycle_resume.sh"
         systemctl daemon-reload >/dev/null 2>&1
     fi
     if [ -f /etc/os-release ] && grep -iq "Ubuntu" /etc/os-release ; then

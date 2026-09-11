@@ -29,7 +29,7 @@ ALL_PARAM_KEYS = sorted(ALLOWED_PARAM_KEYS)
 ITEMS_FILE = "test_items.txt"
 ITEMS_DIR = "test_items"
 ALLURE_DIR = "allure-results"
-JUNIT_FINAL = "report.xml"
+JUNIT_FINAL = "node-report.xml"
 CASES_DIR = "cases"
 RUN_KEY_ENV = "RAID_NVME_RUN_KEY"
 RUN_ORDER_ENV = "RAID_NVME_RUN_ORDER"
@@ -417,7 +417,7 @@ def prepare_case_workdir(repo_root, item):
     for name in sorted(os.listdir(repo_root)):
         if name in skip_names:
             continue
-        if name.startswith("report_") and name.endswith(".xml"):
+        if (name.startswith("case-report_") or name.startswith("report_")) and name.endswith(".xml"):
             continue
         src = os.path.join(repo_root, name)
         dst = os.path.join(case_dir, name)
@@ -448,11 +448,23 @@ def prepare_case_workdir(repo_root, item):
 
 
 def discover_junit_run_keys(directory="."):
-    """Return sorted stems for ``report_<run_key>.xml`` (excludes per-node IP reports)."""
+    """Return sorted stems for ``case-report_<run_key>.xml`` (excludes node IP reports)."""
     found = []
-    pattern = os.path.join(directory, "report_*.xml")
-    for path in sorted(glob.glob(pattern)):
-        stem = os.path.basename(path)[len("report_") : -len(".xml")]
+    pattern = os.path.join(directory, "case-report_*.xml")
+    legacy = os.path.join(directory, "report_*.xml")
+    paths = list(glob.glob(pattern)) + [
+        p for p in glob.glob(legacy)
+        if not os.path.basename(p).startswith("case-report_")
+        and os.path.basename(p) != "node-report.xml"
+    ]
+    for path in sorted(set(paths)):
+        base = os.path.basename(path)
+        if base.startswith("case-report_"):
+            stem = base[len("case-report_") : -len(".xml")]
+        elif base.startswith("report_"):
+            stem = base[len("report_") : -len(".xml")]
+        else:
+            continue
         if _NODE_IP_REPORT_RE.fullmatch(stem):
             continue
         found.append(stem)
@@ -761,7 +773,7 @@ def run_single_item(
 
     if clean_allure and importlib.util.find_spec("allure_pytest") is not None:
         pytest_args.append("--clean-alluredir")
-    pytest_args.extend([f"--junitxml=report_{run_key}.xml", test_file])
+    pytest_args.extend([f"--junitxml=case-report_{run_key}.xml", test_file])
 
     previous = os.getcwd()
     previous_case_root = os.environ.get("RAID_NVME_CASE_ROOT")
@@ -798,7 +810,7 @@ def run_single_item(
 def merge_junit_reports(items, out_path):
     merged_root = ET.Element("testsuites")
     for item in items:
-        part = f"report_{item}.xml"
+        part = f"case-report_{item}.xml"
         if not os.path.exists(part):
             continue
         try:

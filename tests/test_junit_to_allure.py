@@ -12,7 +12,7 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
     (allure_dir / "monitor_log_lawdisk.tar.gz").write_bytes(b"monitor archive")
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
   <testcase classname="test_items.test_ci_01_lawdisk" name="test_lawdiskstress" />
@@ -74,7 +74,7 @@ def test_junit_to_allure_skips_node_junit_when_pytest_allure_exists(tmp_path, mo
         ),
         encoding="utf-8",
     )
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
   <testcase classname="test_items.test_ci_01_lawdisk__2" name="test_lawdiskstress" time="12.5" />
@@ -92,7 +92,7 @@ def test_junit_to_allure_attaches_console_snapshot(tmp_path, monkeypatch):
     monkeypatch.setenv("BUILD_URL", "http://jenkins/job/SMOKE/12/")
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="test_items.test_ci" name="test_mix_stress" />
 </testsuite>
@@ -127,7 +127,7 @@ def test_junit_to_allure_large_console_remains_one_complete_attachment(tmp_path,
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="test_items.test_ci" name="test_mix_stress" />
 </testsuite>
@@ -153,7 +153,7 @@ def test_junit_to_allure_does_not_copy_global_fio_summary_onto_every_case(tmp_pa
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
-    (tmp_path / "report_192.168.23.94.xml").write_text(
+    (tmp_path / "node-report_192.168.23.94.xml").write_text(
         """<testsuites>
   <testsuite name="pytest">
     <testcase classname="test_items.test_ci_03_mix_4k" name="test_mix_stress" />
@@ -203,7 +203,7 @@ def test_junit_to_allure_copies_full_jenkins_console_onto_pytest_case(tmp_path, 
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="test_items.test_ci_03_mix_4k" name="test_mix_stress" />
 </testsuite>
@@ -243,7 +243,7 @@ def test_junit_to_allure_relabels_existing_pytest_terminal_as_debug_log(tmp_path
         "attachments": [{"name": "终端输出", "source": source, "type": "text/plain"}],
     }
     (allure_dir / "pytest-mix-result.json").write_text(json.dumps(result), encoding="utf-8")
-    (tmp_path / "report_192.168.23.94.xml").write_text(
+    (tmp_path / "node-report_192.168.23.94.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="test_items.test_ci_03_mix_4k" name="test_mix_stress" />
 </testsuite>
@@ -375,7 +375,7 @@ def test_junit_to_allure_skips_per_item_junit_reports(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
-    (tmp_path / "report_test_ci_01_lawdisk.xml").write_text(
+    (tmp_path / "case-report_test_ci_01_lawdisk.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="test_items.test_ci_01_lawdisk" name="test_lawdiskstress" />
 </testsuite>
@@ -403,7 +403,7 @@ def test_junit_to_allure_surfaces_fio_model_elapsed_in_report(tmp_path, monkeypa
         "err=22/file:io_u.c:1845, func=io_u error, error=Invalid argument&#10;"
         "----- FIO error detail end (lines=3) -----"
     )
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         f"""<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1" failures="1">
   <testcase classname="test_items.test_ci_01_lawdisk" name="test_lawdiskstress">
@@ -462,7 +462,7 @@ def test_junit_to_allure_generates_execution_result_when_junit_only_passed(tmp_p
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="test_items.test_ci_03_mix_4k" name="test_mix_stress" />
 </testsuite>
@@ -557,7 +557,7 @@ def test_junit_to_allure_treats_all_node_reports_as_physical(tmp_path, monkeypat
   <testcase classname="test_items.test_ci_03_mix_4k" name="test_mix_stress" />
 </testsuite>
 """
-    (tmp_path / "report_192.168.22.134.xml").write_text(junit, encoding="utf-8")
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(junit, encoding="utf-8")
 
     assert junit_to_allure.main() == 0
 
@@ -584,8 +584,8 @@ def test_junit_to_allure_dedupes_legacy_physical_suffixed_report(tmp_path, monke
   <testcase classname="test_items.test_ci_03_mix_4k" name="test_mix_stress" />
 </testsuite>
 """
-    (tmp_path / "report_192.168.22.134.xml").write_text(junit, encoding="utf-8")
-    (tmp_path / "report_192.168.22.134_physical.xml").write_text(junit, encoding="utf-8")
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(junit, encoding="utf-8")
+    (tmp_path / "node-report_192.168.22.134_physical.xml").write_text(junit, encoding="utf-8")
 
     assert junit_to_allure.main() == 0
 

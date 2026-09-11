@@ -14,7 +14,7 @@ except ModuleNotFoundError:
 
 STAT_KEYS = ("tests", "failures", "errors", "skipped")
 INFRA_SUITES = frozenset({"Environment_Prepare", "Test_Execution", "Physical_Restore"})
-NODE_REPORT_RE = re.compile(r"^report_.+\..+\.xml$")
+NODE_REPORT_RE = re.compile(r"^(?:node-report_|report_).+\..+\.xml$")
 EXECUTION_HARD_MARKERS = (
     "FIO stage failed",
     "FIO stage abort",
@@ -47,14 +47,17 @@ def add_stats(total, item):
 
 
 def is_node_junit_report(path):
-    """Accept node-level reports only; skip per-item report_<case>.xml files."""
-    name = os.path.basename(path)
-    return bool(NODE_REPORT_RE.match(name))
+    """Accept node-level reports only; skip per-item case-report_*.xml files."""
+    try:
+        from ci.report_names import is_node_junit_report as _impl
+    except ModuleNotFoundError:
+        from report_names import is_node_junit_report as _impl
+    return _impl(path) or bool(NODE_REPORT_RE.match(os.path.basename(path)))
 
 
 def junit_metrics(paths=None):
     stats = empty_stats()
-    candidates = paths or glob.glob("report_*.xml")
+    candidates = paths or (glob.glob("node-report_*.xml") + glob.glob("report_*.xml"))
     for path in candidates:
         if paths is None and not is_node_junit_report(path):
             continue
@@ -161,7 +164,9 @@ def execution_log_needs_result(text):
 
 
 def report_has_testcases(target_node):
-    path = f"report_{target_node}.xml"
+    path = f"node-report_{target_node}.xml"
+    if not os.path.isfile(path):
+        path = f"report_{target_node}.xml"
     try:
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):
@@ -170,7 +175,9 @@ def report_has_testcases(target_node):
 
 
 def report_has_failures_or_errors(target_node):
-    path = f"report_{target_node}.xml"
+    path = f"node-report_{target_node}.xml"
+    if not os.path.isfile(path):
+        path = f"report_{target_node}.xml"
     try:
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):

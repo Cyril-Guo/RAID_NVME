@@ -81,7 +81,7 @@ def test_native_case_does_not_suppress_another_junit_case(tmp_path, monkeypatch)
     root = tmp_path / "allure-results"
     root.mkdir()
     write_json(root / "native-result.json", result())
-    (tmp_path / "report_192.168.22.134.xml").write_text(
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
         '<testsuite name="pytest"><testcase classname="test_items.test_ci_03_mix_4k__2" name="test_mix_stress">'
         '<failure message="fio timeout" /></testcase>'
         '<testcase classname="test_items.test_ci_05_random_io_4k__5" name="test_random_io" /></testsuite>')

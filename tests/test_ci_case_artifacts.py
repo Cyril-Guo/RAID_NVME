@@ -9,7 +9,7 @@ def test_case_logs_survive_missing_pytest_finalization(tmp_path):
     logs.mkdir(parents=True)
     (logs / "result.log").write_text("FIO stage failed\n")
     (case / "fio_command_output_test_ci_03_mix_4k__2.log").write_text("watchdog timeout\n")
-    (case / "report_test_ci_03_mix_4k__2.xml").write_text('<testsuite><testcase name="test_mix_stress" /></testsuite>')
+    (case / "case-report_test_ci_03_mix_4k__2.xml").write_text('<testsuite><testcase name="test_mix_stress" /></testsuite>')
     recover_case_outputs(tmp_path)
     root = tmp_path / "allure-results"
     index = json.loads((root / "case_test_ci_03_mix_4k__2_monitor_attachments.json").read_text(encoding="utf-8"))
@@ -17,7 +17,7 @@ def test_case_logs_survive_missing_pytest_finalization(tmp_path):
     with tarfile.open(root / index[0]["attachment"]["source"]) as archive:
         assert "IO_Stress/log/ResultLog/result.log" in archive.getnames()
         assert "fio_command_output_test_ci_03_mix_4k__2.log" in archive.getnames()
-    assert (tmp_path / "report_test_ci_03_mix_4k__2.xml").exists()
+    assert (tmp_path / "case-report_test_ci_03_mix_4k__2.xml").exists()
 
 
 def test_case_sidecars_do_not_overwrite_each_other(tmp_path):

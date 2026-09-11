@@ -71,7 +71,7 @@ def apply_result_timing(result, duration_seconds=0.0):
 
 def report_context(junit_file):
     base = os.path.basename(junit_file)
-    stem = base.removeprefix("report_").removesuffix(".xml").removesuffix("_physical")
+    stem = base.removeprefix("node-report_").removeprefix("report_").removesuffix(".xml").removesuffix("_physical")
     if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", stem):
         return stem, "physical"
     return "", ""
@@ -384,7 +384,9 @@ def execution_log_context(path):
 
 
 def report_has_testcases(target_node, target_kind):
-    path = f"report_{target_node}.xml"
+    path = f"node-report_{target_node}.xml"
+    if not os.path.isfile(path):
+        path = f"report_{target_node}.xml"
     try:
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):
@@ -393,7 +395,9 @@ def report_has_testcases(target_node, target_kind):
 
 
 def report_has_failures_or_errors(target_node, target_kind):
-    path = f"report_{target_node}.xml"
+    path = f"node-report_{target_node}.xml"
+    if not os.path.isfile(path):
+        path = f"report_{target_node}.xml"
     try:
         root = ET.parse(path).getroot()
     except (OSError, ET.ParseError):

@@ -283,9 +283,10 @@ def test_powercycle_verify_jobs_enable_serialize_overlap():
 def test_mix_io_generates_random_mixio_jobs():
     source = fio_lib_source()
 
-    assert "python3 $Cur_Dir/random_choice.py" in source
+    assert "MIX_RANDOM_CHOICE" in source
+    assert "mix_choice_path" in source
     assert "mv random_choice.csv MixIO$i.csv" in source
-    assert 'cp "$Cur_Dir/$filename" "MixIO${i}.csv"' not in source
+    assert 'cp "$cur_dir/$filename" "MixIO${i}.csv"' not in source
 
 
 def test_fio_cycle_propagates_run_fio_exit_code():

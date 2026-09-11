@@ -7,7 +7,7 @@
 # 命名规范：test_ci_<NN>_<name>[ _4k|_512 ]
 #   - NN 连续编号（00..06）
 #   - lawdisk / filesystem：不区分 4k/512，靠手动改 FIO_CONFIG 指向的 CSV
-#   - mix / random_io：仍分 4k / 512（用例脚本内置 IO_BS_ALIGN，本文件无需再写）
+#   - mix / random_io：仍分 4k / 512（用例设置 MIX_RANDOM_CHOICE=random_choice_{4k|512}.py）
 #   - Stress_Monitor 仅 lawdisk / filesystem 支持
 #   - 行格式：<完整用例名> <执行序号>；可写多个序号重复执行
 #   - 行首 # 表示不跑；去掉 # 即启用

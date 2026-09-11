@@ -110,7 +110,9 @@ def copy_case_outputs(case_dir, repo_root, run_key):
         return
     destination = repo_root / "allure-results"
     destination.mkdir(parents=True, exist_ok=True)
-    report = case_dir / f"report_{run_key}.xml"
+    report = case_dir / f"case-report_{run_key}.xml"
+    if not report.is_file():
+        report = case_dir / f"report_{run_key}.xml"  # legacy
     if report.is_file() and not report.is_symlink():
         try:
             shutil.copy2(report, repo_root / report.name)

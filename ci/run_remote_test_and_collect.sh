@@ -12,8 +12,8 @@ report_suffix="${REPORT_SUFFIX:-}"
 log_suffix="${LOG_SUFFIX:-}"
 test_label="${TEST_LABEL:-nvme_raid_test.py}"
 execution_log="test_execution_${NODE_IP}${log_suffix}.log"
-report_file="report_${NODE_IP}${report_suffix}.xml"
-tmp_results="allure-results-${NODE_IP}${report_suffix}"
+report_file="node-report_${NODE_IP}${report_suffix}.xml"
+tmp_results="allure-node-${NODE_IP}${report_suffix}"
 idle_timeout_seconds=$((TEST_IDLE_TIMEOUT_MINUTES * 60))
 watch_interval_seconds=30
 failure_bundle_query_timeout_seconds="${FAILURE_BUNDLE_QUERY_TIMEOUT_SECONDS:-30}"
@@ -186,7 +186,7 @@ fi
 
 # Best-effort remote cleanup/report salvage after kill or normal exit.
 # Keep the monitor pattern out of this SSH cmdline; salvage script uses a self-safe pkill pattern.
-salvage_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && python3 ci/salvage_junit_reports.py --stop-monitor --output report.xml\""
+salvage_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && python3 ci/salvage_junit_reports.py --stop-monitor --output node-report.xml\""
 run_cleanup_command "salvage remote reports" "${report_command_timeout_seconds}" \
     bash -c "${salvage_command}" || true
 
@@ -224,15 +224,21 @@ if [ -d "${tmp_results}" ]; then
         cp -R "${tmp_results}/." ./allure-results/ || true
     rm -rf "${tmp_results}"
 fi
-report_copy_command="${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report.xml ./${report_file}"
+report_copy_command="${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/node-report.xml ./${report_file}"
+# legacy fallback name on DUT
+legacy_report_copy_command="${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report.xml ./${report_file}"
 run_cleanup_command "copy merged JUnit report" "${report_copy_timeout_seconds}" \
     bash -c "${report_copy_command}" || true
+if [ ! -f "${report_file}" ]; then
+    run_cleanup_command "copy legacy merged JUnit report" "${report_copy_timeout_seconds}" \
+        bash -c "${legacy_report_copy_command}" || true
+fi
 if [ ! -f "${report_file}" ]; then
     # Fallback: pull known per-item reports into a temp dir, merge, then delete temp files.
     item_dir="item-junit-${NODE_IP}${report_suffix}"
     rm -rf "${item_dir}"
     mkdir -p "${item_dir}"
-    item_copy_command="${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report_*.xml ${item_dir}/"
+    item_copy_command="${REMOTE_SCP_COMMAND} ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/case-report_*.xml ${TARGET_USER}@${NODE_IP}:${REMOTE_DIR}/report_*.xml ${item_dir}/"
     run_cleanup_command "copy per-item JUnit reports" "${report_copy_timeout_seconds}" \
         bash -c "${item_copy_command}" 2>/dev/null || true
     run_cleanup_command "merge per-item JUnit reports" "${report_command_timeout_seconds}" \

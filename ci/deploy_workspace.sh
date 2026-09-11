@@ -22,6 +22,8 @@ tar \
   --exclude='./allure-results' \
   --exclude='./report.xml' \
   --exclude='./report_*.xml' \
+  --exclude='./case-report_*.xml' \
+  --exclude='./node-report*.xml' \
   --exclude='./test_execution_*.log' \
   --exclude='./environment_prepare_*.log' \
   --exclude='./feishu_payload.json' \

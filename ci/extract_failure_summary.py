@@ -73,7 +73,7 @@ def junit_failure_lines(paths=None):
 
     lines = []
     candidates = paths or [
-        path for path in glob.glob("report_*.xml") if is_node_junit_report(path)
+        path for path in glob.glob("node-report_*.xml") + glob.glob("report_*.xml") if is_node_junit_report(path)
     ]
     for path in sorted(candidates):
         try:
