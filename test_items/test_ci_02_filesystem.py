@@ -27,7 +27,7 @@ def test_filesystem_stress():
     fio_args = build_fio_args("filesystemstress", item)
     allure.dynamic.title(f"FIO test: {item} random mixed IO")
     allure.dynamic.description(
-        "4 partitions per disk, 16 fio models, iodepth=16; "
+        "16 partitions per disk, 22 fio models, iodepth=4; "
         "180s per round then change RW mix and align weights; "
         f"{int(runtime_text) // 180} rounds, total {runtime_text}s; "
         f"FIO_CONFIG={os.environ.get('FIO_CONFIG', '')}."

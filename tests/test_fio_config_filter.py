@@ -62,24 +62,30 @@ def test_ci_filesystem_profile_is_random_mixed_aligned_and_unaligned_io():
     assert sum(weight for size, weight in weighted_sizes if size % 512 != 0) == 50
 
 
-def test_ci_filesystem_prepares_four_partitions_and_buffered_async_io():
+def test_ci_filesystem_prepares_sixteen_partitions_and_buffered_async_io():
     source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
 
-    assert "FILESYSTEM_PARTITIONS_PER_DISK=4" in source
+    assert "FILESYSTEM_PARTITIONS_PER_DISK=16" in source
     assert "actual_partition_count != FILESYSTEM_PARTITIONS_PER_DISK" in source
     assert "refresh_partition_devices" in source
     assert 'partx -a "$device"' in source
     model_block = source.split("FILESYSTEM_MODEL_SIZE_PAIRS=(", 1)[1].split(")", 1)[0]
     models = [line.strip().strip('"') for line in model_block.splitlines() if ":" in line]
-    assert len(models) == 16
-    assert len(set(models)) == 16
+    assert len(models) == 22
+    assert len(set(models)) == 22
     assert models[0] == "512:513"
     assert models[-1] == "4m:4194305"
+    assert "3k:3073" in models
+    assert "1m:1048577" in models
+    assert "2m:2097153" in models
+    assert "3m:3145729" in models
+    assert "508k:520193" in models
+    assert "1020k:1044481" in models
     assert "8m:8388609" not in models
     assert "16m:16777215" not in models
     assert 'for model_index in "${!FILESYSTEM_MODEL_SIZE_PAIRS[@]}"' in source
     assert 'echo "numjobs=1"' in source
-    assert 'echo "iodepth=16"' in source
+    assert 'echo "iodepth=4"' in source
     assert 'echo "rw=randrw"' in source
     assert 'echo "rwmixread=$read_percentage"' in source
     assert "FILESYSTEM_MODEL_RUNTIME=180" in source
@@ -166,15 +172,15 @@ def test_ci_filesystem_appends_sixteen_distinct_fio_jobs(tmp_path):
     second_read_mix = [line for line in second_content.splitlines() if line.startswith("rwmixread=")]
 
     assert first_sections == [
-        f"[testp1-round-0001-model-{index:02d}]" for index in range(1, 17)
+        f"[testp1-round-0001-model-{index:02d}]" for index in range(1, 23)
     ]
-    assert len(first_bssplits) == 16
-    assert len(set(first_bssplits)) == 16
+    assert len(first_bssplits) == 22
+    assert len(set(first_bssplits)) == 22
     assert first_bssplits != second_bssplits
     assert first_read_mix != second_read_mix
-    assert first_content.count("rw=randrw") == 16
-    assert first_content.count("iodepth=16") == 16
-    assert first_content.count("numjobs=1") == 16
+    assert first_content.count("rw=randrw") == 22
+    assert first_content.count("iodepth=4") == 22
+    assert first_content.count("numjobs=1") == 22
 
 
 def test_ci_filesystem_generates_one_changed_model_set_per_three_minutes(tmp_path):

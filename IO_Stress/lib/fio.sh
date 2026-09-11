@@ -211,24 +211,31 @@ test_end()
     exit "${rc}"
 }
 
-FILESYSTEM_PARTITIONS_PER_DISK=4
+FILESYSTEM_PARTITIONS_PER_DISK=16
 FILESYSTEM_MODEL_RUNTIME=180
 FILESYSTEM_MODEL_SIZE_PAIRS=(
-    # Max aligned size 4m — drop 8m/16m for <=180GiB @32 disks (with parts=4, qd=16).
+    # 22 pitfall bssplit pairs (base:base+1), max 4m; no 8m/16m.
+    # parts=16 iodepth=4 => ~176GiB theoretical @32 disks.
     "512:513"
     "1k:1025"
     "2k:2049"
+    "3k:3073"
     "4k:4097"
+    "5k:5121"
+    "7k:7169"
     "8k:8193"
-    "16k:16385"
-    "32k:32769"
-    "64k:65537"
-    "128k:131073"
-    "256k:262145"
-    "512k:524289"
+    "12k:12289"
+    "20k:20481"
+    "60k:61441"
+    "68k:69633"
+    "124k:126977"
+    "132k:135169"
+    "260k:266241"
+    "508k:520193"
+    "516k:528385"
+    "1020k:1044481"
     "1m:1048577"
     "2m:2097153"
-    "2560k:2621441"
     "3m:3145729"
     "4m:4194305"
 )
@@ -337,7 +344,7 @@ function append_filesystem_model_jobs(){
             echo "rwmixread=$read_percentage"
             echo "bssplit=${aligned_size}/${aligned_percentage}:${unaligned_size}/${unaligned_percentage}"
             echo "bs_unaligned=1"
-            echo "iodepth=16"
+            echo "iodepth=4"
             echo "numjobs=1"
         } >> "$target_config"
     done
@@ -354,7 +361,7 @@ function configure_filesystem_rounds(){
 
     echo "Filesystem FIO: ${round_count} rounds x ${FILESYSTEM_MODEL_RUNTIME}s = ${total_runtime}s"
     for ((round_number=1; round_number<=round_count; round_number++)); do
-        printf -v config_file '%04d-filesystem-models-32-%d.log' \
+        printf -v config_file '%04d-filesystem-models-4-%d.log' \
             "$round_number" "$FILESYSTEM_MODEL_RUNTIME"
         target_config="$Config_Dir/$config_file"
         {
@@ -363,7 +370,7 @@ function configure_filesystem_rounds(){
             echo "direct=0"
             echo "runtime=$FILESYSTEM_MODEL_RUNTIME"
             echo "time_based=1"
-            echo "iodepth=16"
+            echo "iodepth=4"
             echo "numjobs=1"
             echo "size=100%"
             echo "randrepeat=0"
