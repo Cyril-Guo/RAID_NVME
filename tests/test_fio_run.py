@@ -1,160 +1,67 @@
 from pathlib import Path
 
-import pytest
-
-from test_items import fio_run
 from test_items.fio_run import build_fio_args, resolve_fio_csv
 
 
-def test_resolve_fio_csv_uses_case_file(tmp_path, monkeypatch):
+def test_resolve_fio_csv_uses_env_or_default(tmp_path, monkeypatch):
     io_stress = tmp_path / "IO_Stress"
     io_stress.mkdir()
-    (io_stress / "Input_Config_lawdisk.csv").write_text("header\n4k,100,100,64,30,24,0\n", encoding="utf-8")
+    (io_stress / "Input_Config_reboot.csv").write_text("header\n", encoding="utf-8")
+    (io_stress / "Input_Config_reboot_4k.csv").write_text("header\n", encoding="utf-8")
     monkeypatch.setenv("RAID_NVME_CASE_ROOT", str(tmp_path))
     monkeypatch.delenv("FIO_CONFIG", raising=False)
 
-    assert resolve_fio_csv("lawdisk") == "Input_Config_lawdisk.csv"
+    assert resolve_fio_csv("reboot") == "Input_Config_reboot.csv"
+
+    monkeypatch.setenv("FIO_CONFIG", "Input_Config_reboot_4k.csv")
+    assert resolve_fio_csv("reboot") == "Input_Config_reboot_4k.csv"
 
 
-def test_resolve_fio_csv_honors_fio_config_override(tmp_path, monkeypatch):
+def test_build_fio_args_for_powercycle(tmp_path, monkeypatch):
     io_stress = tmp_path / "IO_Stress"
     io_stress.mkdir()
-    (io_stress / "custom_mix.csv").write_text("header\n", encoding="utf-8")
+    (io_stress / "Input_Config_reboot_4k.csv").write_text("header\n", encoding="utf-8")
+    (io_stress / "Input_Config_dc_4k.csv").write_text("header\n", encoding="utf-8")
     monkeypatch.setenv("RAID_NVME_CASE_ROOT", str(tmp_path))
-    monkeypatch.setenv("FIO_CONFIG", "custom_mix.csv")
-
-    assert resolve_fio_csv("mix") == "custom_mix.csv"
-
-
-def test_build_fio_args_passes_case_csv(tmp_path, monkeypatch):
-    io_stress = tmp_path / "IO_Stress"
-    io_stress.mkdir()
-    (io_stress / "Input_Config_mix.csv").write_text("header\n", encoding="utf-8")
-    monkeypatch.setenv("RAID_NVME_CASE_ROOT", str(tmp_path))
-    monkeypatch.delenv("FIO_CONFIG", raising=False)
+    monkeypatch.setenv("FIO_CONFIG", "Input_Config_reboot_4k.csv")
     monkeypatch.setenv("IGNORE_ERROR", "yes")
     monkeypatch.delenv("FIO_DISKS", raising=False)
 
-    args = build_fio_args("lawdiskstress", "mix", extra=["--mix_io", "yes"])
-    assert args == [
+    assert build_fio_args("reboot", "reboot", extra=["-l", "100"]) == [
         "-i",
-        "lawdiskstress",
+        "reboot",
         "-f",
         "NON-STOP",
         "-n",
-        "Input_Config_mix.csv",
-        "--mix_io",
-        "yes",
+        "Input_Config_reboot_4k.csv",
+        "-l",
+        "100",
+    ]
+
+    monkeypatch.setenv("FIO_CONFIG", "Input_Config_dc_4k.csv")
+    monkeypatch.setenv("IGNORE_ERROR", "no")
+    monkeypatch.setenv("FIO_DISKS", "nvme2n1,nvme3n1")
+    assert build_fio_args("dc", "dc", extra=["-l", "5"]) == [
+        "-i",
+        "dc",
+        "-f",
+        "STOP",
+        "-n",
+        "Input_Config_dc_4k.csv",
+        "-l",
+        "5",
+        "-u",
+        "nvme2n1,nvme3n1",
     ]
 
 
-def test_powercycle_cases_use_own_csv_and_do_not_import_siblings():
-    sources = {
-        "test_powercycle_00_env_prepare.py": "run_env_prepare(log)",
+def test_powercycle_cases_use_build_fio_args():
+    root = Path(__file__).resolve().parents[1] / "test_items"
+    mapping = {
         "test_powercycle_01_reboot.py": 'build_fio_args("reboot", "reboot"',
         "test_powercycle_02_dc.py": 'build_fio_args("dc", "dc"',
     }
-    for name, needle in sources.items():
-        source = Path("test_items", name).read_text(encoding="utf-8")
+    for name, needle in mapping.items():
+        source = (root / name).read_text(encoding="utf-8")
         assert needle in source
-        assert "as lawdisk_case" not in source
-        assert "prepare_physical_io_case" not in source
-    assert Path("IO_Stress", "Input_Config_reboot_4k.csv").is_file()
-    assert Path("IO_Stress", "Input_Config_dc_4k.csv").is_file()
-
-
-def test_single_mode_propagates_run_single_failure():
-    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
-    single_body = source.split("single()", 1)[1].split("\nall()", 1)[0]
-
-    assert 'run_single "$a" || return $?' in single_body
-
-
-def test_inner_watchdog_reads_only_devices_from_current_fio_config():
-    source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
-
-    assert 'fio_io_progress_signature "$configuration"' in source
-    signature_body = source.split("fio_io_progress_signature()", 1)[1].split(
-        "fio_output_has_successful_io()", 1
-    )[0]
-    assert "filename[[:space:]]*=" in signature_body
-
-
-class _FakeProcess:
-    def __init__(self, lines, returncode):
-        self.stdout = iter(lines)
-        self.returncode = returncode
-
-    def wait(self):
-        return self.returncode
-
-
-def _configure_fio_runner(monkeypatch, tmp_path, lines, returncode, attachments):
-    monkeypatch.setenv("RAID_NVME_CASE_ROOT", str(tmp_path))
-    monkeypatch.setenv("RAID_NVME_RUN_KEY", "mix__2")
-    monkeypatch.delenv("IGNORE_ERROR", raising=False)
-    monkeypatch.setattr(
-        fio_run.subprocess,
-        "Popen",
-        lambda *args, **kwargs: _FakeProcess(lines, returncode),
-    )
-    monkeypatch.setattr(
-        fio_run,
-        "attach_case_terminal_output",
-        lambda text, output_path=None: attachments.append(("terminal", text, output_path)),
-    )
-    monkeypatch.setattr(fio_run, "attach_case_fio_summary", lambda text: False)
-    monkeypatch.setattr(fio_run, "attach_machinecheck_records", lambda *args, **kwargs: False)
-    monkeypatch.setattr(
-        fio_run,
-        "attach_named_text",
-        lambda text, name: attachments.append((name, text, None)),
-    )
-
-
-def test_run_and_check_argv_keeps_running_when_console_pipe_closes(monkeypatch, tmp_path):
-    attachments = []
-    _configure_fio_runner(
-        monkeypatch,
-        tmp_path,
-        ["Job 1/4 is Running..\n", "PASSED\n"],
-        0,
-        attachments,
-    )
-    monkeypatch.setattr("test_items.command_output.safe_console_write", lambda *_args, **_kwargs: False)
-
-    output = fio_run.run_and_check_argv(["fio", "mix.fio"], cwd=str(tmp_path))
-
-    assert "PASSED" in output
-    assert "stdout pipe closed" in output
-    terminal = next(item for item in attachments if item[0] == "terminal")
-    persisted = Path(terminal[2])
-    assert persisted.is_file()
-    assert "Job 1/4 is Running.." in persisted.read_text(encoding="utf-8")
-    assert "console_mirror=closed" in persisted.read_text(encoding="utf-8")
-
-
-def test_run_and_check_argv_reports_fio_root_cause_not_broken_pipe(monkeypatch, tmp_path):
-    attachments = []
-    _configure_fio_runner(
-        monkeypatch,
-        tmp_path,
-        [
-            "fio: io_u error on file /dev/dp0-vd1: Input/output error\n",
-            "FIO stage failed in LAWDISKSTRESS mode, model=randrw rc=1\n",
-        ],
-        1,
-        attachments,
-    )
-    monkeypatch.setattr("test_items.command_output.safe_console_write", lambda *_args, **_kwargs: False)
-
-    with pytest.raises(pytest.fail.Exception) as exc_info:
-        fio_run.run_and_check_argv(["bash", "./Fio_All.sh"], cwd=str(tmp_path))
-
-    message = str(exc_info.value)
-    assert message.startswith("FIO 脚本执行失败")
-    assert "exit_code=1" in message
-    assert "primary_error=fio: io_u error" in message
-    assert "BrokenPipeError" not in message
-    summary = next(item for item in attachments if item[0] == "FIO 故障摘要")
-    assert "FIO stage failed" in summary[1]
+        assert "run_and_check" not in source

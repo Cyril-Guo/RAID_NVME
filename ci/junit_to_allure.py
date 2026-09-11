@@ -132,7 +132,7 @@ def result_matches_item(result, item, run_key=None):
 
 def attach_pending_monitor_logs(allure_dir):
     return sum(_attach_monitor_sidecar(allure_dir, path) for path in
-               glob.glob(os.path.join(allure_dir, "*monitor_attachments.json")))
+               glob.glob(os.path.join(allure_dir, "*case_attachments.json")))
 
 
 def _attach_monitor_sidecar(allure_dir, sidecar):

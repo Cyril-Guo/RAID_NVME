@@ -82,7 +82,7 @@ def _copy_allure(case_dir, destination, run_key):
             continue
         destination_path = destination / source.name
         try:
-            if source.name.endswith("monitor_attachments.json"):
+            if source.name.endswith("case_attachments.json"):
                 pending = json.loads(source.read_text(encoding="utf-8"))
                 for entry in pending:
                     entry.setdefault("run_key", run_key)
@@ -127,7 +127,7 @@ def copy_case_outputs(case_dir, repo_root, run_key):
         entry = {"item": run_key.split("__", 1)[0], "run_key": run_key,
                  "attachment": {"name": f"用例调试日志 {run_key}（含采集清单）",
                                 "source": source, "type": "application/gzip"}}
-        (destination / f"case_{run_key}_monitor_attachments.json").write_text(
+        (destination / f"case_{run_key}_case_attachments.json").write_text(
             json.dumps([entry], ensure_ascii=False), encoding="utf-8")
 
 

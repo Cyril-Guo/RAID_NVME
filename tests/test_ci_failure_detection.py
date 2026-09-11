@@ -1,6 +1,4 @@
-from test_items.fio_run import collect_failure_lines as lawdisk_failures
-from test_items.fio_run import collect_failure_lines as filesystem_failures
-from test_items.fio_run import collect_failure_lines as mix_failures
+from test_items.fio_run import collect_failure_lines
 
 
 def test_collect_failure_lines_matches_fio_errors():
@@ -14,9 +12,9 @@ def test_collect_failure_lines_matches_fio_errors():
         "FIO command failed, model=randwrite bs=4k qd=64 runtime=30s (#2), "
         "config=2-randwrite-4k-64-30.log, elapsed=12s(12s), planned_runtime=30s, rc=8"
     ]
-    assert filesystem_failures(sample) == expected
-    assert lawdisk_failures(sample) == expected
-    assert mix_failures(sample) == expected
+    assert collect_failure_lines(sample) == expected
+    assert collect_failure_lines(sample) == expected
+    assert collect_failure_lines(sample) == expected
 
 
 def test_collect_failure_lines_matches_fio_guard_failures():
@@ -25,12 +23,12 @@ def test_collect_failure_lines_matches_fio_guard_failures():
     FIO failed: system disk not detected
     """
 
-    assert lawdisk_failures(sample) == [
+    assert collect_failure_lines(sample) == [
         "Fail to detect system disk. Refuse to run to avoid any IO on OS disk. Exit.",
         "FIO failed: system disk not detected",
     ]
-    assert filesystem_failures(sample) == lawdisk_failures(sample)
-    assert mix_failures(sample) == lawdisk_failures(sample)
+    assert collect_failure_lines(sample) == collect_failure_lines(sample)
+    assert collect_failure_lines(sample) == collect_failure_lines(sample)
 
 
 def test_collect_failure_lines_ignores_normal_output():
@@ -41,9 +39,9 @@ def test_collect_failure_lines_ignores_normal_output():
     PASSED
     """
 
-    assert filesystem_failures(sample) == []
-    assert lawdisk_failures(sample) == []
-    assert mix_failures(sample) == []
+    assert collect_failure_lines(sample) == []
+    assert collect_failure_lines(sample) == []
+    assert collect_failure_lines(sample) == []
 
 
 def test_collect_failure_lines_includes_fio_error_detail_block():
@@ -56,14 +54,14 @@ def test_collect_failure_lines_includes_fio_error_detail_block():
     ----- FIO error detail end (lines=3) -----
     """
 
-    lines = mix_failures(sample)
+    lines = collect_failure_lines(sample)
     assert any("FIO command failed" in line for line in lines)
     assert any("io_u error" in line for line in lines)
     assert any("Invalid argument" in line for line in lines)
     assert any("FIO error detail begin" in line for line in lines)
     assert any("FIO error detail end" in line for line in lines)
-    assert lawdisk_failures(sample) == lines
-    assert filesystem_failures(sample) == lines
+    assert collect_failure_lines(sample) == lines
+    assert collect_failure_lines(sample) == lines
 
 
 def test_collect_failure_lines_records_machinecheck_unless_ignored():
@@ -73,52 +71,50 @@ def test_collect_failure_lines_records_machinecheck_unless_ignored():
     FIO command failed, model=randwrite bs=4k qd=64 runtime=30s (#2), config=2-randwrite-4k-64-30.log, elapsed=12s(12s), planned_runtime=30s, rc=8
     """
 
-    mc_and_fio = lawdisk_failures(sample)
+    mc_and_fio = collect_failure_lines(sample)
     assert any("MachineCheck inconsistencies found" in line for line in mc_and_fio)
     assert any("FIO command failed" in line for line in mc_and_fio)
 
-    fio_only = lawdisk_failures(sample, ignore_machinecheck=True)
+    fio_only = collect_failure_lines(sample, ignore_machinecheck=True)
     assert fio_only == [
         "FIO command failed, model=randwrite bs=4k qd=64 runtime=30s (#2), "
         "config=2-randwrite-4k-64-30.log, elapsed=12s(12s), planned_runtime=30s, rc=8"
     ]
-    assert filesystem_failures(sample, ignore_machinecheck=True) == fio_only
-    assert mix_failures(sample, ignore_machinecheck=True) == fio_only
+    assert collect_failure_lines(sample, ignore_machinecheck=True) == fio_only
+    assert collect_failure_lines(sample, ignore_machinecheck=True) == fio_only
 
 
-def test_collect_failure_lines_ignores_soft_mix_fio_errors_when_script_ok():
+def test_collect_failure_lines_ignores_soft_fio_errors_when_script_ok():
     sample = """
     [FIO] finish model=randwrite bs=4k qd=64 runtime=30s (#1) config=1-randwrite-4k-64-30.log rc=4 elapsed=30s(30s) planned_runtime=30s
     ----- FIO error detail begin (log=1.txt model=randwrite rc=4) -----
     fio: io_u error on file /dev/dp0-vd2: Input/output error
     err=5/file:io_u.c:1845, func=io_u error, error=Input/output error
     ----- FIO error detail end (lines=2) -----
-    [FIO] MIX job 1 recorded FIO/disk errors rc=4/0/0/0 disks=dp8-vd2; MIX_FAIL_ON_ANY=no, continue
+    [FIO] job 1 recorded FIO/disk errors rc=4/0/0/0 disks=dp8-vd2; soft-continue
     """
 
-    ignored = mix_failures(sample, ignore_fio_job_errors=True)
+    ignored = collect_failure_lines(sample, ignore_fio_job_errors=True)
     assert ignored == []
-    assert lawdisk_failures(sample, ignore_fio_job_errors=True) == []
-    assert filesystem_failures(sample, ignore_fio_job_errors=True) == []
+    assert collect_failure_lines(sample, ignore_fio_job_errors=True) == []
+    assert collect_failure_lines(sample, ignore_fio_job_errors=True) == []
 
-    kept = mix_failures(sample)
+    kept = collect_failure_lines(sample)
     assert any("io_u error" in line for line in kept)
     assert any("FIO error detail begin" in line for line in kept)
 
 
 def test_collect_failure_lines_keeps_hard_stops_even_when_ignoring_fio_job_errors():
     sample = """
-    FIO command failed in MIX mode job 22, model=randread bs=4m qd=32 runtime=30s (#22), elapsed=46s, rc=96/96/96/96, error_disks=8; MIX_FAIL_ON_ANY=yes, fail
-    FIO stage failed in LAWDISKSTRESS mode, model=randread bs=4m qd=32 runtime=30s (#22), config=22-randread-4m-32-30.log, elapsed=46s, planned_runtime=30s, rc=1
+    FIO command failed in reboot mode job 22, model=randread bs=4m qd=32 runtime=30s (#22), elapsed=46s, rc=96/96/96/96, error_disks=8
+    FIO stage failed in REBOOT mode, model=randread bs=4m qd=32 runtime=30s (#22), config=22-randread-4m-32-30.log, elapsed=46s, planned_runtime=30s, rc=1
     fio: io_u error on file /dev/dp0-vd5: Input/output error
     """
 
-    lines = mix_failures(sample, ignore_fio_job_errors=True)
-    assert any("MIX_FAIL_ON_ANY=yes, fail" in line for line in lines)
+    lines = collect_failure_lines(sample, ignore_fio_job_errors=True)
     assert any("FIO stage failed" in line for line in lines)
     assert not any("io_u error" in line for line in lines)
-    assert lawdisk_failures(sample, ignore_fio_job_errors=True) == lines
-    assert filesystem_failures(sample, ignore_fio_job_errors=True) == lines
+    assert collect_failure_lines(sample, ignore_fio_job_errors=True) == lines
 
 
 def test_collect_failure_lines_still_keeps_guard_failures_when_ignoring_fio_job_errors():
@@ -127,9 +123,9 @@ def test_collect_failure_lines_still_keeps_guard_failures_when_ignoring_fio_job_
     fio: io_u error on file /dev/dp0-vd2: Invalid argument
     """
 
-    lines = lawdisk_failures(sample, ignore_fio_job_errors=True)
+    lines = collect_failure_lines(sample, ignore_fio_job_errors=True)
     assert lines == [
         "Fail to detect system disk. Refuse to run to avoid any IO on OS disk. Exit.",
     ]
-    assert filesystem_failures(sample, ignore_fio_job_errors=True) == lines
-    assert mix_failures(sample, ignore_fio_job_errors=True) == lines
+    assert collect_failure_lines(sample, ignore_fio_job_errors=True) == lines
+    assert collect_failure_lines(sample, ignore_fio_job_errors=True) == lines

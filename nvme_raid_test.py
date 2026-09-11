@@ -700,7 +700,7 @@ def _attach_named_file_to_allure(item, base_dir, source_name, display_name, mime
             json.dump(result, handle, ensure_ascii=False)
         return True
 
-    sidecar = os.path.join(allure_dir, "monitor_attachments.json")
+    sidecar = os.path.join(allure_dir, "case_attachments.json")
     try:
         with open(sidecar, "r", encoding="utf-8") as handle:
             pending = json.load(handle)

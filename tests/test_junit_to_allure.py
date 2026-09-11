@@ -11,23 +11,23 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
-    (allure_dir / "monitor_log_lawdisk.tar.gz").write_bytes(b"monitor archive")
+    (allure_dir / "case_log_reboot.tar.gz").write_bytes(b"monitor archive")
     (tmp_path / "report_192.168.22.134.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
-  <testcase classname="test_items.test_ci_03_lawdisk" name="test_lawdiskstress" />
+  <testcase classname="test_items.test_powercycle_01_reboot" name="test_reboot_powercycle" />
 </testsuite>
 """,
         encoding="utf-8",
     )
-    (allure_dir / "monitor_attachments.json").write_text(
+    (allure_dir / "case_attachments.json").write_text(
         json.dumps(
             [
                 {
-                    "item": "lawdisk",
+                    "item": "test_powercycle_01_reboot",
                     "attachment": {
-                        "name": "monitor_log_lawdisk",
-                        "source": "monitor_log_lawdisk.tar.gz",
+                        "name": "case_log_reboot",
+                        "source": "case_log_reboot.tar.gz",
                         "type": "application/gzip",
                     },
                 }
@@ -41,11 +41,11 @@ def test_junit_to_allure_generates_case_and_attaches_monitor(tmp_path, monkeypat
     results = list(allure_dir.glob("*-result.json"))
     assert len(results) == 1
     result = json.loads(results[0].read_text(encoding="utf-8"))
-    assert result["name"] == "[Physical 192.168.22.134] test_lawdiskstress"
+    assert result["name"] == "[Physical 192.168.22.134] test_reboot_powercycle"
     assert "start" in result and "stop" in result
     assert result["stop"] >= result["start"]
     debug = _section(result, "日志收集")
-    assert debug["attachments"][0]["source"] == "monitor_log_lawdisk.tar.gz"
+    assert debug["attachments"][0]["source"] == "case_log_reboot.tar.gz"
 
     assert junit_to_allure.main() == 0
     assert len(list(allure_dir.glob("*-result.json"))) == 1
@@ -60,7 +60,7 @@ def test_junit_to_allure_skips_node_junit_when_pytest_allure_exists(tmp_path, mo
         json.dumps(
             {
                 "uuid": existing_uuid,
-                "name": "[Physical 192.168.22.134] test_lawdiskstress",
+                "name": "[Physical 192.168.22.134] test_reboot_powercycle",
                 "status": "passed",
                 "stage": "finished",
                 "start": 1_700_000_000_000,
@@ -68,7 +68,7 @@ def test_junit_to_allure_skips_node_junit_when_pytest_allure_exists(tmp_path, mo
                 "labels": [
                     {"name": "framework", "value": "pytest"},
                     {"name": "host", "value": "192.168.22.134"},
-                    {"name": "run_key", "value": "lawdisk__2"},
+                    {"name": "run_key", "value": "test_powercycle_01_reboot__2"},
                 ],
             }
         ),
@@ -77,7 +77,7 @@ def test_junit_to_allure_skips_node_junit_when_pytest_allure_exists(tmp_path, mo
     (tmp_path / "report_192.168.22.134.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
-  <testcase classname="test_items.lawdisk__2" name="test_lawdiskstress" time="12.5" />
+  <testcase classname="test_items.test_powercycle_01_reboot__2" name="test_reboot_powercycle" time="12.5" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -102,7 +102,7 @@ def test_junit_to_allure_attaches_console_snapshot(tmp_path, monkeypatch):
     (tmp_path / "jenkins_console.log").write_text(
         "[Pipeline] stage\n"
         "[ITEM_START] basic_io\n"
-        "[ITEM] basic_io -> test_items/test_ci_06_basic_io.py\n"
+        "[ITEM] basic_io -> test_items/test_powercycle_00_env_prepare.py\n"
         "all console output\n"
         "[ITEM_END] basic_io exit_code=0\n"
         "[Pipeline] echo\n",
@@ -156,8 +156,8 @@ def test_junit_to_allure_does_not_copy_global_fio_summary_onto_every_case(tmp_pa
     (tmp_path / "report_192.168.23.94.xml").write_text(
         """<testsuites>
   <testsuite name="pytest">
-    <testcase classname="test_items.test_ci_05_mix" name="test_mix_stress" />
-    <testcase classname="test_items.test_ci_06_basic_io" name="test_basic_io" />
+    <testcase classname="test_items.test_powercycle_02_dc" name="test_dc_powercycle" />
+    <testcase classname="test_items.test_powercycle_00_env_prepare" name="test_basic_io" />
   </testsuite>
 </testsuites>
 """,
@@ -183,7 +183,7 @@ def test_junit_to_allure_does_not_copy_global_fio_summary_onto_every_case(tmp_pa
     results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
     assert len(results) == 2
     by_name = {result["name"]: result for result in results}
-    mix = by_name["[Physical 192.168.23.94] test_mix_stress"]
+    mix = by_name["[Physical 192.168.23.94] test_dc_powercycle"]
     basic = by_name["[Physical 192.168.23.94] test_basic_io"]
     for result in results:
         names = [item["name"] for item in _section(result, "测试结果")["attachments"]]
@@ -205,7 +205,7 @@ def test_junit_to_allure_copies_full_jenkins_console_onto_pytest_case(tmp_path, 
     allure_dir.mkdir()
     (tmp_path / "report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
-  <testcase classname="test_items.test_ci_05_mix" name="test_mix_stress" />
+  <testcase classname="test_items.test_powercycle_02_dc" name="test_dc_powercycle" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -233,11 +233,11 @@ def test_junit_to_allure_relabels_existing_pytest_terminal_as_debug_log(tmp_path
     (allure_dir / source).write_text("this case stdout only\n", encoding="utf-8")
     result = {
         "name": "FIO 测试: mix (混合 IO)",
-        "historyId": "192.168.23.94::physical::test_items.test_ci_05_mix::test_mix_stress",
-        "fullName": "physical:192.168.23.94:test_items.test_ci_05_mix#test_mix_stress",
-        "testCaseId": "192.168.23.94::physical::test_items.test_ci_05_mix::test_mix_stress",
+        "historyId": "192.168.23.94::physical::test_items.test_powercycle_02_dc::test_dc_powercycle",
+        "fullName": "physical:192.168.23.94:test_items.test_powercycle_02_dc#test_dc_powercycle",
+        "testCaseId": "192.168.23.94::physical::test_items.test_powercycle_02_dc::test_dc_powercycle",
         "labels": [
-            {"name": "package", "value": "test_items.test_ci_05_mix"},
+            {"name": "package", "value": "test_items.test_powercycle_02_dc"},
             {"name": "framework", "value": "pytest"},
         ],
         "attachments": [{"name": "终端输出", "source": source, "type": "text/plain"}],
@@ -245,7 +245,7 @@ def test_junit_to_allure_relabels_existing_pytest_terminal_as_debug_log(tmp_path
     (allure_dir / "pytest-mix-result.json").write_text(json.dumps(result), encoding="utf-8")
     (tmp_path / "report_192.168.23.94.xml").write_text(
         """<testsuite name="pytest">
-  <testcase classname="test_items.test_ci_05_mix" name="test_mix_stress" />
+  <testcase classname="test_items.test_powercycle_02_dc" name="test_dc_powercycle" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -375,9 +375,9 @@ def test_junit_to_allure_skips_per_item_junit_reports(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
-    (tmp_path / "report_lawdisk.xml").write_text(
+    (tmp_path / "report_test_powercycle_01_reboot.xml").write_text(
         """<testsuite name="pytest">
-  <testcase classname="test_items.test_ci_03_lawdisk" name="test_lawdiskstress" />
+  <testcase classname="test_items.test_powercycle_01_reboot" name="test_reboot_powercycle" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -406,7 +406,7 @@ def test_junit_to_allure_surfaces_fio_model_elapsed_in_report(tmp_path, monkeypa
     (tmp_path / "report_192.168.22.134.xml").write_text(
         f"""<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1" failures="1">
-  <testcase classname="test_items.test_ci_03_lawdisk" name="test_lawdiskstress">
+  <testcase classname="test_items.test_powercycle_01_reboot" name="test_reboot_powercycle">
     <failure message="FIO 脚本执行失败，返回码: 8&#10;{fio_line}&#10;{fio_detail}">AssertionError</failure>
   </testcase>
 </testsuite>
@@ -464,7 +464,7 @@ def test_junit_to_allure_generates_execution_result_when_junit_only_passed(tmp_p
     allure_dir.mkdir()
     (tmp_path / "report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
-  <testcase classname="test_items.test_ci_05_mix" name="test_mix_stress" />
+  <testcase classname="test_items.test_powercycle_02_dc" name="test_dc_powercycle" />
 </testsuite>
 """,
         encoding="utf-8",
@@ -481,7 +481,7 @@ def test_junit_to_allure_generates_execution_result_when_junit_only_passed(tmp_p
 
     results = [json.loads(path.read_text(encoding="utf-8")) for path in allure_dir.glob("*-result.json")]
     names = {result["name"] for result in results}
-    assert "[Physical 192.168.22.134] test_mix_stress" in names
+    assert "[Physical 192.168.22.134] test_dc_powercycle" in names
     assert "Test_Execution_Physical_192.168.22.134" in names
 
 
@@ -554,7 +554,7 @@ def test_junit_to_allure_treats_all_node_reports_as_physical(tmp_path, monkeypat
     allure_dir.mkdir()
     junit = """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
-  <testcase classname="test_items.test_ci_06_basic_io" name="test_basic_io" />
+  <testcase classname="test_items.test_powercycle_00_env_prepare" name="test_basic_io" />
 </testsuite>
 """
     (tmp_path / "report_192.168.22.134.xml").write_text(junit, encoding="utf-8")
@@ -581,7 +581,7 @@ def test_junit_to_allure_dedupes_legacy_physical_suffixed_report(tmp_path, monke
     allure_dir.mkdir()
     junit = """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
-  <testcase classname="test_items.test_ci_06_basic_io" name="test_basic_io" />
+  <testcase classname="test_items.test_powercycle_00_env_prepare" name="test_basic_io" />
 </testsuite>
 """
     (tmp_path / "report_192.168.22.134.xml").write_text(junit, encoding="utf-8")
@@ -600,7 +600,7 @@ def test_junit_to_allure_attaches_pending_monitor_only_to_matching_target(tmp_pa
     allure_dir = tmp_path / "allure-results"
     allure_dir.mkdir()
     other_node_result = {
-        "name": "[Physical 192.168.22.125] FIO 测试: lawdiskstress",
+        "name": "[Physical 192.168.22.125] FIO 测试: reboot",
         "historyId": "physical:192.168.22.125:test_basic_io",
         "fullName": "physical:192.168.22.125:test_basic_io",
         "testCaseId": "physical:192.168.22.125:test_basic_io",
@@ -610,7 +610,7 @@ def test_junit_to_allure_attaches_pending_monitor_only_to_matching_target(tmp_pa
         ],
     }
     physical_result = {
-        "name": "[Physical 192.168.22.134] FIO 测试: lawdiskstress",
+        "name": "[Physical 192.168.22.134] FIO 测试: reboot",
         "historyId": "physical:192.168.22.134:test_basic_io",
         "fullName": "physical:192.168.22.134:test_basic_io",
         "testCaseId": "physical:192.168.22.134:test_basic_io",
@@ -621,7 +621,7 @@ def test_junit_to_allure_attaches_pending_monitor_only_to_matching_target(tmp_pa
     }
     (allure_dir / "other-node-result.json").write_text(json.dumps(other_node_result), encoding="utf-8")
     (allure_dir / "physical-result.json").write_text(json.dumps(physical_result), encoding="utf-8")
-    (allure_dir / "monitor_attachments.json").write_text(
+    (allure_dir / "case_attachments.json").write_text(
         json.dumps(
             [
                 {
@@ -629,8 +629,8 @@ def test_junit_to_allure_attaches_pending_monitor_only_to_matching_target(tmp_pa
                     "host": "192.168.22.134",
                     "target": "physical",
                     "attachment": {
-                        "name": "monitor_log_basic_io",
-                        "source": "physical_monitor_log_basic_io.tar.gz",
+                        "name": "case_log_env_prepare",
+                        "source": "physical_case_log_env_prepare.tar.gz",
                         "type": "application/gzip",
                     },
                 }
@@ -644,4 +644,4 @@ def test_junit_to_allure_attaches_pending_monitor_only_to_matching_target(tmp_pa
     other_node = json.loads((allure_dir / "other-node-result.json").read_text(encoding="utf-8"))
     physical = json.loads((allure_dir / "physical-result.json").read_text(encoding="utf-8"))
     assert "attachments" not in other_node
-    assert physical["attachments"][0]["source"] == "physical_monitor_log_basic_io.tar.gz"
+    assert physical["attachments"][0]["source"] == "physical_case_log_env_prepare.tar.gz"

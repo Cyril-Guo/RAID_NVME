@@ -120,7 +120,7 @@ def main(argv=None):
                 json.dump(container, handle, ensure_ascii=False)
         except (OSError, ValueError) as exc:
             print(f"[ARTIFACT_WARNING] Incomplete container {os.path.basename(path)}: {exc}")
-    for path in glob.glob(os.path.join(allure_dir, "*monitor_attachments.json")):
+    for path in glob.glob(os.path.join(allure_dir, "*case_attachments.json")):
         normalize_sidecar(path, allure_dir, node, kind)
         if not os.path.basename(path).startswith(prefix):
             os.replace(path, os.path.join(allure_dir, prefix + os.path.basename(path)))

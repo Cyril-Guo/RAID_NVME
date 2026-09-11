@@ -9,11 +9,11 @@ def test_report_metrics_counts_testcase_nodes_when_testsuites_root_is_zero(tmp_p
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuites tests="0" failures="0" errors="0" skipped="0">
   <testsuite name="pytest">
-    <testcase classname="test_items.test_ci_03_lawdisk" name="test_lawdiskstress" />
-    <testcase classname="test_items.test_ci_04_mix" name="test_mix_stress">
+    <testcase classname="test_items.test_powercycle_00_env_prepare" name="test_env_prepare" />
+    <testcase classname="test_items.test_powercycle_02_dc" name="test_dc_powercycle">
       <failure message="fio failed">trace</failure>
     </testcase>
-    <testcase classname="test_items.test_ci_05_reboot" name="test_reboot_powercycle">
+    <testcase classname="test_items.test_powercycle_01_reboot" name="test_reboot_powercycle">
       <error message="setup failed">trace</error>
     </testcase>
   </testsuite>
@@ -95,7 +95,7 @@ def test_main_prints_kind(tmp_path, monkeypatch, capsys):
 
 def test_report_metrics_skips_per_item_junit_files(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "report_lawdisk.xml").write_text(
+    (tmp_path / "report_test_powercycle_01_reboot.xml").write_text(
         """<testsuite name="pytest">
   <testcase classname="x" name="a"><failure message="x">y</failure></testcase>
 </testsuite>
@@ -154,7 +154,7 @@ def test_report_metrics_merges_native_allure_failure_missing_from_junit(tmp_path
     monkeypatch.chdir(tmp_path)
     (tmp_path / "report_192.168.22.134.xml").write_text(
         """<testsuite name="pytest">
-  <testcase classname="test_items.test_ci_06_basic_io" name="test_basic_io">
+  <testcase classname="test_items.test_powercycle_00_env_prepare" name="test_basic_io">
     <properties><property name="run_key" value="basic_io__1" /></properties>
   </testcase>
 </testsuite>
@@ -167,7 +167,7 @@ def test_report_metrics_merges_native_allure_failure_missing_from_junit(tmp_path
         json.dumps(
             {
                 "name": "[Physical 192.168.22.134] test_basic_io",
-                "fullName": "physical:192.168.22.134:test_items.test_ci_06_basic_io#test_basic_io",
+                "fullName": "physical:192.168.22.134:test_items.test_powercycle_00_env_prepare#test_basic_io",
                 "status": "passed",
                 "labels": [
                     {"name": "host", "value": "192.168.22.134"},
@@ -180,12 +180,12 @@ def test_report_metrics_merges_native_allure_failure_missing_from_junit(tmp_path
     (allure_dir / "mix-result.json").write_text(
         json.dumps(
             {
-                "name": "[Physical 192.168.22.134] test_mix_stress",
-                "fullName": "physical:192.168.22.134:test_items.test_ci_05_mix#test_mix_stress",
+                "name": "[Physical 192.168.22.134] test_dc_powercycle",
+                "fullName": "physical:192.168.22.134:test_items.test_powercycle_02_dc#test_dc_powercycle",
                 "status": "failed",
                 "labels": [
                     {"name": "host", "value": "192.168.22.134"},
-                    {"name": "run_key", "value": "mix__2"},
+                    {"name": "run_key", "value": "test_powercycle_02_dc__2"},
                 ],
             }
         ),

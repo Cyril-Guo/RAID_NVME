@@ -180,8 +180,8 @@ def test_add_allure_failure_bundle_prefers_live_path(tmp_path):
     result_path.write_text(
         json.dumps(
             {
-                "name": "Test_CI_basic_IO",
-                "fullName": "test_items.test_ci_basic_io.Test_CI_basic_IO",
+                "name": "Test_PowerCycle_env_prepare",
+                "fullName": "test_items.test_powercycle_00_env_prepare.Test_PowerCycle_env_prepare",
                 "status": "failed",
                 "labels": [{"name": "run_key", "value": "basic_io"}],
                 "attachments": [],
@@ -318,8 +318,8 @@ def test_add_allure_failure_bundle_attaches_tar_and_summary(tmp_path):
     result_path.write_text(
         json.dumps(
             {
-                "name": "Test_CI_basic_IO",
-                "fullName": "test_items.test_ci_basic_io.Test_CI_basic_IO",
+                "name": "Test_PowerCycle_env_prepare",
+                "fullName": "test_items.test_powercycle_00_env_prepare.Test_PowerCycle_env_prepare",
                 "status": "failed",
                 "labels": [{"name": "run_key", "value": "basic_io"}],
                 "attachments": [],

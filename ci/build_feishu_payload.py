@@ -27,7 +27,7 @@ def load_failure_summary(path="failure_summary.txt", max_length=2200):
 
 
 # Terminal hard stops only. Do NOT treat plain "FIO command failed" as hard:
-# with MIX_FAIL_ON_ANY=no those lines are recorded while the case continues.
+# Soft-continue FIO noise lines may be recorded while the case continues.
 _HARD_SUMMARY_MARKERS = (
     "fio stage failed",
     "fio stage abort",
