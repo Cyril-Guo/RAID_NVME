@@ -136,8 +136,9 @@ def test_manual_abort_is_not_converted_to_failure_or_feishu_notification():
     assert "endsWith('UserInterruption')" in source
     assert "throw e" in source
     assert "currentBuild.currentResult == 'ABORTED'" in source
-    assert "Manual abort detected without real test failures" in source
-    assert "keep ABORTED and skip Feishu notification" in source
+    assert "if (manuallyAborted)" in source
+    assert "Manual abort detected; keep ABORTED and skip Feishu notification." in source
+    assert "manuallyAborted && failed + errors == 0 && !hasFailureSummary" not in source
 
 
 def test_report_publication_failures_do_not_skip_notification_finalization():

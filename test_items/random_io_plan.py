@@ -4,7 +4,9 @@ Design goals:
 - Stress coverage (many bs / rw / QD) AND data consistency (crc32c) every round.
 - FILL / STRESS / VERIFY all use the *same model bs* so verify headers match.
 - Each round scatters 16 small windows across the whole disk (not packed at LBA 0).
-- Single external knob: RANDOM_IO_DURATION (wall clock). Slice/STRESS/loops are internal.
+- Single external knob: RANDOM_IO_DURATION (wall clock; default 43200s).
+- When the budget expires mid-round, finish that round (FILL->STRESS->VERIFY) then stop;
+  do not start a new round. Slice/STRESS/loops are internal.
 """
 from __future__ import annotations
 
@@ -18,7 +20,8 @@ import subprocess
 LBA_SIZE = 512
 # Internal pacing (not exposed in test_items.txt).
 DEFAULT_STRESS_RUNTIME = 45
-DEFAULT_DURATION_SECONDS = 12 * 3600
+# Wall-clock budget. Empty / unset RANDOM_IO_DURATION uses this default.
+DEFAULT_DURATION_SECONDS = 43200  # 12h
 DURATION_ENV = "RANDOM_IO_DURATION"
 MODEL_COUNT = 16
 VERIFY_TYPE = "crc32c"
@@ -125,7 +128,13 @@ def adaptive_slice_bytes(bs_label: str) -> int:
 
 
 def parse_duration_seconds(raw=None) -> int:
-    """Parse RANDOM_IO_DURATION: 12h / 720m / 43200s / 43200. Default 12h."""
+    """Parse RANDOM_IO_DURATION into seconds.
+
+    Empty or unset -> DEFAULT_DURATION_SECONDS (43200).
+    Otherwise any positive number is accepted:
+      - suffix h / m / s (e.g. 1.5h, 45m, 90s)
+      - bare number = seconds (e.g. 7200, 43200)
+    """
     if raw is None:
         raw = os.environ.get(DURATION_ENV, "").strip()
     text = (raw or "").strip().lower()

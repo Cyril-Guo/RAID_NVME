@@ -1,7 +1,8 @@
 """
 Smoke 测试 —— 随机 IO 压力 + 数据一致性（4k 对齐）。
 
-只暴露 RANDOM_IO_DURATION（总墙钟时长，到点停）。
+只暴露 RANDOM_IO_DURATION（总墙钟时长，默认 43200s=12h；可手写任意时长，如 Nh/Nm/Ns 或纯秒数）。
+时长到点后：当前轮若已开始则跑完 FILL→STRESS→VERIFY 再结束，不新开下一轮。
 每轮在整盘随机抽 16 个小窗口：FILL → STRESS → VERIFY（同 bs + crc32c）。
 布局由 random_io_plan_4k 生成；无 Input_Config CSV。
 """
@@ -39,7 +40,8 @@ def test_random_io():
 
     duration_seconds = parse_duration_seconds()
     stress_runtime = DEFAULT_STRESS_RUNTIME
-    deadline = time.monotonic() + duration_seconds
+    started = time.monotonic()
+    deadline = started + duration_seconds
 
     jobs = {
         phase: os.path.join(stress_dir, f"random_io_{phase.lower()}.fio")
@@ -48,6 +50,8 @@ def test_random_io():
 
     allure.dynamic.title("FIO 测试: random_io_4k")
     round_idx = 0
+    # Gate new rounds on wall-clock budget only. Once a round starts,
+    # always finish FILL->STRESS->VERIFY even if deadline passes mid-round.
     while time.monotonic() < deadline:
         round_idx += 1
         plan = generate_random_io_plan()
@@ -115,7 +119,9 @@ def test_random_io():
         pytest.fail(
             f"RANDOM_IO_DURATION 过短，未能跑完至少一轮: {duration_seconds}s"
         )
+    elapsed = max(0, int(time.monotonic() - started))
     print(
         f"[RANDOM_IO] finished rounds={round_idx} "
-        f"duration={duration_seconds}s align=4k"
+        f"budget={duration_seconds}s elapsed≈{elapsed}s align=4k "
+        "(last round always completed after budget)"
     )

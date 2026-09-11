@@ -578,8 +578,8 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                 }
                 def hasFailureSummary = fileExists('failure_summary.txt') && readFile('failure_summary.txt').trim()
 
-                if (manuallyAborted && failed + errors == 0 && !hasFailureSummary) {
-                    echo 'Manual abort detected without real test failures; keep ABORTED and skip Feishu notification.'
+                if (manuallyAborted) {
+                    echo 'Manual abort detected; keep ABORTED and skip Feishu notification.'
                     return
                 }
 

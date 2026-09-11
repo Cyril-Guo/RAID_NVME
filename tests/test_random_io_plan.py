@@ -161,11 +161,18 @@ def test_format_plan_and_csv_include_real_byte_offsets():
 
 def test_parse_duration_seconds(monkeypatch):
     monkeypatch.delenv("RANDOM_IO_DURATION", raising=False)
+    assert DEFAULT_DURATION_SECONDS == 43200
     assert parse_duration_seconds("") == DEFAULT_DURATION_SECONDS
     assert parse_duration_seconds("12h") == 12 * 3600
     assert parse_duration_seconds("90m") == 90 * 60
     assert parse_duration_seconds("30s") == 30
     assert parse_duration_seconds("120") == 120
+    assert parse_duration_seconds("43200") == 43200
+    assert parse_duration_seconds("43200s") == 43200
+    assert parse_duration_seconds("1.5h") == int(1.5 * 3600)
+    assert parse_duration_seconds("45m") == 45 * 60
+    assert parse_duration_seconds("90s") == 90
+    assert parse_duration_seconds("7") == 7
     monkeypatch.setenv("RANDOM_IO_DURATION", "2h")
     assert parse_duration_seconds() == 2 * 3600
 
@@ -216,7 +223,8 @@ def test_list_test_disks_rejects_mounted_and_held_virtual_disks(monkeypatch, tmp
 
 
 def _configure_single_round_case(monkeypatch, tmp_path, runner, attachments):
-    ticks = iter((0.0, 0.0, 0.0, 2.0))
+    # started, while-enter, remaining, while-exit, elapsed
+    ticks = iter((0.0, 0.0, 0.0, 2.0, 5.0))
     monkeypatch.setattr(random_io_case, "io_stress_dir", lambda: str(tmp_path))
     monkeypatch.setattr(
         random_io_case, "list_test_disks", lambda: {"dp0-vd1": 64 * 1024**3}
@@ -273,3 +281,43 @@ def test_random_io_prints_consistency_fail_and_preserves_failure(
     )
     assert status in capsys.readouterr().out
     assert (status + "\n", "数据一致性结果 (round 1)") in attachments
+
+
+def test_random_io_finishes_current_round_after_budget(monkeypatch, tmp_path, capsys):
+    """Budget may expire mid-round; still finish FILL/STRESS/VERIFY, no 2nd round."""
+    attachments = []
+    phase_calls = []
+
+    def runner(argv, cwd, extra_output="", **kwargs):
+        phase_calls.append(argv[-1])
+        return extra_output + " ".join(argv) + "\n"
+
+    # started=0, while#1=0 (enter), remaining=10, while#2=100 (past budget=1), elapsed=120
+    ticks = iter((0.0, 0.0, 10.0, 100.0, 120.0))
+    monkeypatch.setattr(random_io_case, "io_stress_dir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        random_io_case, "list_test_disks", lambda: {"dp0-vd1": 64 * 1024**3}
+    )
+    monkeypatch.setattr(random_io_case, "parse_duration_seconds", lambda: 1)
+    monkeypatch.setattr(random_io_case.time, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(random_io_case, "run_and_check_argv", runner)
+    monkeypatch.setattr(
+        random_io_case,
+        "attach_named_text",
+        lambda text, name: attachments.append((text, name)),
+    )
+    monkeypatch.setattr(random_io_case.allure.dynamic, "title", lambda *_: None)
+    monkeypatch.setattr(random_io_case.allure.dynamic, "description", lambda *_: None)
+
+    random_io_case.test_random_io()
+    out = capsys.readouterr().out
+    assert phase_calls == [
+        "random_io_fill.fio",
+        "random_io_stress.fio",
+        "random_io_verify.fio",
+    ]
+    assert "finished rounds=1" in out
+    assert "budget=1s" in out
+    assert out.count("[RANDOM_IO round 1]") >= 1
+    assert "[RANDOM_IO round 2]" not in out
+

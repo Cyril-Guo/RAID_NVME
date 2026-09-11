@@ -31,6 +31,8 @@ test_ci_03_mix_4k 3
 # lawdisk：改 FIO_CONFIG= 指向的 CSV 内容即可（手动）
 # filesystem / mix / random_io：无 Input_Config CSV
 # random_io：4k→random_io_plan_4k；512→random_io_plan_512（历史池）
+# RANDOM_IO_DURATION：空=默认 43200s；任意正数均可（Nh / Nm / Ns / 纯秒数）
+# 时长到点后不新开轮，当前轮 FILL→STRESS→VERIFY 跑完再结束
 # ============================================================
 
 [test_ci_00_env_prepare]
@@ -64,9 +66,11 @@ MIX_FAIL_ON_ANY = yes
 [test_ci_05_random_io_4k]
 IGNORE_ERROR       = yes
 FIO_DISKS          =
+# 空=默认 43200s；任意正数（Nh/Nm/Ns/秒）。到点后跑完当前轮再停。
 RANDOM_IO_DURATION =
 
 [test_ci_06_random_io_512]
 IGNORE_ERROR       = yes
 FIO_DISKS          =
+# 空=默认 43200s；任意正数（Nh/Nm/Ns/秒）。到点后跑完当前轮再停。
 RANDOM_IO_DURATION =
