@@ -444,31 +444,9 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
  ci/run_remote_test_and_collect.sh
  """
                                 )
-                                def powercycleWaitStatus = 0
-                                if (testStatus == 0) {
-                                    echo "[${ip}] wait powercycle completion if reboot/dc selected"
-                                    powercycleWaitStatus = sh(
-                                        returnStatus: true,
-                                        script: """#!/bin/bash
- chmod +x ci/wait_powercycle_completion.sh
- NODE_IP='${ip}' \
- TARGET_USER='${env.TARGET_USER}' \
- REMOTE_DIR='${remoteDir}' \
- REMOTE_SSH_COMMAND="${targetSsh}" \
- TEST_ITEMS_FILE='test_items.txt' \
- ci/wait_powercycle_completion.sh
-  """
-                                    )
-                                } else {
-                                    echo "[${ip}] skip powercycle wait because test execution already failed rc=${testStatus}"
-                                }
-                                // Prefer the pytest/collection failure so fail-fast is not masked by
-                                // powercycle wait when reboot/dc never started.
+                                // CI branch has no reboot/dc cases; PowerCycle wait lives on PowerCycle only.
                                 if (testStatus != 0) {
                                     error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"
-                                }
-                                if (powercycleWaitStatus != 0) {
-                                    error "[${ip}] powercycle completion wait failed with exit code ${powercycleWaitStatus}"
                                 }
 
                             }

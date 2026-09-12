@@ -209,7 +209,9 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
     assert "restore RAID state before test" not in jenkinsfile
     assert "ci/clear_8p_csd_flash.sh" not in jenkinsfile
     assert "ci/restore_physical_raid_state.sh" not in jenkinsfile
-    assert "ci/wait_powercycle_completion.sh" in jenkinsfile
+    assert "ci/wait_powercycle_completion.sh" not in jenkinsfile
+    assert "powercycleWaitStatus" not in jenkinsfile
+    assert "wait powercycle completion" not in jenkinsfile
     assert "RAID_CLI_REPO" in source
     assert "RAID_CLI_COMMIT" in jenkinsfile
 
@@ -367,14 +369,7 @@ def test_run_remote_test_reports_error_without_qemu_scene_keep_message():
     assert "keep VM/vfio devices for failure analysis" not in source
     assert "Next triggered run will reclaim them in pre-test cleanup" not in source
     assert 'error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"' in source
-    # Fail-fast pytest errors must surface before powercycle wait failures.
-    test_error_idx = source.index(
-        'error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"'
-    )
-    wait_error_idx = source.index(
-        'error "[${ip}] powercycle completion wait failed with exit code ${powercycleWaitStatus}"'
-    )
-    assert test_error_idx < wait_error_idx
+    assert 'powercycle completion wait failed' not in source
 
 
 def test_environment_prepare_uses_errexit_and_marks_passed_after_metadata():
