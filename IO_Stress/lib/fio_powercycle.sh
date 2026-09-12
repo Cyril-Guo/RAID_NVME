@@ -43,12 +43,23 @@ function prepare_powercycle_plan() {
     fi
     echo "$(date '+%F %T') [PLAN] min_disk_size_bytes=$min_disk_size" | tee -a "$power_log"
 
-    # Crash window: IO finished but commit never ran — promote leftover staged next
-    # so VERIFY debt is not discarded by the rm below.
+    # Crash window: IO finished (io_committed=true) but commit never ran.
+    # Mid-IO leftovers keep io_committed=false and are discarded.
     if [[ -f "$POWERCYCLE_STATE_NEXT_FILE" ]]; then
-        echo "$(date '+%F %T') [PLAN] recovering staged powercycle state from interrupted commit window" | tee -a "$power_log"
-        commit_powercycle_state
-        durable_sync_powercycle_state
+        if python3 - "$POWERCYCLE_STATE_NEXT_FILE" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+raise SystemExit(0 if payload.get("io_committed") is True else 1)
+PY
+        then
+            echo "$(date '+%F %T') [PLAN] recovering staged powercycle state from interrupted commit window" | tee -a "$power_log"
+            commit_powercycle_state
+            durable_sync_powercycle_state
+        else
+            echo "$(date '+%F %T') [PLAN] discarding incomplete staged next (io_committed!=true)" | tee -a "$power_log"
+            rm -f "$POWERCYCLE_STATE_NEXT_FILE"
+        fi
     fi
 
     rm -f "$Cur_Dir/$POWERCYCLE_PLAN_FILE" "$POWERCYCLE_STATE_NEXT_FILE"
@@ -74,6 +85,33 @@ function commit_powercycle_state() {
     if [[ -f "$POWERCYCLE_STATE_NEXT_FILE" ]]; then
         mv -f "$POWERCYCLE_STATE_NEXT_FILE" "$POWERCYCLE_STATE_FILE"
     fi
+}
+
+function mark_powercycle_io_committed() {
+    # Flip staged next.io_committed after successful FILL/STRESS/VERIFY IO.
+    [[ -f "$POWERCYCLE_STATE_NEXT_FILE" ]] || return 0
+    python3 - "$POWERCYCLE_STATE_NEXT_FILE" <<'PY'
+import json, os, sys
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+payload["io_committed"] = True
+directory = os.path.dirname(path) or "."
+tmp_path = f"{path}.tmp.{os.getpid()}"
+with open(tmp_path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2, sort_keys=True)
+    handle.flush()
+    os.fsync(handle.fileno())
+os.replace(tmp_path, path)
+try:
+    dir_fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+except OSError:
+    pass
+PY
 }
 
 function durable_sync_powercycle_state() {

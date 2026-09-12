@@ -2,25 +2,29 @@
 
 function clear_log()
 {
-    # Preserve VERIFY debt only after STOP-after-commit (abort marker),
+    # Preserve VERIFY debt after STOP-after-commit (abort marker),
     # or when POWER_CYCLE_PRESERVE_VERIFY=1 explicitly requests it.
+    # Abort marker is consumed by default so same-workdir retry is not sticky-failed;
+    # set POWER_CYCLE_KEEP_ABORT=1 to retain the marker for debugging.
     local _pc_state_bak=""
     local _pc_abort_bak=""
     local _pc_state_src="${ResultLog:-}/powercycle_state.json"
     local _pc_abort_src="${ResultLog:-}/powercycle_abort_after_commit"
     local _pc_preserve=0
+    local _pc_had_abort=0
     if [[ -n "${ResultLog:-}" && -f "$_pc_abort_src" ]]; then
         _pc_preserve=1
+        _pc_had_abort=1
     elif [[ "${POWER_CYCLE_PRESERVE_VERIFY:-0}" == "1" && -n "${ResultLog:-}" && -f "$_pc_state_src" ]]; then
         _pc_preserve=1
     fi
     if [[ "$_pc_preserve" -eq 1 && -f "$_pc_state_src" ]]; then
         _pc_state_bak="$(mktemp)"
         cp -f "$_pc_state_src" "$_pc_state_bak" || true
-        if [[ -f "$_pc_abort_src" ]]; then
-            _pc_abort_bak="$(mktemp)"
-            cp -f "$_pc_abort_src" "$_pc_abort_bak" || true
-        fi
+    fi
+    if [[ "${POWER_CYCLE_KEEP_ABORT:-0}" == "1" && "$_pc_had_abort" -eq 1 && -f "$_pc_abort_src" ]]; then
+        _pc_abort_bak="$(mktemp)"
+        cp -f "$_pc_abort_src" "$_pc_abort_bak" || true
     fi
 
     rm -rf $Result_Dir
@@ -50,10 +54,14 @@ function clear_log()
         cp -f "$_pc_state_bak" "$ResultLog/powercycle_state.json" || true
         rm -f "$_pc_state_bak"
         echo "  - Preserved powercycle_state.json (VERIFY debt) across clear_log"
+        if [[ "$_pc_had_abort" -eq 1 && "${POWER_CYCLE_KEEP_ABORT:-0}" != "1" ]]; then
+            echo "  - Consumed powercycle_abort_after_commit (retry will not be sticky-failed)"
+        fi
     fi
     if [[ -n "$_pc_abort_bak" && -f "$_pc_abort_bak" ]]; then
         cp -f "$_pc_abort_bak" "$ResultLog/powercycle_abort_after_commit" || true
         rm -f "$_pc_abort_bak"
+        echo "  - Kept powercycle_abort_after_commit (POWER_CYCLE_KEEP_ABORT=1)"
     fi
 
    

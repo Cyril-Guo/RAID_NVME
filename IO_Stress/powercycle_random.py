@@ -302,7 +302,7 @@ def build_plan(
             )
         )
 
-    next_state = {"pending_verify": False, "windows": None, "plan_seed": None}
+    next_state = {"pending_verify": False, "windows": None, "plan_seed": None, "io_committed": False}
     if current_loop < total_loops:
         plan_seed = rng.randint(1, 2**31 - 1)
         windows = generate_window_specs(min_disk_size_bytes, plan_seed, rng=rng)
@@ -314,6 +314,7 @@ def build_plan(
             "pending_verify": True,
             "plan_seed": plan_seed,
             "windows": [asdict(model) for model in windows],
+            "io_committed": False,
         }
         summary.append(
             f"fill+stress {len(windows)} scattered windows (seed={plan_seed}, "

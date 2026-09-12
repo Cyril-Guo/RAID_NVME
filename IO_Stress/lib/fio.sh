@@ -1414,6 +1414,7 @@ function do_fio() {
         # Commit before reboot/dc so pending VERIFY survives power loss.
         # Reboot failure must NOT discard this state (disk already matches it).
         if powercycle_mode_enabled; then
+            mark_powercycle_io_committed
             commit_powercycle_state
             durable_sync_powercycle_state
             echo "$(date '+%F %T') [FIO] committed+synced powercycle state" | tee -a "$power_log"

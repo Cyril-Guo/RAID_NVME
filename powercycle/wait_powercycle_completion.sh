@@ -280,8 +280,8 @@ item_failed() {
     while IFS= read -r root; do
         # Explicit abort marker file (STOP-after-commit).
         # shellcheck disable=SC2086
-        text="$(eval ${REMOTE_SSH_COMMAND} "test -f ${root}/powercycle_abort_after_commit && echo FOUND" 2>/dev/null || true)"
-        if [[ -n "${text}" ]]; then
+        text="$(eval ${REMOTE_SSH_COMMAND} "test -f $(printf '%q' "${root}/powercycle_abort_after_commit") && printf FOUND" 2>/dev/null || true)"
+        if [[ "${text}" == *FOUND* ]]; then
             echo "[${NODE_IP}] detected failure marker in ${item}: powercycle_abort_after_commit" >&2
             return 0
         fi

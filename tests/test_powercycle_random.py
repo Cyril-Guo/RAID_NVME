@@ -180,3 +180,19 @@ def test_write_state_is_atomic_and_readable(tmp_path):
     assert loaded["pending_verify"] is True
     assert loaded["windows"][0]["offset"] == 0
 
+
+def test_build_plan_stages_io_committed_false():
+    from IO_Stress.powercycle_random import build_plan
+    import random
+
+    rows, next_state, _summary = build_plan(
+        state={},
+        current_loop=0,
+        total_loops=2,
+        min_disk_size_bytes=10 * 1024 ** 3,
+        rng=random.Random(1),
+    )
+    assert rows
+    assert next_state.get("io_committed") is False
+    assert next_state.get("pending_verify") is True
+

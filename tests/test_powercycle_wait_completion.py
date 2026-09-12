@@ -200,6 +200,7 @@ def test_non_systemd_resume_exports_grace():
     assert "append_powercycle_grace_export()" in common
     assert "bake_powercycle_login_resume()" in common
     assert "clear_powercycle_login_bake" in common
+    assert 'bake_powercycle_login_resume /etc/bash.bashrc' in common
     assert "RAID_NVME_POWERCYCLE_RESUME_BEGIN" in common
     assert 'export POWER_CYCLE_COMMAND_GRACE="${POWER_CYCLE_COMMAND_GRACE:-90}"' in common
 
@@ -216,6 +217,12 @@ def test_durable_sync_and_stop_abort_semantics():
     assert "Preserved powercycle_state.json" in init
     assert "POWER_CYCLE_PRESERVE_VERIFY" in init
     assert "recovering staged powercycle state" in Path("IO_Stress/lib/fio_powercycle.sh").read_text(encoding="utf-8")
+    assert "mark_powercycle_io_committed" in Path("IO_Stress/lib/fio_powercycle.sh").read_text(encoding="utf-8")
+    assert "io_committed" in Path("IO_Stress/powercycle_random.py").read_text(encoding="utf-8")
+    assert "Consumed powercycle_abort_after_commit" in init
+    assert "POWER_CYCLE_KEEP_ABORT" in init
+    assert "powercycle_abort_after_commit" in Path("powercycle/wait_powercycle_completion.sh").read_text(encoding="utf-8")
+    assert "FOUND" in Path("powercycle/wait_powercycle_completion.sh").read_text(encoding="utf-8")
     assert "clear_powercycle_login_bake" in Path("IO_Stress/lib/common.sh").read_text(encoding="utf-8")
     assert "bake_powercycle_login_resume" in Path("IO_Stress/lib/common.sh").read_text(encoding="utf-8")
     assert "Power-cycle abort after commit" in wait
@@ -223,7 +230,7 @@ def test_durable_sync_and_stop_abort_semantics():
 
 
 def test_clear_log_preserve_only_with_abort_nested_logad(tmp_path):
-    """Behavior: nested ResultLog under LogAd; preserve only with abort marker."""
+    """Nested LogAd: abort preserves state but consumes abort by default."""
     import os
     import subprocess
     import textwrap
@@ -231,10 +238,12 @@ def test_clear_log_preserve_only_with_abort_nested_logad(tmp_path):
     log_ad = tmp_path / "logad"
     result_log = log_ad / "ResultLog"
     result_log.mkdir(parents=True)
-    state = result_log / "powercycle_state.json"
-    state.write_text('{"pending_verify": true, "windows": []}\n', encoding="utf-8")
-    abort = result_log / "powercycle_abort_after_commit"
-    abort.write_text("Power-cycle abort after commit\n", encoding="utf-8")
+    (result_log / "powercycle_state.json").write_text(
+        '{"pending_verify": true, "windows": []}\n', encoding="utf-8" 
+    )
+    (result_log / "powercycle_abort_after_commit").write_text(
+        "Power-cycle abort after commit\n", encoding="utf-8"
+    )
 
     script = textwrap.dedent(
         f"""
@@ -254,15 +263,53 @@ def test_clear_log_preserve_only_with_abort_nested_logad(tmp_path):
         clear_log
         test -f "$ResultLog/powercycle_state.json"
         grep -q pending_verify "$ResultLog/powercycle_state.json"
+        ! test -f "$ResultLog/powercycle_abort_after_commit"
+        """
+    )
+    proc = subprocess.run(
+        ["bash", "-c", script], cwd=str(Path.cwd()), env=os.environ.copy(),
+        capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+
+
+def test_clear_log_keep_abort_when_requested(tmp_path):
+    """POWER_CYCLE_KEEP_ABORT=1 retains abort marker across clear_log."""
+    import os
+    import subprocess
+    import textwrap
+
+    log_ad = tmp_path / "logad"
+    result_log = log_ad / "ResultLog"
+    result_log.mkdir(parents=True)
+    (result_log / "powercycle_state.json").write_text(
+        '{"pending_verify": true}\n', encoding="utf-8" 
+    )
+    (result_log / "powercycle_abort_after_commit").write_text("abort\n", encoding="utf-8")
+    script = textwrap.dedent(
+        f"""
+        export POWER_CYCLE_KEEP_ABORT=1
+        LogAd="{log_ad}"
+        ResultLog="{result_log}"
+        Result_Dir="{result_log / 'fio_result'}"
+        Config_Dir="{tmp_path / 'config'}"
+        File_Dir="{tmp_path / 'files'}"
+        TestErrorLog="{tmp_path / 'err'}"
+        RawLog="{tmp_path / 'raw'}"
+        MachineCheckLog="{tmp_path / 'mc'}"
+        MessageRecordLog="{tmp_path / 'msg'}"
+        SystemLog="{tmp_path / 'sys'}"
+        Cur_Dir="{tmp_path}"
+        show_produce_message() {{ :; }}
+        source IO_Stress/lib/init.sh
+        clear_log
+        test -f "$ResultLog/powercycle_state.json"
         test -f "$ResultLog/powercycle_abort_after_commit"
         """
     )
     proc = subprocess.run(
-        ["bash", "-c", script],
-        cwd=str(Path.cwd()),
-        env=os.environ.copy(),
-        capture_output=True,
-        text=True,
+        ["bash", "-c", script], cwd=str(Path.cwd()), env=os.environ.copy(),
+        capture_output=True, text=True,
     )
     assert proc.returncode == 0, proc.stderr + proc.stdout
 
@@ -320,5 +367,93 @@ def test_grace_append_is_deduped_helper():
     assert "append_powercycle_grace_export()" in common
     assert "bake_powercycle_login_resume()" in common
     assert "clear_powercycle_login_bake" in common
+    assert 'bake_powercycle_login_resume /etc/bash.bashrc' in common
     assert "RAID_NVME_POWERCYCLE_RESUME_BEGIN" in common
     assert "Ubuntu: no systemctl; installing .profile resume fallback" in common
+
+def test_staged_recover_requires_io_committed(tmp_path):
+    """prepare recovers next only when io_committed is true."""
+    import os
+    import subprocess
+    import textwrap
+    import json
+
+    result_log = tmp_path / 'ResultLog'
+    result_log.mkdir()
+    nxt = result_log / 'powercycle_state.next.json'
+    committed = result_log / 'powercycle_state.json'
+    nxt.write_text(json.dumps({'pending_verify': True, 'io_committed': False, 'windows': []}), encoding='utf-8')
+
+    script = textwrap.dedent(f'''
+        ResultLog="{result_log}"
+        Cur_Dir="{tmp_path}"
+        item=REBOOT
+        loop=0
+        LOOP=1
+        source IO_Stress/lib/fio_powercycle.sh
+        POWERCYCLE_STATE_FILE="$ResultLog/powercycle_state.json"
+        POWERCYCLE_STATE_NEXT_FILE="$ResultLog/powercycle_state.next.json"
+        power_log="$ResultLog/reboot_command.log"
+        touch "$power_log"
+        # Inline the recover gate from prepare without full plan generation:
+        if [[ -f "$POWERCYCLE_STATE_NEXT_FILE" ]]; then
+          if python3 - "$POWERCYCLE_STATE_NEXT_FILE" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+raise SystemExit(0 if payload.get("io_committed") is True else 1)
+PY
+          then
+            commit_powercycle_state
+          else
+            rm -f "$POWERCYCLE_STATE_NEXT_FILE"
+          fi
+        fi
+        ! test -f "$POWERCYCLE_STATE_NEXT_FILE"
+        ! test -f "$POWERCYCLE_STATE_FILE"
+        # Now committed=true should promote
+        python3 - <<PY
+import json
+p=r"{nxt}"
+json.dump({{"pending_verify": True, "io_committed": True, "windows": []}}, open(p,"w"))
+PY
+        if [[ -f "$POWERCYCLE_STATE_NEXT_FILE" ]]; then
+          if python3 - "$POWERCYCLE_STATE_NEXT_FILE" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+raise SystemExit(0 if payload.get("io_committed") is True else 1)
+PY
+          then
+            commit_powercycle_state
+          fi
+        fi
+        test -f "$POWERCYCLE_STATE_FILE"
+        ! test -f "$POWERCYCLE_STATE_NEXT_FILE"
+    ''')
+    proc = subprocess.run(['bash', '-c', script], cwd=str(Path.cwd()), capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+
+
+def test_bake_login_resume_is_idempotent(tmp_path):
+    import os
+    import subprocess
+    import textwrap
+
+    profile = tmp_path / 'profile'
+    profile.write_text('# existing\n', encoding='utf-8')
+    script = textwrap.dedent(f'''
+        CP_ROOT_DIR="/tmp/io_stress"
+        item=REBOOT; check=YES; bmc_reset=NO; flag=STOP; delay=10; mode=null; wait=null
+        port=623; server_ip=-; LOOP=3; acserverport=5000; safe=YES
+        sysStaticIP=-; blackBoxStaticIP=-; runtime=1; filename=-; fs_type=NON-FS
+        disk_mode=ALL; specified_disk=-; remote=-; mix_io=NO; log_interval=100
+        source IO_Stress/lib/common.sh
+        bake_powercycle_login_resume "{profile}" "cd /tmp/io_stress"
+        bake_powercycle_login_resume "{profile}" "cd /tmp/io_stress"
+        test $(grep -c RAID_NVME_POWERCYCLE_RESUME_BEGIN "{profile}") -eq 1
+        test $(grep -c RAID_NVME_POWERCYCLE_RESUME_END "{profile}") -eq 1
+    ''')
+    proc = subprocess.run(['bash', '-c', script], cwd=str(Path.cwd()), capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+

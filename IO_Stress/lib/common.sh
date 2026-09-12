@@ -10,6 +10,7 @@ function clear_bashprofile()
 }
 
 clear_powercycle_login_bake() {
+    # Only remove marked resume blocks — avoid deleting unrelated profile tails.
     local f
     for f in /root/.bash_profile /root/.profile /etc/bash.bashrc; do
         [[ -f "$f" ]] || continue
@@ -17,15 +18,6 @@ clear_powercycle_login_bake() {
             sed -i '/RAID_NVME_POWERCYCLE_RESUME_BEGIN/,/RAID_NVME_POWERCYCLE_RESUME_END/d' "$f" 2>/dev/null || true
         fi
     done
-    clear_bashprofile
-    if [[ -f /root/.profile ]] && grep -q 'run_fio.sh' /root/.profile 2>/dev/null; then
-        sed -i '/grep tty1/,/^fi$/d' /root/.profile 2>/dev/null || true
-    fi
-    if [[ -f /etc/bash.bashrc ]] && grep -q 'run_fio.sh' /etc/bash.bashrc 2>/dev/null; then
-        sed -i '/RAID_NVME_POWERCYCLE_RESUME_BEGIN/,/RAID_NVME_POWERCYCLE_RESUME_END/d' /etc/bash.bashrc 2>/dev/null || true
-        sed -i '\#run_fio.sh#d' /etc/bash.bashrc 2>/dev/null || true
-        sed -i '/POWER_CYCLE_COMMAND_GRACE=/d' /etc/bash.bashrc 2>/dev/null || true
-    fi
 }
 
 bake_powercycle_login_resume() {
@@ -323,16 +315,7 @@ EOF
         return 0
     fi
 	if [[ "$system_SUSE" -eq 1 ]];then
-        if grep -q 'RAID_NVME_POWERCYCLE_RESUME_BEGIN' /etc/bash.bashrc 2>/dev/null; then
-            sed -i '/RAID_NVME_POWERCYCLE_RESUME_BEGIN/,/RAID_NVME_POWERCYCLE_RESUME_END/d' /etc/bash.bashrc
-        fi
-        {
-            echo "# RAID_NVME_POWERCYCLE_RESUME_BEGIN"
-            echo "cd $CP_ROOT_DIR"
-            echo "export POWER_CYCLE_COMMAND_GRACE=${POWER_CYCLE_COMMAND_GRACE:-90}"
-            echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\""
-            echo "# RAID_NVME_POWERCYCLE_RESUME_END"
-        } >> /etc/bash.bashrc
+        bake_powercycle_login_resume /etc/bash.bashrc "cd $CP_ROOT_DIR"
     elif [[ $System_Sugon == 1 ]] || [[ $System_NFS_PC5 != 0 ]];then
         bake_powercycle_login_resume /root/.profile "cd $Cur_Dir"
     elif [[ "$system_Redhat" -eq 1 ]] || [[ "$system_CentOS" -eq 1 ]] || [[ "$system_Redhat7" -eq 1 ]] || [[ "$system_CentOS8" -eq 1 ]] || [[ "$system_NFS" -eq 1 ]] || [[ $system_NFS3 -ne 0 ]] || [[ "${system_Kylin}" -ne 0 ]] || [[ "${system_kylin}" -ne 0 ]] || [[ ${system_Redhat9} -eq 1 ]] || [[ ${system_ctyunos} -eq 1 ]] || [[ ${system_UOS_Server} -ne 0  ]] || [[ ${system_Rocky9} -ne 0 ]];then
