@@ -286,6 +286,8 @@ def test_mix_io_generates_random_mixio_jobs():
     assert "MIX_RANDOM_CHOICE" in source
     assert "mix_choice_path" in source
     assert "mv random_choice.csv MixIO$i.csv" in source
+    assert "[MIX_CONFIG]" in source
+    assert "MIX_CONFIG_HEARTBEAT_EVERY" in source
     assert 'cp "$cur_dir/$filename" "MixIO${i}.csv"' not in source
 
 

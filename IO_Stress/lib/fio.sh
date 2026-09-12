@@ -642,8 +642,18 @@ function configure()
 
 configure_mixio() {
     configure_filename="${file_dir}/MixIO${1}.csv"
-    
-    echo "**********" `date +%m-%d" "%H:%M:%S` "Generating MIX IO Config Files**********"
+    # Heartbeats keep Jenkins idle watchdog alive while sed builds thousands of
+    # job files (no fio / disk IO yet). Prefer stderr: unbuffered under pipes.
+    local mix_id="$1"
+    local heartbeat_every="${MIX_CONFIG_HEARTBEAT_EVERY:-50}"
+    local jobs_written=0
+    local total_jobs=0
+    if [[ -f "${configure_filename}" ]]; then
+        total_jobs=$(awk -F',' 'NR>1 && $1!="" && $1!="End" && $1 !~ /^#/ {c++} END{print c+0}' "${configure_filename}")
+    fi
+
+    echo "**********" `date +%m-%d" "%H:%M:%S` "Generating MIX IO Config Files MixIO${mix_id} (planned=${total_jobs}, heartbeat every ${heartbeat_every})**********" >&2
+    echo "**********" `date +%m-%d" "%H:%M:%S` "Generating MIX IO Config Files MixIO${mix_id} (planned=${total_jobs}, heartbeat every ${heartbeat_every})**********"
     check_="START"
     line_t=2
     until [ "$check_" = "End" ]
@@ -741,9 +751,16 @@ configure_mixio() {
             sed -i "s/read_percentage/$read_percentage/" $config_dir/MIX${1}/$config_file
 	    sed -i "s/config_log_avg_msec/$log_interval/"  $config_dir/MIX${1}/$config_file
 
+            jobs_written=` expr $jobs_written + 1 `
+            if [ "${heartbeat_every}" -gt 0 ] && [ $((jobs_written % heartbeat_every)) -eq 0 ]; then
+                echo "[`date +%m-%d" "%H:%M:%S`] [MIX_CONFIG] MixIO${mix_id} generated ${jobs_written}/${total_jobs} job files" >&2
+            fi
+
         
         line_t=` expr $line_t + 1 `
     done
+    echo "[`date +%m-%d" "%H:%M:%S`] [MIX_CONFIG] MixIO${mix_id} done, wrote ${jobs_written}/${total_jobs} job files" >&2
+    echo "[`date +%m-%d" "%H:%M:%S`] [MIX_CONFIG] MixIO${mix_id} done, wrote ${jobs_written}/${total_jobs} job files"
 }
 
 
