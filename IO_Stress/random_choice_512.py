@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Mix IO model for mix_512 (512-byte aligned, memory-capped).
+"""Mix IO model for mix_512 (512-byte aligned).
 
-Dropped large sizes (>~5–6MiB): 8m, 16m, 6145k, 7169k, 10241k, 12289k.
-Their weight moved to 512-aligned boundary sizes (often not 4KiB-aligned)
-to stress RMW / split-IO near power-of-two edges.
-Max size 5121k (~5MiB) → ~160GiB peak @32 disks ×4 MixIO ×QD32 ×jobs8.
+Includes large sizes 8m / 6145k / 7169k / 10241k / 12289k (16m still omitted).
+4k weight reduced to keep total weight at 100. Boundary mid-sizes kept for
+RMW / split-IO near power-of-two edges.
 
 All block sizes are 512-byte aligned. Weights sum to 100.
-Generates MixIO CSV: total=1000 rows, Run_Time_Seconds=30, numjobs=8.
+Generates MixIO CSV: total=4000 rows, Run_Time_Seconds=30, numjobs=12.
 """
 from __future__ import annotations
 
@@ -34,7 +33,7 @@ temp_dict = {
     "2560b": 1,
     "3k": 2,
     "3584b": 1,
-    "4k": 19,
+    "4k": 13,
     "8k": 6,
     "16k": 5,
     "32k": 3,
@@ -42,8 +41,8 @@ temp_dict = {
     "1m": 2,
     "2m": 2,
     "4m": 2,
-    # removed: 8m, 16m (was 2+2) — memory
-    # +40 mid/large non-4k-aligned (trimmed: drop 6145k/7169k/10241k/12289k)
+    "8m": 2,
+    # mid/large non-4k-aligned + restored large sizes
     "5k": 1,
     "6k": 1,
     "7k": 1,
@@ -80,26 +79,28 @@ temp_dict = {
     "897k": 1,
     "3073k": 1,
     "5121k": 1,
-    # 8% freed from 8m/16m/6145k/7169k/10241k/12289k →
-    # 512-aligned boundary sizes near old unaligned edges (not 4KiB-aligned)
-    "4608b": 1,   # was 4095b → 9×512 (just over 4k)
-    "5632b": 1,   # was 4097b → 11×512
-    "6656b": 1,   # was 513b/1023b region stand-in → 13×512
-    "7680b": 1,   # was 8191b → 15×512 (just under 8k)
-    "8704b": 1,   # was 8193b → 17×512 (just over 8k)
-    "9728b": 1,   # was 2047b region stand-in → 19×512
-    "14848b": 1,  # was 16383b-ish lower → 29×512
-    "15872b": 1,  # was 16383b → 31×512 (just under 16k)
+    "6145k": 1,
+    "7169k": 1,
+    "10241k": 1,
+    "12289k": 1,
+    # 512-aligned boundary sizes near power-of-two edges (not 4KiB-aligned)
+    "4608b": 1,  # 9×512 (just over 4k)
+    "5632b": 1,  # 11×512
+    "6656b": 1,  # 13×512
+    "7680b": 1,  # 15×512 (just under 8k)
+    "8704b": 1,  # 17×512 (just over 8k)
+    "9728b": 1,  # 19×512
+    "14848b": 1,  # 29×512
+    "15872b": 1,  # 31×512 (just under 16k)
 }
 
 assert sum(temp_dict.values()) == 100, sum(temp_dict.values())
-assert temp_dict["4k"] == 19
-assert "8m" not in temp_dict and "16m" not in temp_dict
-assert "6145k" not in temp_dict and "7169k" not in temp_dict
-assert "10241k" not in temp_dict and "12289k" not in temp_dict
+assert temp_dict["4k"] == 13
+assert temp_dict["8m"] == 2
+assert "16m" not in temp_dict
+for label in ("6145k", "7169k", "10241k", "12289k"):
+    assert temp_dict[label] == 1
 
-# Boundary replacements must exist, be 512-aligned, and stay off pure 4KiB multiples
-# (except we only require 512 alignment globally below).
 _BOUNDARY = ("4608b", "5632b", "6656b", "7680b", "8704b", "9728b", "14848b", "15872b")
 for label in _BOUNDARY:
     assert label in temp_dict and temp_dict[label] == 1
@@ -110,8 +111,7 @@ for label in _BOUNDARY:
 for label in temp_dict:
     assert _bs_bytes(label) % 512 == 0, f"{label} not 512-aligned"
 
-# Soft memory gate: no size above ~5.1MiB (5121k).
-assert max(_bs_bytes(k) for k in temp_dict) <= 5121 * 1024
+assert max(_bs_bytes(k) for k in temp_dict) == _bs_bytes("12289k")
 
 total = 4000
 proportion_dict = {k: int(v * 0.01 * total) for k, v in temp_dict.items()}
@@ -159,5 +159,5 @@ with open("random_choice.csv", "w", encoding="utf-8", newline="\n") as fp:
     for b in bs:
         random_p_v = random_p[b].pop()
         read_p_v = read_p[b].pop()
-        fp.write(f"{b},{random_p_v},{read_p_v},32,30,8,0\n")
+        fp.write(f"{b},{random_p_v},{read_p_v},32,30,12,0\n")
     fp.write("End\n")
