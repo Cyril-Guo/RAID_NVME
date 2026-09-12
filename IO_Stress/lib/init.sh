@@ -6,6 +6,8 @@ function clear_log()
     # or when POWER_CYCLE_PRESERVE_VERIFY=1 explicitly requests it.
     # Abort marker is consumed by default so same-workdir retry is not sticky-failed;
     # set POWER_CYCLE_KEEP_ABORT=1 to retain the marker for debugging.
+    # Dirty kill (no abort marker): state is wiped on next intializer — set
+    # POWER_CYCLE_PRESERVE_VERIFY=1 if you must keep VERIFY debt across that restart.
     local _pc_state_bak=""
     local _pc_abort_bak=""
     local _pc_state_src="${ResultLog:-}/powercycle_state.json"

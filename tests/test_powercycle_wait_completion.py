@@ -460,3 +460,49 @@ def test_clear_powercycle_login_bake_removes_legacy_unmarked(tmp_path):
     proc = subprocess.run(['bash', '-c', script], cwd=str(Path.cwd()), capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr + proc.stdout
 
+def test_result_roots_prefers_case_workdir_when_present():
+    """Mirrors wait result_roots_for_item preference: case dir wins when present."""
+    import subprocess
+
+    wait = Path("powercycle/wait_powercycle_completion.sh").read_text(encoding="utf-8")
+    assert "Prefer per-case workdir when it exists" in wait
+    assert "false-complete/fail on stale build-root" in wait
+
+    script = r"""
+set -euo pipefail
+REMOTE_DIR=/build
+RESULT_REL=IO_Stress/log/ResultLog
+REMOTE_SSH_COMMAND=mycmd
+mycmd() {
+  local remote_cmd="$*"
+  if [[ "$remote_cmd" == *"/build/cases/test_powercycle_01_reboot__1/"* ]]; then
+    return 0
+  fi
+  return 1
+}
+result_roots_for_item() {
+    local run_key="$1"
+    local case_root="${REMOTE_DIR}/cases/${run_key}/${RESULT_REL}"
+    local build_root="${REMOTE_DIR}/${RESULT_REL}"
+    if eval ${REMOTE_SSH_COMMAND} "test -d $(printf '%q' "${case_root}")" >/dev/null 2>&1; then
+        printf '%s\n' "${case_root}"
+        return 0
+    fi
+    printf '%s\n' "${build_root}"
+}
+mapfile -t roots < <(result_roots_for_item "test_powercycle_01_reboot__1")
+test "${#roots[@]}" -eq 1
+test "${roots[0]}" = "/build/cases/test_powercycle_01_reboot__1/IO_Stress/log/ResultLog"
+mycmd() { return 1; }
+mapfile -t roots < <(result_roots_for_item "test_powercycle_01_reboot__1")
+test "${#roots[@]}" -eq 1
+test "${roots[0]}" = "/build/IO_Stress/log/ResultLog"
+"""
+    proc = subprocess.run(
+        ["bash", "-c", script],
+        cwd=str(Path.cwd()),
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+

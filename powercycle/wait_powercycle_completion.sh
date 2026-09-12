@@ -12,12 +12,18 @@ ITEMS_FILE="${TEST_ITEMS_FILE:-test_items.txt}"
 POLL_SECONDS="${POWER_CYCLE_POLL_SECONDS:-30}"
 RESULT_REL="IO_Stress/log/ResultLog"
 
-# Prefer per-case workdirs (cases/<item>/...), fall back to build-root IO_Stress.
+# Prefer per-case workdir when it exists on DUT; otherwise use build-root only.
+# Watching both always can false-complete/fail on stale build-root markers.
 result_roots_for_item() {
     local run_key="$1"
-    printf '%s\n' \
-        "${REMOTE_DIR}/cases/${run_key}/${RESULT_REL}" \
-        "${REMOTE_DIR}/${RESULT_REL}"
+    local case_root="${REMOTE_DIR}/cases/${run_key}/${RESULT_REL}"
+    local build_root="${REMOTE_DIR}/${RESULT_REL}"
+    # shellcheck disable=SC2086
+    if eval ${REMOTE_SSH_COMMAND} "test -d $(printf '%q' "${case_root}")" >/dev/null 2>&1; then
+        printf '%s\n' "${case_root}"
+        return 0
+    fi
+    printf '%s\n' "${build_root}"
 }
 
 # test_powercycle_01_reboot -> reboot; plain reboot stays reboot.
