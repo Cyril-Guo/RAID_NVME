@@ -45,14 +45,9 @@ function prepare_powercycle_plan() {
 
     # Crash window: IO finished (io_committed=true) but commit never ran.
     # Mid-IO leftovers keep io_committed=false and are discarded.
+    # Legacy next without io_committed key may still recover (pending_verify+windows).
     if [[ -f "$POWERCYCLE_STATE_NEXT_FILE" ]]; then
-        if python3 - "$POWERCYCLE_STATE_NEXT_FILE" <<'PY'
-import json, sys
-with open(sys.argv[1], "r", encoding="utf-8") as handle:
-    payload = json.load(handle)
-raise SystemExit(0 if payload.get("io_committed") is True else 1)
-PY
-        then
+        if powercycle_staged_next_should_recover "$POWERCYCLE_STATE_NEXT_FILE"; then
             echo "$(date '+%F %T') [PLAN] recovering staged powercycle state from interrupted commit window" | tee -a "$power_log"
             commit_powercycle_state
             durable_sync_powercycle_state
@@ -87,6 +82,28 @@ function commit_powercycle_state() {
     fi
 }
 
+function powercycle_staged_next_should_recover() {
+    # 0 = recover/promote; 1 = discard.
+    # New plans always set io_committed (True after IO, False mid-IO).
+    # Legacy next without the key: promote when pending_verify+windows (fail-closed VERIFY).
+    local next_file="${1:-$POWERCYCLE_STATE_NEXT_FILE}"
+    [[ -f "$next_file" ]] || return 1
+    python3 - "$next_file" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+committed = payload.get("io_committed", None)
+if committed is True:
+    raise SystemExit(0)
+if committed is False:
+    raise SystemExit(1)
+# Legacy pre-io_committed files: key missing.
+if payload.get("pending_verify") and payload.get("windows"):
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+}
+
 function mark_powercycle_io_committed() {
     # Flip staged next.io_committed after successful FILL/STRESS/VERIFY IO.
     [[ -f "$POWERCYCLE_STATE_NEXT_FILE" ]] || return 0
@@ -111,6 +128,10 @@ try:
         os.close(dir_fd)
 except OSError:
     pass
+# Verify flag stuck.
+with open(path, "r", encoding="utf-8") as handle:
+    if json.load(handle).get("io_committed") is not True:
+        raise SystemExit("io_committed not set")
 PY
 }
 

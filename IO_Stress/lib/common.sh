@@ -3,19 +3,50 @@
 
 function clear_bashprofile()
 {
-    line=`cat /root/.bash_profile | grep -n "grep tty1" | sed -n '1p' | awk -F ":" '{print $1}'` > /dev/null
-    if [[ ${line} != "" ]];then
-        sed -i '/grep tty1/,$d' /root/.bash_profile
-    fi
+    # Legacy alias: prefer marked/legacy scrub over deleting profile tails to EOF.
+    clear_powercycle_login_bake
 }
 
 clear_powercycle_login_bake() {
-    # Only remove marked resume blocks — avoid deleting unrelated profile tails.
+    # Remove marked resume blocks, then scrub legacy tty1+run_fio blocks (pre-marker era).
+    # POWERCYCLE_LOGIN_BAKE_FILES overrides targets (tests / one-shot cleanup).
+    local -a targets=(/root/.bash_profile /root/.profile /etc/bash.bashrc)
     local f
-    for f in /root/.bash_profile /root/.profile /etc/bash.bashrc; do
+    if [[ -n "${POWERCYCLE_LOGIN_BAKE_FILES:-}" ]]; then
+        # shellcheck disable=SC2206
+        targets=(${POWERCYCLE_LOGIN_BAKE_FILES})
+    fi
+    for f in "${targets[@]}"; do
         [[ -f "$f" ]] || continue
         if grep -q 'RAID_NVME_POWERCYCLE_RESUME_BEGIN' "$f" 2>/dev/null; then
             sed -i '/RAID_NVME_POWERCYCLE_RESUME_BEGIN/,/RAID_NVME_POWERCYCLE_RESUME_END/d' "$f" 2>/dev/null || true
+        fi
+        if grep -q 'run_fio.sh' "$f" 2>/dev/null; then
+            python3 - "$f" <<'PY' 2>/dev/null || true
+import re, sys
+path = sys.argv[1]
+with open(path, "r", encoding="utf-8", errors="replace") as handle:
+    text = handle.read()
+# Drop unmarked blocks that gate on tty1 and invoke run_fio.sh.
+pattern = re.compile(
+    r"(?ms)^[ \t]*(?:temp=.*grep tty1.*\n)?[ \t]*if[ \t]+\[\[?[^\n]*temp[^\n]*\]\]?[;\s]*then\n"
+    r".*?run_fio\.sh.*?\n"
+    r"[ \t]*fi[ \t]*\n?"
+)
+new, n = pattern.subn("", text)
+# Also drop bare cd+run_fio / GRACE lines left by ancient SUSE bakes without tty guard.
+if "run_fio.sh" in new:
+    lines = []
+    for line in new.splitlines(True):
+        if "run_fio.sh" in line or "POWER_CYCLE_COMMAND_GRACE=" in line:
+            continue
+        lines.append(line)
+    new = "".join(lines)
+    n += 1
+if n:
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(new)
+PY
         fi
     done
 }

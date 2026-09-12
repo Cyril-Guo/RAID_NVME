@@ -217,6 +217,7 @@ def test_durable_sync_and_stop_abort_semantics():
     assert "Preserved powercycle_state.json" in init
     assert "POWER_CYCLE_PRESERVE_VERIFY" in init
     assert "recovering staged powercycle state" in Path("IO_Stress/lib/fio_powercycle.sh").read_text(encoding="utf-8")
+    assert "powercycle_staged_next_should_recover" in Path("IO_Stress/lib/fio_powercycle.sh").read_text(encoding="utf-8")
     assert "mark_powercycle_io_committed" in Path("IO_Stress/lib/fio_powercycle.sh").read_text(encoding="utf-8")
     assert "io_committed" in Path("IO_Stress/powercycle_random.py").read_text(encoding="utf-8")
     assert "Consumed powercycle_abort_after_commit" in init
@@ -372,71 +373,46 @@ def test_grace_append_is_deduped_helper():
     assert "Ubuntu: no systemctl; installing .profile resume fallback" in common
 
 def test_staged_recover_requires_io_committed(tmp_path):
-    """prepare recovers next only when io_committed is true."""
+    """Uses powercycle_staged_next_should_recover() from fio_powercycle.sh."""
+    import json
     import os
     import subprocess
     import textwrap
-    import json
 
     result_log = tmp_path / 'ResultLog'
     result_log.mkdir()
     nxt = result_log / 'powercycle_state.next.json'
-    committed = result_log / 'powercycle_state.json'
-    nxt.write_text(json.dumps({'pending_verify': True, 'io_committed': False, 'windows': []}), encoding='utf-8')
 
-    script = textwrap.dedent(f'''
-        ResultLog="{result_log}"
-        Cur_Dir="{tmp_path}"
-        item=REBOOT
-        loop=0
-        LOOP=1
-        source IO_Stress/lib/fio_powercycle.sh
-        POWERCYCLE_STATE_FILE="$ResultLog/powercycle_state.json"
-        POWERCYCLE_STATE_NEXT_FILE="$ResultLog/powercycle_state.next.json"
-        power_log="$ResultLog/reboot_command.log"
-        touch "$power_log"
-        # Inline the recover gate from prepare without full plan generation:
-        if [[ -f "$POWERCYCLE_STATE_NEXT_FILE" ]]; then
-          if python3 - "$POWERCYCLE_STATE_NEXT_FILE" <<'PY'
-import json, sys
-with open(sys.argv[1], "r", encoding="utf-8") as handle:
-    payload = json.load(handle)
-raise SystemExit(0 if payload.get("io_committed") is True else 1)
-PY
-          then
-            commit_powercycle_state
-          else
-            rm -f "$POWERCYCLE_STATE_NEXT_FILE"
-          fi
-        fi
-        ! test -f "$POWERCYCLE_STATE_NEXT_FILE"
-        ! test -f "$POWERCYCLE_STATE_FILE"
-        # Now committed=true should promote
-        python3 - <<PY
-import json
-p=r"{nxt}"
-json.dump({{"pending_verify": True, "io_committed": True, "windows": []}}, open(p,"w"))
-PY
-        if [[ -f "$POWERCYCLE_STATE_NEXT_FILE" ]]; then
-          if python3 - "$POWERCYCLE_STATE_NEXT_FILE" <<'PY'
-import json, sys
-with open(sys.argv[1], "r", encoding="utf-8") as handle:
-    payload = json.load(handle)
-raise SystemExit(0 if payload.get("io_committed") is True else 1)
-PY
-          then
-            commit_powercycle_state
-          fi
-        fi
-        test -f "$POWERCYCLE_STATE_FILE"
-        ! test -f "$POWERCYCLE_STATE_NEXT_FILE"
-    ''')
-    proc = subprocess.run(['bash', '-c', script], cwd=str(Path.cwd()), capture_output=True, text=True)
-    assert proc.returncode == 0, proc.stderr + proc.stdout
+    def decide(payload):
+        nxt.write_text(json.dumps(payload), encoding='utf-8')
+        script = textwrap.dedent(f'''
+            ResultLog="{result_log}"
+            source IO_Stress/lib/fio_powercycle.sh
+            POWERCYCLE_STATE_NEXT_FILE="{nxt}"
+            if powercycle_staged_next_should_recover "$POWERCYCLE_STATE_NEXT_FILE"; then
+              echo RECOVER
+            else
+              echo DISCARD
+            fi
+        ''')
+        proc = subprocess.run(['bash', '-c', script], cwd=str(Path.cwd()), capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stderr + proc.stdout
+        return proc.stdout.strip().splitlines()[-1]
+
+    assert decide({'pending_verify': True, 'io_committed': False, 'windows': [{'x': 1}]}) == 'DISCARD'
+    assert decide({'pending_verify': True, 'io_committed': True, 'windows': [{'x': 1}]}) == 'RECOVER'
+    # Legacy next without io_committed key: promote when pending+windows.
+    assert decide({'pending_verify': True, 'windows': [{'x': 1}]}) == 'RECOVER'
+    assert decide({'pending_verify': False, 'windows': None}) == 'DISCARD'
+
+
+def test_mark_failure_refuses_commit_in_fio_source():
+    fio = Path('IO_Stress/lib/fio.sh').read_text(encoding='utf-8')
+    assert 'mark_powercycle_io_committed failed' in fio
+    assert 'refusing commit' in fio
 
 
 def test_bake_login_resume_is_idempotent(tmp_path):
-    import os
     import subprocess
     import textwrap
 
@@ -453,6 +429,33 @@ def test_bake_login_resume_is_idempotent(tmp_path):
         bake_powercycle_login_resume "{profile}" "cd /tmp/io_stress"
         test $(grep -c RAID_NVME_POWERCYCLE_RESUME_BEGIN "{profile}") -eq 1
         test $(grep -c RAID_NVME_POWERCYCLE_RESUME_END "{profile}") -eq 1
+    ''')
+    proc = subprocess.run(['bash', '-c', script], cwd=str(Path.cwd()), capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+
+
+def test_clear_powercycle_login_bake_removes_legacy_unmarked(tmp_path):
+    import subprocess
+    import textwrap
+
+    profile = tmp_path / 'profile'
+    profile.write_text(
+        '# keep me\n'
+        'temp=`tty |grep tty1 |wc -l`\n'
+        'if [[ "$temp" -eq 1 ]];then\n'
+        'cd /tmp/io_stress\n'
+        'sh /tmp/io_stress/run_fio.sh REBOOT\n'
+        'fi\n'
+        '# after\n',
+        encoding='utf-8',
+    )
+    script = textwrap.dedent(f'''
+        export POWERCYCLE_LOGIN_BAKE_FILES="{profile}"
+        source IO_Stress/lib/common.sh
+        clear_powercycle_login_bake
+        ! grep -q run_fio.sh "{profile}"
+        grep -q 'keep me' "{profile}"
+        grep -q after "{profile}"
     ''')
     proc = subprocess.run(['bash', '-c', script], cwd=str(Path.cwd()), capture_output=True, text=True)
     assert proc.returncode == 0, proc.stderr + proc.stdout
