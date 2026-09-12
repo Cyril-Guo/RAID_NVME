@@ -198,8 +198,9 @@ def test_jenkins_allows_unreachable_trigger_after_pytest():
 def test_non_systemd_resume_exports_grace():
     common = Path("IO_Stress/lib/common.sh").read_text(encoding="utf-8")
     assert "append_powercycle_grace_export()" in common
-    assert "append_powercycle_grace_export /etc/bash.bashrc" in common
-    assert "append_powercycle_grace_export /root/.bash_profile" in common
+    assert "bake_powercycle_login_resume()" in common
+    assert "clear_powercycle_login_bake" in common
+    assert "RAID_NVME_POWERCYCLE_RESUME_BEGIN" in common
     assert 'export POWER_CYCLE_COMMAND_GRACE="${POWER_CYCLE_COMMAND_GRACE:-90}"' in common
 
 def test_durable_sync_and_stop_abort_semantics():
@@ -213,53 +214,95 @@ def test_durable_sync_and_stop_abort_semantics():
     assert "Power-cycle abort after commit" in diff
     assert "powercycle_abort_after_commit" in diff
     assert "Preserved powercycle_state.json" in init
+    assert "POWER_CYCLE_PRESERVE_VERIFY" in init
+    assert "recovering staged powercycle state" in Path("IO_Stress/lib/fio_powercycle.sh").read_text(encoding="utf-8")
+    assert "clear_powercycle_login_bake" in Path("IO_Stress/lib/common.sh").read_text(encoding="utf-8")
+    assert "bake_powercycle_login_resume" in Path("IO_Stress/lib/common.sh").read_text(encoding="utf-8")
     assert "Power-cycle abort after commit" in wait
     assert "the input log_interval isn't a number" in wait
 
 
-def test_clear_log_preserve_logic_with_bash(tmp_path):
-    """Behavior: clear_log keeps VERIFY debt when abort marker or pending_verify."""
+def test_clear_log_preserve_only_with_abort_nested_logad(tmp_path):
+    """Behavior: nested ResultLog under LogAd; preserve only with abort marker."""
     import os
     import subprocess
     import textwrap
 
-    result_log = tmp_path / "ResultLog"
-    result_log.mkdir()
+    log_ad = tmp_path / "logad"
+    result_log = log_ad / "ResultLog"
+    result_log.mkdir(parents=True)
     state = result_log / "powercycle_state.json"
     state.write_text('{"pending_verify": true, "windows": []}\n', encoding="utf-8")
     abort = result_log / "powercycle_abort_after_commit"
-    abort.write_text("abort\n", encoding="utf-8")
+    abort.write_text("Power-cycle abort after commit\n", encoding="utf-8")
 
     script = textwrap.dedent(
-        f'''
+        f"""
+        LogAd="{log_ad}"
         ResultLog="{result_log}"
-        Result_Dir="{tmp_path / "fio_result"}"
-        Config_Dir="{tmp_path / "config"}"
-        LogAd="{tmp_path / "logad"}"
-        File_Dir="{tmp_path / "files"}"
-        TestErrorLog="{tmp_path / "err"}"
-        RawLog="{tmp_path / "raw"}"
-        MachineCheckLog="{tmp_path / "mc"}"
-        MessageRecordLog="{tmp_path / "msg"}"
-        SystemLog="{tmp_path / "sys"}"
+        Result_Dir="{result_log / 'fio_result'}"
+        Config_Dir="{tmp_path / 'config'}"
+        File_Dir="{tmp_path / 'files'}"
+        TestErrorLog="{tmp_path / 'err'}"
+        RawLog="{tmp_path / 'raw'}"
+        MachineCheckLog="{tmp_path / 'mc'}"
+        MessageRecordLog="{tmp_path / 'msg'}"
+        SystemLog="{tmp_path / 'sys'}"
+        Cur_Dir="{tmp_path}"
         show_produce_message() {{ :; }}
         source IO_Stress/lib/init.sh
-        # Recreate ResultLog path used inside clear_log after wiping LogAd:
-        # clear_log removes LogAd; our ResultLog is independent under tmp.
-        mkdir -p "$ResultLog"
         clear_log
         test -f "$ResultLog/powercycle_state.json"
         grep -q pending_verify "$ResultLog/powercycle_state.json"
-        '''
+        test -f "$ResultLog/powercycle_abort_after_commit"
+        """
     )
-    # clear_log also does rm -rf $LogAd which may not include ResultLog when ResultLog
-    # is absolute under tmp_path; preserve path still copies back into ResultLog.
-    env = os.environ.copy()
-    env["PWD"] = str(Path.cwd())
     proc = subprocess.run(
         ["bash", "-c", script],
         cwd=str(Path.cwd()),
-        env=env,
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr + proc.stdout
+
+
+def test_clear_log_wipes_pending_without_abort(tmp_path):
+    """Clean re-init: pending_verify alone must NOT survive clear_log."""
+    import os
+    import subprocess
+    import textwrap
+
+    log_ad = tmp_path / "logad"
+    result_log = log_ad / "ResultLog"
+    result_log.mkdir(parents=True)
+    (result_log / "powercycle_state.json").write_text(
+        '{"pending_verify": true, "windows": []}\n', encoding="utf-8" 
+    )
+
+    script = textwrap.dedent(
+        f"""
+        LogAd="{log_ad}"
+        ResultLog="{result_log}"
+        Result_Dir="{result_log / 'fio_result'}"
+        Config_Dir="{tmp_path / 'config'}"
+        File_Dir="{tmp_path / 'files'}"
+        TestErrorLog="{tmp_path / 'err'}"
+        RawLog="{tmp_path / 'raw'}"
+        MachineCheckLog="{tmp_path / 'mc'}"
+        MessageRecordLog="{tmp_path / 'msg'}"
+        SystemLog="{tmp_path / 'sys'}"
+        Cur_Dir="{tmp_path}"
+        show_produce_message() {{ :; }}
+        source IO_Stress/lib/init.sh
+        clear_log
+        ! test -f "$ResultLog/powercycle_state.json"
+        """
+    )
+    proc = subprocess.run(
+        ["bash", "-c", script],
+        cwd=str(Path.cwd()),
+        env=os.environ.copy(),
         capture_output=True,
         text=True,
     )
@@ -275,4 +318,7 @@ def test_loop_help_matches_default():
 def test_grace_append_is_deduped_helper():
     common = Path("IO_Stress/lib/common.sh").read_text(encoding="utf-8")
     assert "append_powercycle_grace_export()" in common
+    assert "bake_powercycle_login_resume()" in common
+    assert "clear_powercycle_login_bake" in common
+    assert "RAID_NVME_POWERCYCLE_RESUME_BEGIN" in common
     assert "Ubuntu: no systemctl; installing .profile resume fallback" in common

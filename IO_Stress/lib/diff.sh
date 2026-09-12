@@ -349,9 +349,10 @@ function info_diff()
                 echo "Power-cycle abort after commit: VERIFY debt kept in powercycle_state.json"
                 mkdir -p "${ResultLog:-.}" 2>/dev/null || true
                 {
+                    echo "Power-cycle abort after commit"
                     echo "$(date '+%F %T') abort_after_commit item=${item:-} flag=STOP"
-                    echo "pending VERIFY remains in powercycle_state.json; clear_log will preserve it"
-                } | tee -a "${ResultLog:-/tmp}/powercycle_abort_after_commit" >/dev/null
+                    echo "pending VERIFY remains in powercycle_state.json; clear_log will preserve it when abort marker exists"
+                } | tee -a "${ResultLog:-/tmp}/powercycle_abort_after_commit"
             fi
             collect_log
             if declare -F teardown_powercycle_resume >/dev/null 2>&1; then

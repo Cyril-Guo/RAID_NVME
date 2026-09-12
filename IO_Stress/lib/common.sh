@@ -8,6 +8,46 @@ function clear_bashprofile()
         sed -i '/grep tty1/,$d' /root/.bash_profile
     fi
 }
+
+clear_powercycle_login_bake() {
+    local f
+    for f in /root/.bash_profile /root/.profile /etc/bash.bashrc; do
+        [[ -f "$f" ]] || continue
+        if grep -q 'RAID_NVME_POWERCYCLE_RESUME_BEGIN' "$f" 2>/dev/null; then
+            sed -i '/RAID_NVME_POWERCYCLE_RESUME_BEGIN/,/RAID_NVME_POWERCYCLE_RESUME_END/d' "$f" 2>/dev/null || true
+        fi
+    done
+    clear_bashprofile
+    if [[ -f /root/.profile ]] && grep -q 'run_fio.sh' /root/.profile 2>/dev/null; then
+        sed -i '/grep tty1/,/^fi$/d' /root/.profile 2>/dev/null || true
+    fi
+    if [[ -f /etc/bash.bashrc ]] && grep -q 'run_fio.sh' /etc/bash.bashrc 2>/dev/null; then
+        sed -i '/RAID_NVME_POWERCYCLE_RESUME_BEGIN/,/RAID_NVME_POWERCYCLE_RESUME_END/d' /etc/bash.bashrc 2>/dev/null || true
+        sed -i '\#run_fio.sh#d' /etc/bash.bashrc 2>/dev/null || true
+        sed -i '/POWER_CYCLE_COMMAND_GRACE=/d' /etc/bash.bashrc 2>/dev/null || true
+    fi
+}
+
+bake_powercycle_login_resume() {
+    local target="$1"
+    local cd_line="$2"
+    local grace="${POWER_CYCLE_COMMAND_GRACE:-90}"
+    [[ -n "$target" ]] || return 0
+    touch "$target" 2>/dev/null || true
+    if grep -q 'RAID_NVME_POWERCYCLE_RESUME_BEGIN' "$target" 2>/dev/null; then
+        sed -i '/RAID_NVME_POWERCYCLE_RESUME_BEGIN/,/RAID_NVME_POWERCYCLE_RESUME_END/d' "$target" 2>/dev/null || true
+    fi
+    {
+        echo "# RAID_NVME_POWERCYCLE_RESUME_BEGIN"
+        echo "temp=\`tty |grep tty1 |wc -l\`"
+        echo "if [[ \"\$temp\" -eq 1 ]];then"
+        echo "${cd_line}"
+        echo "export POWER_CYCLE_COMMAND_GRACE=${grace}"
+        echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\""
+        echo "fi"
+        echo "# RAID_NVME_POWERCYCLE_RESUME_END"
+    } >> "$target"
+}
 function install_smartctl()
 {
     if ! command -v smartctl &> /dev/null; then
@@ -62,6 +102,7 @@ teardown_powercycle_resume()
         systemctl daemon-reload >/dev/null 2>&1 || true
     fi
     rm -f "${Cur_Dir:-}/powercycle_resume.sh" 2>/dev/null || true
+    clear_powercycle_login_bake
 }
 
 function dotrap()
@@ -282,43 +323,27 @@ EOF
         return 0
     fi
 	if [[ "$system_SUSE" -eq 1 ]];then
-	    echo "cd $CP_ROOT_DIR" >> /etc/bash.bashrc
-        append_powercycle_grace_export /etc/bash.bashrc
-        echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /etc/bash.bashrc
+        if grep -q 'RAID_NVME_POWERCYCLE_RESUME_BEGIN' /etc/bash.bashrc 2>/dev/null; then
+            sed -i '/RAID_NVME_POWERCYCLE_RESUME_BEGIN/,/RAID_NVME_POWERCYCLE_RESUME_END/d' /etc/bash.bashrc
+        fi
+        {
+            echo "# RAID_NVME_POWERCYCLE_RESUME_BEGIN"
+            echo "cd $CP_ROOT_DIR"
+            echo "export POWER_CYCLE_COMMAND_GRACE=${POWER_CYCLE_COMMAND_GRACE:-90}"
+            echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\""
+            echo "# RAID_NVME_POWERCYCLE_RESUME_END"
+        } >> /etc/bash.bashrc
     elif [[ $System_Sugon == 1 ]] || [[ $System_NFS_PC5 != 0 ]];then
-	cd ~
-        echo "temp=\`tty |grep tty1 |wc -l\`" >> /root/.profile
-        echo "if [[ \"\$temp\" -eq 1 ]];then" >> /root/.profile
-        echo "cd $Cur_Dir" >> /root/.profile
-        append_powercycle_grace_export /root/.profile
-        echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.profile
-        echo "fi" >> /root/.profile
-	cat /root/.profile
-	cd - >/dev/null
+        bake_powercycle_login_resume /root/.profile "cd $Cur_Dir"
     elif [[ "$system_Redhat" -eq 1 ]] || [[ "$system_CentOS" -eq 1 ]] || [[ "$system_Redhat7" -eq 1 ]] || [[ "$system_CentOS8" -eq 1 ]] || [[ "$system_NFS" -eq 1 ]] || [[ $system_NFS3 -ne 0 ]] || [[ "${system_Kylin}" -ne 0 ]] || [[ "${system_kylin}" -ne 0 ]] || [[ ${system_Redhat9} -eq 1 ]] || [[ ${system_ctyunos} -eq 1 ]] || [[ ${system_UOS_Server} -ne 0  ]] || [[ ${system_Rocky9} -ne 0 ]];then
-        echo "temp=\`tty |grep tty1 |wc -l\`" >> /root/.bash_profile
-        echo "if [[ \"\$temp\" -eq 1 ]];then" >> /root/.bash_profile
-        echo "cd $CP_ROOT_DIR" >> /root/.bash_profile
-        append_powercycle_grace_export /root/.bash_profile
-        echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.bash_profile
-        echo "fi" >> /root/.bash_profile
+        bake_powercycle_login_resume /root/.bash_profile "cd $CP_ROOT_DIR"
     elif [ -f /etc/os-release ] && grep -iq "Ubuntu" /etc/os-release ;then
-        # Reached only when systemctl was unavailable above; bake login resume + GRACE.
         show_produce_message "Ubuntu: no systemctl; installing .profile resume fallback"
-        echo "temp=\`tty |grep tty1 |wc -l\`" >> /root/.profile
-        echo "if [[ \"\$temp\" -eq 1 ]];then" >> /root/.profile
-        echo "cd $CP_ROOT_DIR" >> /root/.profile
-        append_powercycle_grace_export /root/.profile
-        echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.profile
-        echo "fi" >> /root/.profile
+        bake_powercycle_login_resume /root/.profile "cd $CP_ROOT_DIR"
     elif [[ "$system_Debian" -eq 1 ]];then
-        echo 'temp=`tty |grep tty1 |wc -l`' >> /root/.bash_profile
-        echo 'if [ $temp -eq 1 ];then' >> /root/.bash_profile
-        echo "cd $CP_ROOT_DIR" >> /root/.bash_profile
-        append_powercycle_grace_export /root/.bash_profile
-        echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.bash_profile
-        echo "fi" >> /root/.bash_profile
+        bake_powercycle_login_resume /root/.bash_profile "cd $CP_ROOT_DIR"
     fi
+
 }
 
 function backup()

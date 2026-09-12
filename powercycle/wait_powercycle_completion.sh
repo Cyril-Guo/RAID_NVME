@@ -278,6 +278,13 @@ item_failed() {
     fi
     log_name="$(powercycle_log_name "${item}")"
     while IFS= read -r root; do
+        # Explicit abort marker file (STOP-after-commit).
+        # shellcheck disable=SC2086
+        text="$(eval ${REMOTE_SSH_COMMAND} "test -f ${root}/powercycle_abort_after_commit && echo FOUND" 2>/dev/null || true)"
+        if [[ -n "${text}" ]]; then
+            echo "[${NODE_IP}] detected failure marker in ${item}: powercycle_abort_after_commit" >&2
+            return 0
+        fi
         for pattern in "${patterns[@]}"; do
             # Prefer known log locations (command/resume + fio_result/result.log).
             # shellcheck disable=SC2086

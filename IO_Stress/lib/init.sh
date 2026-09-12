@@ -2,19 +2,24 @@
 
 function clear_log()
 {
-    # Preserve VERIFY debt across re-init after STOP-after-commit (or pending_verify).
+    # Preserve VERIFY debt only after STOP-after-commit (abort marker),
+    # or when POWER_CYCLE_PRESERVE_VERIFY=1 explicitly requests it.
     local _pc_state_bak=""
     local _pc_abort_bak=""
     local _pc_state_src="${ResultLog:-}/powercycle_state.json"
     local _pc_abort_src="${ResultLog:-}/powercycle_abort_after_commit"
-    if [[ -n "${ResultLog:-}" && -f "$_pc_state_src" ]]; then
-        if [[ -f "$_pc_abort_src" ]] || grep -q '"pending_verify"[[:space:]]*:[[:space:]]*true' "$_pc_state_src" 2>/dev/null; then
-            _pc_state_bak="$(mktemp)"
-            cp -f "$_pc_state_src" "$_pc_state_bak" || true
-            if [[ -f "$_pc_abort_src" ]]; then
-                _pc_abort_bak="$(mktemp)"
-                cp -f "$_pc_abort_src" "$_pc_abort_bak" || true
-            fi
+    local _pc_preserve=0
+    if [[ -n "${ResultLog:-}" && -f "$_pc_abort_src" ]]; then
+        _pc_preserve=1
+    elif [[ "${POWER_CYCLE_PRESERVE_VERIFY:-0}" == "1" && -n "${ResultLog:-}" && -f "$_pc_state_src" ]]; then
+        _pc_preserve=1
+    fi
+    if [[ "$_pc_preserve" -eq 1 && -f "$_pc_state_src" ]]; then
+        _pc_state_bak="$(mktemp)"
+        cp -f "$_pc_state_src" "$_pc_state_bak" || true
+        if [[ -f "$_pc_abort_src" ]]; then
+            _pc_abort_bak="$(mktemp)"
+            cp -f "$_pc_abort_src" "$_pc_abort_bak" || true
         fi
     fi
 

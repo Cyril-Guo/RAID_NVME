@@ -43,6 +43,14 @@ function prepare_powercycle_plan() {
     fi
     echo "$(date '+%F %T') [PLAN] min_disk_size_bytes=$min_disk_size" | tee -a "$power_log"
 
+    # Crash window: IO finished but commit never ran — promote leftover staged next
+    # so VERIFY debt is not discarded by the rm below.
+    if [[ -f "$POWERCYCLE_STATE_NEXT_FILE" ]]; then
+        echo "$(date '+%F %T') [PLAN] recovering staged powercycle state from interrupted commit window" | tee -a "$power_log"
+        commit_powercycle_state
+        durable_sync_powercycle_state
+    fi
+
     rm -f "$Cur_Dir/$POWERCYCLE_PLAN_FILE" "$POWERCYCLE_STATE_NEXT_FILE"
 
     python3 "$Cur_Dir/powercycle_random.py" plan \
@@ -72,7 +80,7 @@ function durable_sync_powercycle_state() {
     # Push committed plan metadata past the page cache before drop / long sleeps.
     sync
     if [[ -f "$POWERCYCLE_STATE_FILE" ]]; then
-        python3 - "$POWERCYCLE_STATE_FILE" <<'PY' 2>/dev/null || true
+        if ! python3 - "$POWERCYCLE_STATE_FILE" <<'PY'
 import os, sys
 path = sys.argv[1]
 fd = os.open(path, os.O_RDONLY)
@@ -87,6 +95,9 @@ try:
 finally:
     os.close(dir_fd)
 PY
+        then
+            echo "$(date '+%F %T') [POWER] WARN: durable fsync failed for $POWERCYCLE_STATE_FILE (sync already issued)" >&2
+        fi
     fi
 }
 count_time()
