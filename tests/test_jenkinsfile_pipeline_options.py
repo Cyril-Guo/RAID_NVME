@@ -203,7 +203,10 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
     assert "runTimedEnvironmentStep(ip, 'build and reload draid kernel driver'" not in jenkinsfile
     assert "needsPhysicalIoDriverPrep" in jenkinsfile
     assert "prepare_env.sh" in jenkinsfile
-    assert "test_ci_00_env_prepare" in jenkinsfile
+    # Selection is suffix-based (env_prepare / *_env_prepare), not a hard-coded case id.
+    assert "env_prepare" in jenkinsfile
+    assert "name.endsWith('_env_prepare')" in prepare
+    assert "name == 'env_prepare'" in prepare
     assert "artifacts/dpraid" in jenkinsfile
     assert "clear dirty CSD flash before loading draid" not in jenkinsfile
     assert "restore RAID state before test" not in jenkinsfile
@@ -347,7 +350,7 @@ def test_draid_driver_and_test_dependency_steps_target_physical_host_only():
     assert "QEMU_VM_TARGET" not in source
     assert "ci/install_test_dependencies.sh" in source
     assert "needsPhysicalIoDriverPrep" in source
-    assert "test_ci_00_env_prepare" in source
+    assert "env_prepare" in source
 
 
 def test_physical_io_driver_pull_and_prep_only_for_env_prepare():
@@ -359,7 +362,7 @@ def test_physical_io_driver_pull_and_prep_only_for_env_prepare():
     assert "skip shared install_dpraid/prepare_draid" in jenkinsfile
     assert "needsEnvPrepare" in source
     assert "name.endsWith('_env_prepare')" in source
-    assert "name == 'test_ci_00_env_prepare'" in source
+    assert "name == 'env_prepare'" in source
     assert "when { expression { return !params.RESTORE && shouldRunTests && needsPhysicalIoDriverPrep } }" in jenkinsfile
 
 
