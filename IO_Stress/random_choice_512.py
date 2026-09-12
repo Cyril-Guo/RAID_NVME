@@ -113,7 +113,7 @@ for label in temp_dict:
 # Soft memory gate: no size above ~5.1MiB (5121k).
 assert max(_bs_bytes(k) for k in temp_dict) <= 5121 * 1024
 
-total = 1000
+total = 4000
 proportion_dict = {k: int(v * 0.01 * total) for k, v in temp_dict.items()}
 
 random_p = {}

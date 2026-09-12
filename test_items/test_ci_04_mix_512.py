@@ -19,7 +19,7 @@ def test_mix_512_stress():
     allure.dynamic.title(f"FIO 测试: {item}（混合 IO / 512）")
     allure.dynamic.description(
         f"混合读写；4 路 MixIO 由 random_choice_512.py 直接生成"
-        f"（1000 组 × 30s，块大小 512 对齐）。"
+        f"（4000 组 × 30s，块大小 512 对齐）。"
         f" MIX_FAIL_ON_ANY={fail_on_any or 'yes'}。"
     )
     print(
