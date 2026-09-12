@@ -66,7 +66,7 @@ function arguments_parse()
                remote=$1;;
            -h|--help)
                help
-           exit;;
+           exit 0;;
         *)
            echo "Invalid arguments, try '-h/--help' for more information."
            exit 1;;
@@ -122,8 +122,8 @@ function check_arguments()
     else
         expr $delay "+" 10 &> /dev/null
         if [ $? -ne 0 ];then
-            echo "the input S0 delay time isn't a number,exit" 
-            exit
+            echo "the input S0 delay time isn't a number,exit"
+            exit 2
         fi
     fi
 
@@ -133,7 +133,7 @@ function check_arguments()
         expr $runtime "+" 10 &> /dev/null
         if [ $? -ne 0 ];then
             echo "the input runtime isn't a number,exit"
-            exit
+            exit 2
         fi
     fi
 
@@ -147,6 +147,10 @@ function check_arguments()
     fi
     if [[ -z "$flag" ]];then
         flag="STOP"                        ##stop when the diff occur by default
+    fi
+    if [[ "$flag" != "STOP" && "$flag" != "NON-STOP" ]]; then
+        echo "Invalid flag='$flag' (expect STOP|NON-STOP),exit"
+        exit 2
     fi
     if [[ -z "$LOOP" ]];then
         LOOP=3                         ##the default of runing time is 12h

@@ -20,6 +20,8 @@ chmod +x lib/* run_fio.sh >/dev/null 2>&1 || true
 arguments_parse "$@"
 check_arguments
 
+dotrap
+
 if [[ "$item" != "REBOOT" && "$item" != "DC" ]]; then
     echo "powercycle_direct.sh only supports reboot/dc, got item=$item"
     exit 2

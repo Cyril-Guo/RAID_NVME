@@ -306,6 +306,7 @@ function do_reboot()
 
     # 10 == all loops completed (do NOT reuse for errors).
     if [ "$loop" -ge "$LOOP" ]; then
+        commit_powercycle_state
         echo "$(date '+%F %T') [POWER] all power-cycle loops completed, no remaining reboot/dc command" | tee -a "$command_log"
         return 10
     fi
@@ -325,6 +326,8 @@ function do_reboot()
         if [[ -f "$ResultLog/reboot.log" ]]; then
             sed -i '$d' "$ResultLog/reboot.log" 2>/dev/null || true
         fi
+        # Discard staged next-state so retry re-plans from committed state.
+        rm -f "$POWERCYCLE_STATE_NEXT_FILE" 2>/dev/null || true
     }
 
     if [ "$item" = "REBOOT" ];then
@@ -338,7 +341,8 @@ function do_reboot()
             _rollback_powercycle_loop
             return "$reboot_fail_rc"
         fi
-        # Reboot requested: keep resume unit armed and end this process.
+        # Reboot requested: commit staged plan, keep resume unit armed, end process.
+        commit_powercycle_state
         POWERCYCLE_KEEP_RESUME=1
         sleep 60
         exit 0
@@ -358,7 +362,8 @@ function do_reboot()
                 _rollback_powercycle_loop
                 return "$dc_rc"
             fi
-            # poweroff accepted: keep resume unit armed.
+            # poweroff accepted: commit staged plan, keep resume unit armed.
+            commit_powercycle_state
             POWERCYCLE_KEEP_RESUME=1
             sleep 60
             exit 0

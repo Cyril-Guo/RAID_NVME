@@ -51,6 +51,12 @@ if [ "$item_" == "DC" ] || [ "$item_" == "REBOOT" ] ;then
         collect_log
         teardown_powercycle_resume
         test_end "$reboot_rc"
+    else
+        # Successful reboot/dc must exit inside do_reboot; rc=0 here is illegal.
+        echo "ERROR: unexpected do_reboot rc=$reboot_rc (expected exit 0 inside do_reboot or return 10)"
+        collect_log
+        teardown_powercycle_resume
+        test_end 1
     fi
 
 elif [ "$item_" = "RESTORE" ];then
@@ -62,5 +68,8 @@ else
     exit 1
 fi
 
+# REBOOT/DC paths always test_end/exit above; reaching here is unexpected.
+echo "ERROR: run_fio.sh reached unexpected fallthrough for item=$item_"
 collect_log
-test_end 0
+teardown_powercycle_resume
+test_end 1

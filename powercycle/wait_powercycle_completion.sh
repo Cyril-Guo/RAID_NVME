@@ -204,7 +204,7 @@ item_completed() {
         if [[ -n "${text}" ]]; then
             return 0
         fi
-        # Resume path prints this after reboot_rc=2.
+        # Resume path prints this after reboot_rc=10.
         # shellcheck disable=SC2086
         text="$(eval ${REMOTE_SSH_COMMAND} "grep -F 'Power-cycle test completed all' ${root}/powercycle_resume.log 2>/dev/null" || true)"
         if [[ -n "${text}" ]]; then
@@ -248,6 +248,14 @@ item_failed() {
         "PowerCycle FIO requires filename="
         "Power-cycle reboot/dc command failed"
         "stop_flag is STOP,so exit"
+        "Invalid arguments"
+        "Invalid flag="
+        "Unsupport test type"
+        "the input S0 delay time isn't a number"
+        "the input runtime isn't a number"
+        "powercycle_direct.sh only supports"
+        "unexpected do_reboot rc="
+        "reached unexpected fallthrough"
     )
     # MachineCheck soft-continue (IGNORE_ERROR=yes / NON-STOP) must NOT fail the wait loop.
     ignore_error="$(read_item_ignore_error "${item}")"
@@ -296,9 +304,12 @@ wait_one_item() {
 
     echo "[${NODE_IP}] waiting for ${item} powercycle completion (cycles=${cycles}, timeout=${timeout_min}m)"
 
-    # Confirm trigger: request start, already completed, host unreachable (reboot/DC in flight),
-    # or explicit failure. Pytest already required request start before this wait runs.
+    # Confirm trigger via request-start marker (or completion/failure).
+    # Unreachable-as-trigger is gated: Jenkins sets POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER=1
+    # after pytest already confirmed request start. Otherwise wrong IP would burn the full timeout.
     local saw_trigger=0
+    local saw_request_start=0
+    local allow_unreachable_trigger="${POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER:-0}"
     local trigger_deadline=$(( $(date +%s) + trigger_window ))
     while [ "$(date +%s)" -lt "${trigger_deadline}" ]; do
         if item_completed "${run_key}"; then
@@ -311,14 +322,17 @@ wait_one_item() {
                 return 1
             fi
             if item_triggered "${run_key}"; then
+                saw_request_start=1
                 saw_trigger=1
                 break
             fi
         else
-            # Host down after pytest start => reboot/DC already underway.
-            saw_trigger=1
-            echo "[${NODE_IP}] ${item} host unreachable; treat powercycle as triggered"
-            break
+            if [[ "${saw_request_start}" -eq 1 || "${allow_unreachable_trigger}" == "1" ]]; then
+                saw_trigger=1
+                echo "[${NODE_IP}] ${item} host unreachable; treat powercycle as triggered (allow=${allow_unreachable_trigger} saw_request_start=${saw_request_start})"
+                break
+            fi
+            echo "[${NODE_IP}] ${item} host unreachable; waiting for request-start evidence (set POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER=1 after pytest)"
         fi
         sleep "${POLL_SECONDS}"
     done

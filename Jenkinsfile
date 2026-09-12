@@ -459,7 +459,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x powercycle/collect_environment_metadat
  REMOTE_DIR='${remoteDir}' \
  REMOTE_SSH_COMMAND="${targetSsh}" \
  TEST_ITEMS_FILE='test_items.txt' \
- POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES='${env.POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES}' \
+ POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES='${env.POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES}' POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER='1' \
  powercycle/wait_powercycle_completion.sh
   """
                                     )

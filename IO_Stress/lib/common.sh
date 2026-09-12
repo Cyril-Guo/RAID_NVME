@@ -244,6 +244,7 @@ function autoopen()
 cd "$CP_ROOT_DIR"
 mkdir -p "$ResultLog"
 echo "\$(date '+%F %T') [RESUME] start on boot, tty output=/dev/tty1" | tee -a "$ResultLog/powercycle_resume.log" /dev/tty1
+export POWER_CYCLE_COMMAND_GRACE="${POWER_CYCLE_COMMAND_GRACE:-90}"
 bash "$CP_ROOT_DIR/run_fio.sh" "$item" "$check" "$bmc_reset" "$flag" "$delay" "$mode" "$wait" "$port" "$server_ip" "$LOOP" "$acserverport" "$safe" "$sysStaticIP" "$blackBoxStaticIP" "$runtime" "$filename" "$fs_type" "$disk_mode" "$specified_disk" "$remote" "$mix_io" "$log_interval" 2>&1 | tee -a "$ResultLog/powercycle_resume.log" /dev/tty1
 exit \${PIPESTATUS[0]}
 EOF
@@ -256,6 +257,7 @@ After=multi-user.target
 [Service]
 Type=simple
 Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=POWER_CYCLE_COMMAND_GRACE=${POWER_CYCLE_COMMAND_GRACE:-90}
 ExecStart=/bin/bash "$resume_script"
 StandardOutput=journal+console
 StandardError=journal+console
