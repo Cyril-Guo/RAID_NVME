@@ -248,6 +248,8 @@ item_failed() {
         "PowerCycle FIO requires filename="
         "Power-cycle reboot/dc command failed"
         "stop_flag is STOP,so exit"
+        "Power-cycle abort after commit"
+        "the input log_interval isn't a number"
         "Invalid arguments"
         "Invalid flag="
         "Unsupport test type"

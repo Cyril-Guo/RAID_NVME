@@ -1415,7 +1415,8 @@ function do_fio() {
         # Reboot failure must NOT discard this state (disk already matches it).
         if powercycle_mode_enabled; then
             commit_powercycle_state
-            echo "$(date '+%F %T') [FIO] committed powercycle state" | tee -a "$power_log"
+            durable_sync_powercycle_state
+            echo "$(date '+%F %T') [FIO] committed+synced powercycle state" | tee -a "$power_log"
         fi
         rm -rf $Cur_Dir/configuration.tmp*
         close_mount

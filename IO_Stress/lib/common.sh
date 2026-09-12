@@ -233,6 +233,16 @@ EOF
     fi
 }
 
+append_powercycle_grace_export() {
+    local target="$1"
+    local grace="${POWER_CYCLE_COMMAND_GRACE:-90}"
+    [[ -n "$target" ]] || return 0
+    if [[ -f "$target" ]] && grep -q 'POWER_CYCLE_COMMAND_GRACE=' "$target" 2>/dev/null; then
+        return 0
+    fi
+    echo "export POWER_CYCLE_COMMAND_GRACE=${grace}" >> "$target"
+}
+
 function autoopen()
 {
     show_produce_message "autoopen"
@@ -273,14 +283,14 @@ EOF
     fi
 	if [[ "$system_SUSE" -eq 1 ]];then
 	    echo "cd $CP_ROOT_DIR" >> /etc/bash.bashrc
-        echo "export POWER_CYCLE_COMMAND_GRACE=${POWER_CYCLE_COMMAND_GRACE:-90}" >> /etc/bash.bashrc
+        append_powercycle_grace_export /etc/bash.bashrc
         echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /etc/bash.bashrc
     elif [[ $System_Sugon == 1 ]] || [[ $System_NFS_PC5 != 0 ]];then
 	cd ~
         echo "temp=\`tty |grep tty1 |wc -l\`" >> /root/.profile
         echo "if [[ \"\$temp\" -eq 1 ]];then" >> /root/.profile
         echo "cd $Cur_Dir" >> /root/.profile
-        echo "export POWER_CYCLE_COMMAND_GRACE=${POWER_CYCLE_COMMAND_GRACE:-90}" >> /root/.profile
+        append_powercycle_grace_export /root/.profile
         echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.profile
         echo "fi" >> /root/.profile
 	cat /root/.profile
@@ -289,17 +299,23 @@ EOF
         echo "temp=\`tty |grep tty1 |wc -l\`" >> /root/.bash_profile
         echo "if [[ \"\$temp\" -eq 1 ]];then" >> /root/.bash_profile
         echo "cd $CP_ROOT_DIR" >> /root/.bash_profile
-        echo "export POWER_CYCLE_COMMAND_GRACE=${POWER_CYCLE_COMMAND_GRACE:-90}" >> /root/.bash_profile
+        append_powercycle_grace_export /root/.bash_profile
         echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.bash_profile
         echo "fi" >> /root/.bash_profile
     elif [ -f /etc/os-release ] && grep -iq "Ubuntu" /etc/os-release ;then
-        # Systemd handles auto-open for Ubuntu, no need to modify .profile
-        show_produce_message "Ubuntu: Skipping .profile modification (using Systemd)"
+        # Reached only when systemctl was unavailable above; bake login resume + GRACE.
+        show_produce_message "Ubuntu: no systemctl; installing .profile resume fallback"
+        echo "temp=\`tty |grep tty1 |wc -l\`" >> /root/.profile
+        echo "if [[ \"\$temp\" -eq 1 ]];then" >> /root/.profile
+        echo "cd $CP_ROOT_DIR" >> /root/.profile
+        append_powercycle_grace_export /root/.profile
+        echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.profile
+        echo "fi" >> /root/.profile
     elif [[ "$system_Debian" -eq 1 ]];then
         echo 'temp=`tty |grep tty1 |wc -l`' >> /root/.bash_profile
         echo 'if [ $temp -eq 1 ];then' >> /root/.bash_profile
         echo "cd $CP_ROOT_DIR" >> /root/.bash_profile
-        echo "export POWER_CYCLE_COMMAND_GRACE=${POWER_CYCLE_COMMAND_GRACE:-90}" >> /root/.bash_profile
+        append_powercycle_grace_export /root/.bash_profile
         echo "sh $CP_ROOT_DIR/run_fio.sh \"$item\" \"$check\" \"$bmc_reset\" \"$flag\" \"$delay\" \"$mode\" \"$wait\" \"$port\" \"$server_ip\" \"$LOOP\" \"$acserverport\" \"$safe\" \"$sysStaticIP\" \"$blackBoxStaticIP\" \"$runtime\" \"$filename\" \"$fs_type\" \"$disk_mode\" \"$specified_disk\" \"$remote\" \"$mix_io\" \"$log_interval\"" >> /root/.bash_profile
         echo "fi" >> /root/.bash_profile
     fi

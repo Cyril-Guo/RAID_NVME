@@ -88,7 +88,7 @@ function help(){
    echo "   -f <STOP|NON-STOP>: when MachineCheck diff occurs stop or not (default STOP; applies to reboot/dc)"
    echo "   -d <20|...>: S0 delay time,the default value is 10s"
    echo "   -w <60|...>: S5 delay time, the default value is 120s"
-   echo "   -l <500|...>: the LOOPs, and the default value is 1000"
+   echo "   -l <500|...>: the LOOPs, and the default value is 3"
    echo "   -p <623|...>: IPMI port,and the default value is 623"
    echo "   -a <ip>: AC Server IP"
    echo "   -o <port>: AC Server Port,and the default is 5000"

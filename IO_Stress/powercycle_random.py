@@ -259,8 +259,23 @@ def load_state(path: str) -> dict:
 
 
 def write_state(path: str, payload: dict) -> None:
-    with open(path, "w", encoding="utf-8") as handle:
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    tmp_path = f"{path}.tmp.{os.getpid()}"
+    with open(tmp_path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp_path, path)
+    # fsync directory entry so rename survives crash/power loss.
+    try:
+        dir_fd = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except OSError:
+        pass
 
 
 def build_plan(

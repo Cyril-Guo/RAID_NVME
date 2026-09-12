@@ -345,6 +345,14 @@ function info_diff()
     if [ $? -eq 3 ]; then
         if [ $flag == "STOP" ];then
             echo "stop_flag is STOP,so exit"
+            if [[ "${item:-}" == "REBOOT" || "${item:-}" == "DC" ]]; then
+                echo "Power-cycle abort after commit: VERIFY debt kept in powercycle_state.json"
+                mkdir -p "${ResultLog:-.}" 2>/dev/null || true
+                {
+                    echo "$(date '+%F %T') abort_after_commit item=${item:-} flag=STOP"
+                    echo "pending VERIFY remains in powercycle_state.json; clear_log will preserve it"
+                } | tee -a "${ResultLog:-/tmp}/powercycle_abort_after_commit" >/dev/null
+            fi
             collect_log
             if declare -F teardown_powercycle_resume >/dev/null 2>&1; then
                 teardown_powercycle_resume

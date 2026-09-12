@@ -67,6 +67,28 @@ function commit_powercycle_state() {
         mv -f "$POWERCYCLE_STATE_NEXT_FILE" "$POWERCYCLE_STATE_FILE"
     fi
 }
+
+function durable_sync_powercycle_state() {
+    # Push committed plan metadata past the page cache before drop / long sleeps.
+    sync
+    if [[ -f "$POWERCYCLE_STATE_FILE" ]]; then
+        python3 - "$POWERCYCLE_STATE_FILE" <<'PY' 2>/dev/null || true
+import os, sys
+path = sys.argv[1]
+fd = os.open(path, os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)
+directory = os.path.dirname(path) or "."
+dir_fd = os.open(directory, os.O_RDONLY)
+try:
+    os.fsync(dir_fd)
+finally:
+    os.close(dir_fd)
+PY
+    fi
+}
 count_time()
 {
     loop=`sed -n '$p' $ResultLog/reboot.log|awk {'print $1'}`
@@ -334,10 +356,10 @@ function do_reboot()
         # Order matters:
         # 1) KEEP_RESUME before any chance of EXIT after autoopen
         # 2) commit any leftover staged next (usually already done in do_fio)
-        # 3) sync so state is on disk before reboot/poweroff
+        # 3) durable sync so state is on disk before reboot/poweroff
         POWERCYCLE_KEEP_RESUME=1
         commit_powercycle_state
-        sync
+        durable_sync_powercycle_state
     }
 
     _disarm_powercycle_after_command_fail() {

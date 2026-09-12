@@ -166,3 +166,17 @@ def test_layout_windows_rejects_fragmented_disk():
         assert False, "expected ValueError"
     except ValueError as exc:
         assert "too small" in str(exc) or "fragmented" in str(exc)
+
+
+def test_write_state_is_atomic_and_readable(tmp_path):
+    from IO_Stress import powercycle_random as pr
+
+    path = tmp_path / "powercycle_state.json"
+    payload = {"pending_verify": True, "windows": [{"offset": 0}]}
+    pr.write_state(str(path), payload)
+    assert path.is_file()
+    assert not list(tmp_path.glob("*.tmp.*"))
+    loaded = pr.load_state(str(path))
+    assert loaded["pending_verify"] is True
+    assert loaded["windows"][0]["offset"] == 0
+

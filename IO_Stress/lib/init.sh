@@ -2,6 +2,21 @@
 
 function clear_log()
 {
+    # Preserve VERIFY debt across re-init after STOP-after-commit (or pending_verify).
+    local _pc_state_bak=""
+    local _pc_abort_bak=""
+    local _pc_state_src="${ResultLog:-}/powercycle_state.json"
+    local _pc_abort_src="${ResultLog:-}/powercycle_abort_after_commit"
+    if [[ -n "${ResultLog:-}" && -f "$_pc_state_src" ]]; then
+        if [[ -f "$_pc_abort_src" ]] || grep -q '"pending_verify"[[:space:]]*:[[:space:]]*true' "$_pc_state_src" 2>/dev/null; then
+            _pc_state_bak="$(mktemp)"
+            cp -f "$_pc_state_src" "$_pc_state_bak" || true
+            if [[ -f "$_pc_abort_src" ]]; then
+                _pc_abort_bak="$(mktemp)"
+                cp -f "$_pc_abort_src" "$_pc_abort_bak" || true
+            fi
+        fi
+    fi
 
     rm -rf $Result_Dir
     rm -rf $Config_Dir
@@ -26,6 +41,15 @@ function clear_log()
 	mkdir -p $MessageRecordLog > /dev/null
 	mkdir -p $SystemLog > /dev/null
 
+    if [[ -n "$_pc_state_bak" && -f "$_pc_state_bak" ]]; then
+        cp -f "$_pc_state_bak" "$ResultLog/powercycle_state.json" || true
+        rm -f "$_pc_state_bak"
+        echo "  - Preserved powercycle_state.json (VERIFY debt) across clear_log"
+    fi
+    if [[ -n "$_pc_abort_bak" && -f "$_pc_abort_bak" ]]; then
+        cp -f "$_pc_abort_bak" "$ResultLog/powercycle_abort_after_commit" || true
+        rm -f "$_pc_abort_bak"
+    fi
 
    
 	show_produce_message "prepare test log directories"
