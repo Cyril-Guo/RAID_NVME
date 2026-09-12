@@ -54,7 +54,8 @@ def test_powercycle_failure_paths_and_teardown():
     assert "declare -F teardown_powercycle_resume" in common  # EXIT trap
     # Intentional reboot/dc exit must keep resume unit armed.
     assert '[[ "${POWERCYCLE_KEEP_RESUME:-0}" != "1" ]]' in common
-    assert power.count("POWERCYCLE_KEEP_RESUME=1") >= 2
+    assert "POWERCYCLE_KEEP_RESUME=1" in power
+    assert "_arm_powercycle_before_drop" in power
 
 
 def test_powercycle_scripts_have_no_hardcoded_password_default():
@@ -133,16 +134,69 @@ def test_run_fio_rejects_reboot_rc_zero_fallthrough():
     assert "unexpected do_reboot rc=" in resume
     assert "reached unexpected fallthrough" in resume
 
+def _extract_block(source: str, start: str, end: str) -> str:
+    i = source.index(start)
+    j = source.index(end, i)
+    return source[i:j]
 
-def test_powercycle_state_commit_deferred_until_reboot():
+
+def test_powercycle_state_committed_before_reboot_and_kept_on_fail():
+    """Ordering contract: commit+KEEP+sync before drop; reboot fail does not discard state."""
     fio = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
     power = Path("IO_Stress/lib/fio_powercycle.sh").read_text(encoding="utf-8")
-    assert "staged powercycle state pending" in fio
-    assert power.count("commit_powercycle_state") >= 3
-    assert 'rm -f "$POWERCYCLE_STATE_NEXT_FILE"' in power
+
+    assert "commit_powercycle_state" in fio
+    assert "committed powercycle state" in fio
+    assert "staged powercycle state pending" not in fio
+
+    arm = _extract_block(power, "_arm_powercycle_before_drop()", "_disarm_powercycle_after_command_fail()")
+    arm_code = "\n".join(
+        line for line in arm.splitlines() if line.strip() and not line.lstrip().startswith("#")
+    )
+    assert arm_code.index("POWERCYCLE_KEEP_RESUME=1") < arm_code.index("commit_powercycle_state")
+    assert arm_code.index("commit_powercycle_state") < arm_code.index("sync")
+
+    reboot = _extract_block(power, 'if [ "$item" = "REBOOT" ];then', 'elif [ "$item" = "DC" ];then')
+    assert reboot.index("_arm_powercycle_before_drop") < reboot.index("request_system_reboot")
+    assert "_disarm_powercycle_after_command_fail" in reboot
+
+    dc = _extract_block(
+        power,
+        'elif [ "$item" = "DC" ];then',
+        'echo "$item Test Complete once"',
+    )
+    supported, _, unsupported = dc.partition("return 22")
+    assert supported.index("autoopen") < supported.index("_arm_powercycle_before_drop")
+    assert supported.index("_arm_powercycle_before_drop") < supported.index("dc_utc")
+    assert "autoopen" not in unsupported
+    assert "_disarm_powercycle_after_command_fail" in supported
+
+    rollback = _extract_block(power, "_rollback_powercycle_loop()", "_arm_powercycle_before_drop()")
+    assert "POWERCYCLE_STATE_NEXT_FILE" not in rollback
+    assert "rm -f" not in rollback
+    assert "commit_powercycle_state" not in rollback
+
+
+def test_wait_markers_cover_argument_and_plan_failures():
+    source = Path("powercycle/wait_powercycle_completion.sh").read_text(encoding="utf-8")
+    for marker in (
+        "the input LOOP isn't a number",
+        "the DC mode isn't supported",
+        "Failed to generate random powercycle plan",
+        "Specified disk contains system disk",
+        "PowerCycle run_fio.sh only supports",
+    ):
+        assert marker in source
+    assert "saw_request_start" not in source
 
 
 def test_jenkins_allows_unreachable_trigger_after_pytest():
     jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
     assert "POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER='1'" in jenkinsfile
 
+
+def test_non_systemd_resume_exports_grace():
+    common = Path("IO_Stress/lib/common.sh").read_text(encoding="utf-8")
+    assert "export POWER_CYCLE_COMMAND_GRACE=${POWER_CYCLE_COMMAND_GRACE:-90}" in common
+    assert ">> /etc/bash.bashrc" in common
+    assert ">> /root/.bash_profile" in common

@@ -253,6 +253,13 @@ item_failed() {
         "Unsupport test type"
         "the input S0 delay time isn't a number"
         "the input runtime isn't a number"
+        "the input LOOP isn't a number"
+        "the input S5 delay time isn't a number"
+        "the DC mode isn't supported"
+        "Failed to generate random powercycle plan"
+        "Failed to detect test disk size"
+        "Specified disk contains system disk"
+        "PowerCycle run_fio.sh only supports"
         "powercycle_direct.sh only supports"
         "unexpected do_reboot rc="
         "reached unexpected fallthrough"
@@ -308,7 +315,6 @@ wait_one_item() {
     # Unreachable-as-trigger is gated: Jenkins sets POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER=1
     # after pytest already confirmed request start. Otherwise wrong IP would burn the full timeout.
     local saw_trigger=0
-    local saw_request_start=0
     local allow_unreachable_trigger="${POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER:-0}"
     local trigger_deadline=$(( $(date +%s) + trigger_window ))
     while [ "$(date +%s)" -lt "${trigger_deadline}" ]; do
@@ -322,17 +328,16 @@ wait_one_item() {
                 return 1
             fi
             if item_triggered "${run_key}"; then
-                saw_request_start=1
                 saw_trigger=1
                 break
             fi
         else
-            if [[ "${saw_request_start}" -eq 1 || "${allow_unreachable_trigger}" == "1" ]]; then
+            if [[ "${allow_unreachable_trigger}" == "1" ]]; then
                 saw_trigger=1
-                echo "[${NODE_IP}] ${item} host unreachable; treat powercycle as triggered (allow=${allow_unreachable_trigger} saw_request_start=${saw_request_start})"
+                echo "[${NODE_IP}] ${item} host unreachable; treat powercycle as triggered (ALLOW_UNREACHABLE_TRIGGER=1)"
                 break
             fi
-            echo "[${NODE_IP}] ${item} host unreachable; waiting for request-start evidence (set POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER=1 after pytest)"
+            echo "[${NODE_IP}] ${item} host unreachable; waiting (set POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER=1 after pytest)"
         fi
         sleep "${POLL_SECONDS}"
     done

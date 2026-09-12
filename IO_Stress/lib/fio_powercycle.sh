@@ -322,34 +322,50 @@ function do_reboot()
     sleep $delay
 
     _rollback_powercycle_loop() {
+        # Only undo loop bookkeeping. Never discard committed plan state:
+        # FIO already wrote data matching the committed plan (VERIFY must remain owed).
         loop=$beforeloop
         if [[ -f "$ResultLog/reboot.log" ]]; then
             sed -i '$d' "$ResultLog/reboot.log" 2>/dev/null || true
         fi
-        # Discard staged next-state so retry re-plans from committed state.
-        rm -f "$POWERCYCLE_STATE_NEXT_FILE" 2>/dev/null || true
+    }
+
+    _arm_powercycle_before_drop() {
+        # Order matters:
+        # 1) KEEP_RESUME before any chance of EXIT after autoopen
+        # 2) commit any leftover staged next (usually already done in do_fio)
+        # 3) sync so state is on disk before reboot/poweroff
+        POWERCYCLE_KEEP_RESUME=1
+        commit_powercycle_state
+        sync
+    }
+
+    _disarm_powercycle_after_command_fail() {
+        POWERCYCLE_KEEP_RESUME=0
+        if declare -F teardown_powercycle_resume >/dev/null 2>&1; then
+            teardown_powercycle_resume
+        fi
+        _rollback_powercycle_loop
     }
 
     if [ "$item" = "REBOOT" ];then
         autoopen
-        sync
+        _arm_powercycle_before_drop
         request_system_reboot
         reboot_fail_rc=$?
         if [ "$reboot_fail_rc" -ne 0 ]; then
             echo "$(date '+%F %T') [POWER] reboot command failed, rc=$reboot_fail_rc" | tee -a "$command_log"
             echo "Power-cycle reboot/dc command failed, rc=$reboot_fail_rc" | tee -a "$command_log"
-            _rollback_powercycle_loop
+            _disarm_powercycle_after_command_fail
             return "$reboot_fail_rc"
         fi
-        # Reboot requested: commit staged plan, keep resume unit armed, end process.
-        commit_powercycle_state
-        POWERCYCLE_KEEP_RESUME=1
+        # Reboot requested; resume unit stays armed (KEEP_RESUME=1).
         sleep 60
         exit 0
     elif [ "$item" = "DC" ];then
-        autoopen
-        sync
         if [ "$mode" = "UTC" ] || [ "$mode" = "RTC" ]; then
+            autoopen
+            _arm_powercycle_before_drop
             if [ "$mode" = "UTC" ]; then
                 dc_utc
             else
@@ -359,12 +375,10 @@ function do_reboot()
             if [ "$dc_rc" -ne 0 ]; then
                 echo "$(date '+%F %T') [POWER] DC poweroff failed, rc=$dc_rc mode=$mode" | tee -a "$command_log"
                 echo "Power-cycle reboot/dc command failed, rc=$dc_rc" | tee -a "$command_log"
-                _rollback_powercycle_loop
+                _disarm_powercycle_after_command_fail
                 return "$dc_rc"
             fi
-            # poweroff accepted: commit staged plan, keep resume unit armed.
-            commit_powercycle_state
-            POWERCYCLE_KEEP_RESUME=1
+            # poweroff accepted; resume unit stays armed.
             sleep 60
             exit 0
         else

@@ -1411,10 +1411,11 @@ function do_fio() {
         run_rc=$?
         echo "$(date '+%F %T') [FIO] run_mode rc=$run_rc" | tee -a "$power_log"
         [[ $run_rc -ne 0 ]] && return $run_rc
-        # Defer commit until reboot/dc request succeeds (or all loops done).
-        # Keeps staged next-state so reboot failure can discard it without plan drift.
+        # Commit before reboot/dc so pending VERIFY survives power loss.
+        # Reboot failure must NOT discard this state (disk already matches it).
         if powercycle_mode_enabled; then
-            echo "$(date '+%F %T') [FIO] staged powercycle state pending reboot/dc commit" | tee -a "$power_log"
+            commit_powercycle_state
+            echo "$(date '+%F %T') [FIO] committed powercycle state" | tee -a "$power_log"
         fi
         rm -rf $Cur_Dir/configuration.tmp*
         close_mount
