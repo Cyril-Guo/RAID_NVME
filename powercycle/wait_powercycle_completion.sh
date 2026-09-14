@@ -449,7 +449,9 @@ dump_remote_progress() {
     while IFS= read -r root; do
         echo "[${NODE_IP}] $(date '+%F %T') ---- progress snapshot root=${root} ----"
         # shellcheck disable=SC2086
-        eval ${REMOTE_SSH_COMMAND} "echo '[ls]'; ls -la $(printf '%q' "${root}") 2>/dev/null | sed -n '1,40p'; echo '[${log_name} tail]'; tail -n 20 $(printf '%q' "${root}/${log_name}") 2>/dev/null || true; echo '[resume tail]'; tail -n 20 $(printf '%q' "${root}/powercycle_resume.log") 2>/dev/null || true; echo '[result tail]'; tail -n 15 $(printf '%q' "${root}/fio_result/result.log") 2>/dev/null || true; echo '[reboot.log]'; cat $(printf '%q' "${root}/reboot.log") 2>/dev/null || true" || true
+        # Prefer bash -lc so remote pipes/tails work; print (missing) instead of blank.
+
+        eval ${REMOTE_SSH_COMMAND} "bash -lc $(printf '%q' "set +e; echo '[ls]'; ls -la ${root} 2>/dev/null | sed -n '1,40p'; echo '[${log_name} tail]'; tail -n 40 ${root}/${log_name} 2>/dev/null || echo '(missing)'; echo '[resume tail]'; tail -n 40 ${root}/powercycle_resume.log 2>/dev/null || echo '(missing)'; echo '[result tail]'; tail -n 40 ${root}/fio_result/result.log 2>/dev/null || echo '(missing)'; echo '[reboot.log]'; cat ${root}/reboot.log 2>/dev/null || echo '(missing)'")" || true
     done < <(result_roots_for_item "${run_key}")
 }
 
@@ -539,7 +541,7 @@ wait_one_item() {
                 return 0
             fi
             echo "[${NODE_IP}] $(date '+%F %T') wait #${round}: ${item} still running (SSH up, elapsed=${elapsed}s, ~${remaining}m/${remaining_s}s left)"
-            stream_all_runtime_logs \"${run_key}\"
+            stream_all_runtime_logs "${run_key}"
         else
             echo "[${NODE_IP}] $(date '+%F %T') wait #${round}: ${item} host unreachable during powercycle (elapsed=${elapsed}s, ~${remaining}m/${remaining_s}s left)"
         fi
