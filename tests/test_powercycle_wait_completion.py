@@ -46,8 +46,11 @@ def test_dc_poweroff_failure_does_not_exit_zero():
 
 def test_jenkins_wires_powercycle_completion_timeout():
     jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
-    assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES = '4000'" in jenkinsfile
+    assert "POWER_CYCLE_PER_CYCLE_TIMEOUT_MINUTES = '120'" in jenkinsfile
+    assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES = ''" in jenkinsfile
+    assert "POWER_CYCLE_PER_CYCLE_TIMEOUT_MINUTES='${env.POWER_CYCLE_PER_CYCLE_TIMEOUT_MINUTES}'" in jenkinsfile
     assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES='${env.POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES}'" in jenkinsfile
+
 
 
 def test_powercycle_failure_paths_and_teardown():

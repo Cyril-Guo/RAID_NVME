@@ -455,20 +455,40 @@ dump_remote_progress() {
     done < <(result_roots_for_item "${run_key}")
 }
 
+
+read_remote_reboot_loop() {
+    local run_key="$1"
+    local root last_loop=""
+    while IFS= read -r root; do
+        # shellcheck disable=SC2086
+        last_loop="$(eval ${REMOTE_SSH_COMMAND} "awk 'NF && \$1 ~ /^[0-9]+\$/ { n=\$1 } END { print n+0 }' $(printf '%q' "${root}/reboot.log")" 2>/dev/null || true)"
+        if [[ "${last_loop}" =~ ^[0-9]+$ ]]; then
+            echo "${last_loop}"
+            return 0
+        fi
+    done < <(result_roots_for_item "${run_key}")
+    echo ""
+    return 1
+}
+
 wait_one_item() {
     local run_key="$1"
     local item="${run_key%%__*}"
-    local cycles timeout_min deadline now remaining elapsed started
+    local cycles timeout_min deadline now remaining elapsed started remaining_s
     cycles="$(read_item_cycles "${item}")"
-    # Auto plan budget per loop: FILL windows + STRESS + VERIFY + reboot/DC boot margin.
-    # Override with POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES when needed.
-    timeout_min="${POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES:-$((cycles * 30))}"
+    # Per-cycle stall budget (FILL+STRESS+VERIFY+reboot/DC). Default 2h/cycle.
+    local per_cycle_min="${POWER_CYCLE_PER_CYCLE_TIMEOUT_MINUTES:-120}"
+    # Overall ceiling defaults to cycles * per-cycle; override with COMPLETION_TIMEOUT if set.
+    timeout_min="${POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES:-$((cycles * per_cycle_min))}"
     started=$(date +%s)
     deadline=$(( started + timeout_min * 60 ))
     local trigger_window="${POWER_CYCLE_TRIGGER_CONFIRM_SECONDS:-1800}"
     local poll="${POLL_SECONDS}"
+    local last_seen_loop=""
+    local last_progress_ts="${started}"
+    local cur_loop stall_s
 
-    echo "[${NODE_IP}] $(date '+%F %T') waiting for ${item} powercycle completion (run_key=${run_key}, cycles=${cycles}, timeout=${timeout_min}m, poll=${poll}s)"
+    echo "[${NODE_IP}] $(date '+%F %T') waiting for ${item} powercycle completion (run_key=${run_key}, cycles=${cycles}, per_cycle=${per_cycle_min}m, timeout=${timeout_min}m, poll=${poll}s)"
     dump_remote_progress "${run_key}"
 
     # Confirm trigger via request-start marker (or completion/failure).
@@ -521,6 +541,15 @@ wait_one_item() {
         return 1
     fi
 
+    # Start per-cycle stall clock once powercycle is confirmed underway.
+    last_progress_ts=$(date +%s)
+    if remote_reachable; then
+        cur_loop="$(read_remote_reboot_loop "${run_key}" || true)"
+        if [[ "${cur_loop}" =~ ^[0-9]+$ ]]; then
+            last_seen_loop="${cur_loop}"
+        fi
+    fi
+
     round=0
     while [ "$(date +%s)" -lt "${deadline}" ]; do
         round=$((round + 1))
@@ -540,10 +569,22 @@ wait_one_item() {
                 dump_remote_progress "${run_key}"
                 return 0
             fi
-            echo "[${NODE_IP}] $(date '+%F %T') wait #${round}: ${item} still running (SSH up, elapsed=${elapsed}s, ~${remaining}m/${remaining_s}s left)"
+            cur_loop="$(read_remote_reboot_loop "${run_key}" || true)"
+            if [[ "${cur_loop}" =~ ^[0-9]+$ && "${cur_loop}" != "${last_seen_loop}" ]]; then
+                echo "[${NODE_IP}] $(date '+%F %T') ${item} cycle progress: reboot.log loop ${last_seen_loop:-?} -> ${cur_loop}"
+                last_seen_loop="${cur_loop}"
+                last_progress_ts="${now}"
+            fi
+            echo "[${NODE_IP}] $(date '+%F %T') wait #${round}: ${item} still running (SSH up, elapsed=${elapsed}s, loop=${last_seen_loop:-?}, ~${remaining}m/${remaining_s}s left)"
             stream_all_runtime_logs "${run_key}"
         else
-            echo "[${NODE_IP}] $(date '+%F %T') wait #${round}: ${item} host unreachable during powercycle (elapsed=${elapsed}s, ~${remaining}m/${remaining_s}s left)"
+            echo "[${NODE_IP}] $(date '+%F %T') wait #${round}: ${item} host unreachable during powercycle (elapsed=${elapsed}s, loop=${last_seen_loop:-?}, ~${remaining}m/${remaining_s}s left)"
+        fi
+        stall_s=$(( now - last_progress_ts ))
+        if (( stall_s > per_cycle_min * 60 )); then
+            echo "[${NODE_IP}] $(date '+%F %T') ERROR: ${item} no cycle progress for ${per_cycle_min}m (stall=${stall_s}s, last_loop=${last_seen_loop:-unknown})" >&2
+            dump_remote_failure_bundle "${run_key}"
+            return 1
         fi
         if (( round % 4 == 0 )); then
             dump_remote_progress "${run_key}"

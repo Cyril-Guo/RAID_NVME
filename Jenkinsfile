@@ -138,8 +138,7 @@ pipeline {
     options {
         disableConcurrentBuilds()
         skipDefaultCheckout()
-        // Absolute ceiling for long powercycle runs (FIO_CYCLES * ~30min can be days).
-        // Prefer POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES on the wait script for tighter bounds.
+        // Absolute pipeline ceiling. Per-cycle fail is POWER_CYCLE_PER_CYCLE_TIMEOUT_MINUTES (2h).
         timeout(time: 72, unit: 'HOURS')
     }
 
@@ -186,8 +185,10 @@ pipeline {
         // Consumed by sshpass -e; keep out of command strings built by hostSshCmd/hostScpCmd.
         SSHPASS = "${params.TARGET_PASSWORD?.trim() ?: ''}"
         TEST_IDLE_TIMEOUT_MINUTES = '15'
-        // Wait budget for reboot/dc multi-loop completion (minutes). 100 cycles * ~30m = 3000; keep headroom under 72h.
-        POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES = '4000'
+        // Per-cycle stall: no reboot.log progress for this long => fail (default 2h).
+        POWER_CYCLE_PER_CYCLE_TIMEOUT_MINUTES = '120'
+        // Overall wait ceiling; empty => wait script uses cycles * PER_CYCLE.
+        POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES = ''
         ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
         TEST_EXECUTION_ATTEMPTED = 'false'
         SSH_OPTS = '-o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
@@ -459,7 +460,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x powercycle/collect_environment_metadat
  REMOTE_DIR='${remoteDir}' \
  REMOTE_SSH_COMMAND="${targetSsh}" \
  TEST_ITEMS_FILE='test_items.txt' \
- POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES='${env.POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES}' POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER='1' \
+ POWER_CYCLE_PER_CYCLE_TIMEOUT_MINUTES='${env.POWER_CYCLE_PER_CYCLE_TIMEOUT_MINUTES}' POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES='${env.POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES}' POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER='1' \
  powercycle/wait_powercycle_completion.sh
   """
                                     )

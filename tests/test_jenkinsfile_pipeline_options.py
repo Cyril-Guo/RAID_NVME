@@ -364,5 +364,7 @@ def test_jenkins_sets_sshpass_env_without_embedding_password_in_helper():
     assert "SSHPASS = " in jenkinsfile
     assert 'return "sshpass -e ssh' in jenkinsfile
     assert "SSHPASS='${env.TARGET_PASSWORD}' sshpass" not in jenkinsfile
-    assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES = '4000'" in jenkinsfile
+    assert "POWER_CYCLE_PER_CYCLE_TIMEOUT_MINUTES = '120'" in jenkinsfile
+    assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES = ''" in jenkinsfile
+    assert "POWER_CYCLE_PER_CYCLE_TIMEOUT_MINUTES='${env.POWER_CYCLE_PER_CYCLE_TIMEOUT_MINUTES}'" in jenkinsfile
     assert "POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES='${env.POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES}'" in jenkinsfile
