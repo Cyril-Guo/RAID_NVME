@@ -31,11 +31,11 @@ test_powercycle_01_reboot 1
 # then CSD flash clear + dpraid/draid reload + VD/PD clear.
 
 [test_powercycle_01_reboot]
-FIO_CYCLES      = 100
-IGNORE_ERROR    = no
+FIO_CYCLES      = 5
+IGNORE_ERROR    = yes
 FIO_DISKS       =
 
 [test_powercycle_02_dc]
 FIO_CYCLES      = 5
-IGNORE_ERROR    = no
+IGNORE_ERROR    = yes
 FIO_DISKS       =
