@@ -10,6 +10,9 @@ def test_wait_powercycle_completion_script_exists_and_checks_markers():
     assert "FIO command failed" in source
     assert "Never recursive-grep the workspace" in source
     assert "dump_remote_progress" in source
+    assert "stream_all_runtime_logs" in source
+    assert "dump_remote_failure_bundle" in source
+    assert "stream_remote_file" in source
     failed_fn = source.split("item_failed()", 1)[1].split("dump_remote_progress", 1)[0]
     assert "grep -R" not in failed_fn
     assert "tests/test_" not in failed_fn

@@ -319,6 +319,97 @@ item_failed() {
 }
 
 
+
+stream_state_dir() {
+    local run_key="$1"
+    local safe
+    safe="$(printf '%s' "${NODE_IP}_${run_key}" | tr -c 'A-Za-z0-9._-' '_')"
+    printf '%s\n' "/tmp/pc_wait_stream_${safe}"
+}
+
+# Print only NEW bytes from a remote runtime log into Jenkins console.
+stream_remote_file() {
+    local run_key="$1"
+    local label="$2"
+    local remote_file="$3"
+    local state_dir chunk_file offset_file size offset got
+    state_dir="$(stream_state_dir "${run_key}")"
+    mkdir -p "${state_dir}"
+    chunk_file="${state_dir}/${label//\//_}.chunk"
+    offset_file="${state_dir}/${label//\//_}.offset"
+    offset=0
+    if [[ -f "${offset_file}" ]]; then
+        offset="$(tr -d '[:space:]' < "${offset_file}" || true)"
+        [[ "${offset}" =~ ^[0-9]+$ ]] || offset=0
+    fi
+
+    # shellcheck disable=SC2086
+    size="$(eval ${REMOTE_SSH_COMMAND} "if test -f $(printf '%q' "${remote_file}"); then wc -c < $(printf '%q' "${remote_file}"); else echo 0; fi" 2>/dev/null | tr -d '[:space:]' || true)"
+    [[ "${size}" =~ ^[0-9]+$ ]] || size=0
+    if [[ "${size}" -lt "${offset}" ]]; then
+        offset=0
+    fi
+    if [[ "${size}" -le "${offset}" ]]; then
+        return 0
+    fi
+
+    # shellcheck disable=SC2086
+    eval ${REMOTE_SSH_COMMAND} "dd if=$(printf '%q' "${remote_file}") bs=1 skip=${offset} status=none 2>/dev/null || tail -c +$((offset + 1)) $(printf '%q' "${remote_file}") 2>/dev/null" \
+        >"${chunk_file}" 2>/dev/null || true
+    if [[ ! -s "${chunk_file}" ]]; then
+        return 0
+    fi
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        printf '[%s] [%s] %s\n' "${NODE_IP}" "${label}" "${line}"
+    done <"${chunk_file}"
+    got="$(wc -c <"${chunk_file}" | tr -d '[:space:]')"
+    [[ "${got}" =~ ^[0-9]+$ ]] || got=0
+    offset=$((offset + got))
+    printf '%s\n' "${offset}" >"${offset_file}"
+}
+
+stream_all_runtime_logs() {
+    local run_key="$1"
+    local item="${run_key%%__*}"
+    local log_name root
+    log_name="$(powercycle_log_name "${item}")"
+    while IFS= read -r root; do
+        stream_remote_file "${run_key}" "${log_name}" "${root}/${log_name}"
+        stream_remote_file "${run_key}" "powercycle_resume.log" "${root}/powercycle_resume.log"
+        stream_remote_file "${run_key}" "fio_result/result.log" "${root}/fio_result/result.log"
+        stream_remote_file "${run_key}" "reboot.log" "${root}/reboot.log"
+    done < <(result_roots_for_item "${run_key}")
+}
+
+dump_remote_failure_bundle() {
+    local run_key="$1"
+    local item="${run_key%%__*}"
+    local log_name root
+    log_name="$(powercycle_log_name "${item}")"
+    echo "[${NODE_IP}] $(date '+%F %T') ==== FAILURE BUNDLE begin run_key=${run_key} ===="
+    stream_all_runtime_logs "${run_key}"
+    while IFS= read -r root; do
+        echo "[${NODE_IP}] $(date '+%F %T') ---- failure dump root=${root} ----"
+        # shellcheck disable=SC2086
+        eval ${REMOTE_SSH_COMMAND} "
+echo '[${log_name} last 200]';
+tail -n 200 $(printf '%q' "${root}/${log_name}") 2>/dev/null || true
+echo '[powercycle_resume.log last 400]';
+tail -n 400 $(printf '%q' "${root}/powercycle_resume.log") 2>/dev/null || true
+echo '[fio_result/result.log last 300]';
+tail -n 300 $(printf '%q' "${root}/fio_result/result.log") 2>/dev/null || true
+echo '[machine_diff_error.log]';
+tail -n 160 \$(dirname $(printf '%q' "${root}"))/../TestErrorLog/machine_diff_error.log 2>/dev/null || true
+echo '[latest detresult tails]';
+ls -1t $(printf '%q' "${root}/fio_result/detresult")/*.txt 2>/dev/null | head -n 5 | while read -r f; do
+  echo \"---- \$f ----\"
+  tail -n 100 \"\$f\" 2>/dev/null || true
+done
+" || true
+    done < <(result_roots_for_item "${run_key}")
+    echo "[${NODE_IP}] $(date '+%F %T') ==== FAILURE BUNDLE end ===="
+}
+
 dump_remote_progress() {
     local run_key="$1"
     local item="${run_key%%__*}"
@@ -365,9 +456,10 @@ wait_one_item() {
         fi
         if remote_reachable; then
             echo "[${NODE_IP}] $(date '+%F %T') trigger-check #${round}: SSH up, elapsed=${elapsed}s, trigger_window_left=${remaining}s"
+            stream_all_runtime_logs "${run_key}"
             if item_failed "${run_key}"; then
                 echo "[${NODE_IP}] $(date '+%F %T') ERROR: ${item} failed before/during powercycle" >&2
-                dump_remote_progress "${run_key}"
+                dump_remote_failure_bundle "${run_key}"
                 return 1
             fi
             if item_triggered "${run_key}"; then
@@ -392,7 +484,7 @@ wait_one_item() {
 
     if [[ "${saw_trigger}" -ne 1 ]]; then
         echo "[${NODE_IP}] $(date '+%F %T') ERROR: ${item} never reached request start; cannot close powercycle loop" >&2
-        dump_remote_progress "${run_key}"
+        dump_remote_failure_bundle "${run_key}"
         return 1
     fi
 
@@ -406,26 +498,28 @@ wait_one_item() {
         if remote_reachable; then
             if item_failed "${run_key}"; then
                 echo "[${NODE_IP}] $(date '+%F %T') ERROR: ${item} failed during powercycle (elapsed=${elapsed}s)" >&2
-                dump_remote_progress "${run_key}"
+                dump_remote_failure_bundle "${run_key}"
                 return 1
             fi
             if item_completed "${run_key}"; then
                 echo "[${NODE_IP}] $(date '+%F %T') ${item} powercycle completed (elapsed=${elapsed}s)"
+                stream_all_runtime_logs "${run_key}"
                 dump_remote_progress "${run_key}"
                 return 0
             fi
             echo "[${NODE_IP}] $(date '+%F %T') wait #${round}: ${item} still running (SSH up, elapsed=${elapsed}s, ~${remaining}m/${remaining_s}s left)"
+            stream_all_runtime_logs \"${run_key}\"
         else
             echo "[${NODE_IP}] $(date '+%F %T') wait #${round}: ${item} host unreachable during powercycle (elapsed=${elapsed}s, ~${remaining}m/${remaining_s}s left)"
         fi
-        if (( round % 2 == 0 )); then
+        if (( round % 4 == 0 )); then
             dump_remote_progress "${run_key}"
         fi
         sleep "${poll}"
     done
 
     echo "[${NODE_IP}] $(date '+%F %T') ERROR: ${item} powercycle did not complete within ${timeout_min} minutes" >&2
-    dump_remote_progress "${run_key}"
+    dump_remote_failure_bundle "${run_key}"
     return 1
 }
 
