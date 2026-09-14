@@ -1408,9 +1408,26 @@ function do_fio() {
         echo "$(date '+%F %T') [FIO] set_Disk rc=$set_disk_rc" | tee -a "$power_log"
         [[ $set_disk_rc -ne 0 ]] && return $set_disk_rc
         if powercycle_mode_enabled && declare -F run_powercycle_parallel_phases >/dev/null 2>&1; then
+            # Parallel runner expects per-row *.log jobs under Config_Dir (=job_files).
+            # Serial path gets them via all()->configure; parallel must do the same.
+            for b in $config_list; do
+                rm -rf "$Job_Dir"/*.log >/dev/null 2>&1 || true
+                if ! grep -q "^End" "$File_Dir/$b" 2>/dev/null; then
+                    echo "End" >>"$File_Dir/$b"
+                fi
+                filename="$b"
+                echo "$(date '+%F %T') [FIO] generating powercycle job configs from $b" | tee -a "$power_log"
+                configure
+                cfg_n=$(ls -1p "$Config_Dir" 2>/dev/null | grep -v / | grep '\.log$' | wc -l | tr -d ' ')
+                echo "$(date '+%F %T') [FIO] generated job configs count=${cfg_n}" | tee -a "$power_log"
+                if [[ "${cfg_n:-0}" -le 0 ]]; then
+                    echo "$(date '+%F %T') [FIO] ERROR: configure produced no *.log under $Config_Dir" | tee -a "$power_log" "$Result_Dir/result.log"
+                    return 1
+                fi
+            done
             echo "$(date '+%F %T') [FIO] using parallel powercycle phases" | tee -a "$power_log"
-            run_powercycle_parallel_phases
-            run_rc=$?
+            run_powercycle_parallel_phases 2>&1 | tee -a "$power_log" "$Result_Dir/result.log"
+            run_rc=${PIPESTATUS[0]}
             echo "$(date '+%F %T') [FIO] parallel_phases rc=$run_rc" | tee -a "$power_log"
         else
             run_mode

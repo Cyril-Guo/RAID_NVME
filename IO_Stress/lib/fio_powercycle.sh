@@ -57,7 +57,7 @@ function run_powercycle_parallel_phases() {
     # Skip header; collect Verify_Mode column in CSV order (matches configure() order).
     mapfile -t modes < <(awk -F',' 'NR>1 && $1!="End" && $1!="" {print $9}' "$csv")
     if [[ "${#configs[@]}" -eq 0 ]]; then
-        echo "ERROR: no fio configs generated for powercycle"
+        echo "ERROR: no fio configs generated for powercycle under $Config_Dir (did configure() run?)"
         return 1
     fi
     if [[ "${#modes[@]}" -ne "${#configs[@]}" ]]; then
