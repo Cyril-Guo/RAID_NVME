@@ -1,15 +1,40 @@
 #!/usr/bin/env python3
-"""Parse node-report_*.xml into simple counters for Feishu."""
+"""CLI metrics: Total=selected cases; pass/fail from executed junit."""
 from __future__ import annotations
 
 import glob
 import json
-import os
+import re
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 
 def empty_stats():
     return {"tests": 0, "failures": 0, "errors": 0, "skipped": 0}
+
+
+def selected_slot_count(path: str = "test_items.txt") -> int:
+    try:
+        from nvme_raid_test import _parse_selection
+
+        return len(_parse_selection(Path(path)))
+    except Exception:
+        pass
+    text = Path(path).read_text(encoding="utf-8", errors="replace") if Path(path).is_file() else ""
+    match = re.search(
+        r"# === BEGIN SELECTION.*?===\n(.*?)# === END SELECTION",
+        text,
+        flags=re.S,
+    )
+    body = match.group(1) if match else text
+    count = 0
+    for raw in body.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.split()[0].startswith("test_cli_"):
+            count += 1
+    return count
 
 
 def count_suite_cases(suite):
@@ -32,7 +57,9 @@ def add_stats(total, item):
 
 def junit_metrics(paths=None):
     stats = empty_stats()
-    candidates = paths or sorted(glob.glob("node-report_*.xml"))
+    candidates = paths or sorted(
+        glob.glob("node-report_*.xml") + glob.glob("report_*.xml")
+    )
     for path in candidates:
         try:
             root = ET.parse(path).getroot()
@@ -47,17 +74,35 @@ def junit_metrics(paths=None):
 
 
 def main() -> int:
-    metrics = junit_metrics()
+    selected = selected_slot_count()
+    executed = junit_metrics()
+    passed = max(
+        0,
+        executed["tests"]
+        - executed["failures"]
+        - executed["errors"]
+        - executed["skipped"],
+    )
+    failed = executed["failures"]
+    errors = executed["errors"]
+    if selected > 0:
+        skipped = max(0, selected - passed - failed - errors)
+        total = selected
+    else:
+        total = executed["tests"]
+        skipped = executed["skipped"]
     out = {
-        "total": metrics["tests"],
-        "failed": metrics["failures"],
-        "errors": metrics["errors"],
-        "skipped": metrics["skipped"],
+        "total": total,
+        "failed": failed,
+        "errors": errors,
+        "skipped": skipped,
+        "selected": selected,
+        "executed": executed["tests"],
     }
-    with open("report_metrics.json", "w", encoding="utf-8") as handle:
-        json.dump(out, handle, ensure_ascii=False, indent=2)
+    Path("report_metrics.json").write_text(
+        json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print(json.dumps(out, ensure_ascii=False))
-    # also export shell-friendly lines
     for key, value in out.items():
         print(f"{key.upper()}={value}")
     return 0
