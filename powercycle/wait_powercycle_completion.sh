@@ -202,18 +202,39 @@ remote_reachable() {
 item_completed() {
     local run_key="$1"
     local item="${run_key%%__*}"
-    local log_name text root
+    local log_name text root cycles last_loop
     log_name="$(powercycle_log_name "${item}")"
+    cycles="$(read_item_cycles "${item}")"
     while IFS= read -r root; do
+        # IMPORTANT: redirect local ssh/sshpass stderr too. During reboot, connection
+        # errors on stdout/stderr must NOT be treated as completion markers.
+        # Also require the literal marker substring (not merely non-empty output).
         # shellcheck disable=SC2086
-        text="$(eval ${REMOTE_SSH_COMMAND} "grep -F 'all power-cycle loops completed' ${root}/${log_name} 2>/dev/null" || true)"
-        if [[ -n "${text}" ]]; then
+        text="$(eval ${REMOTE_SSH_COMMAND} "grep -F 'all power-cycle loops completed' $(printf '%q' "${root}/${log_name}")" 2>/dev/null || true)"
+        if [[ "${text}" == *"all power-cycle loops completed"* ]]; then
+            # Cross-check reboot.log progress when available (LOOP from test_items).
+            # shellcheck disable=SC2086
+            last_loop="$(eval ${REMOTE_SSH_COMMAND} "awk 'NF && \$1 ~ /^[0-9]+\$/ { n=\$1 } END { print n+0 }' $(printf '%q' "${root}/reboot.log")" 2>/dev/null || true)"
+            if [[ "${cycles}" =~ ^[0-9]+$ && "${last_loop}" =~ ^[0-9]+$ ]]; then
+                if [[ "${last_loop}" -lt "${cycles}" ]]; then
+                    echo "[${NODE_IP}] $(date '+%F %T') ignore premature completion marker (reboot.log loop=${last_loop} < cycles=${cycles})" >&2
+                    continue
+                fi
+            fi
             return 0
         fi
         # Resume path prints this after reboot_rc=10.
         # shellcheck disable=SC2086
-        text="$(eval ${REMOTE_SSH_COMMAND} "grep -F 'Power-cycle test completed all' ${root}/powercycle_resume.log 2>/dev/null" || true)"
-        if [[ -n "${text}" ]]; then
+        text="$(eval ${REMOTE_SSH_COMMAND} "grep -F 'Power-cycle test completed all' $(printf '%q' "${root}/powercycle_resume.log")" 2>/dev/null || true)"
+        if [[ "${text}" == *"Power-cycle test completed all"* ]]; then
+            # shellcheck disable=SC2086
+            last_loop="$(eval ${REMOTE_SSH_COMMAND} "awk 'NF && \$1 ~ /^[0-9]+\$/ { n=\$1 } END { print n+0 }' $(printf '%q' "${root}/reboot.log")" 2>/dev/null || true)"
+            if [[ "${cycles}" =~ ^[0-9]+$ && "${last_loop}" =~ ^[0-9]+$ ]]; then
+                if [[ "${last_loop}" -lt "${cycles}" ]]; then
+                    echo "[${NODE_IP}] $(date '+%F %T') ignore premature resume completion (reboot.log loop=${last_loop} < cycles=${cycles})" >&2
+                    continue
+                fi
+            fi
             return 0
         fi
     done < <(result_roots_for_item "${run_key}")
@@ -305,8 +326,8 @@ item_failed() {
         for f in "${files[@]}"; do
             for pattern in "${patterns[@]}"; do
                 # shellcheck disable=SC2086
-                match_line="$(eval ${REMOTE_SSH_COMMAND} "grep -F $(printf '%q' "${pattern}") $(printf '%q' "${f}") 2>/dev/null | tail -n 1" || true)"
-                if [[ -n "${match_line}" ]]; then
+                match_line="$(eval ${REMOTE_SSH_COMMAND} "grep -F $(printf '%q' "${pattern}") $(printf '%q' "${f}") | tail -n 1" 2>/dev/null || true)"
+                if [[ "${match_line}" == *"${pattern}"* ]]; then
                     # If VERIFY later recovered, ignore retryable markers that may remain from soft attempts.
                     # Final hard failure always writes "FIO stage failed" which is never ignored.
                     if [[ "${pattern}" == "FIO stage abort" || "${pattern}" == "FIO command failed" || "${pattern}" == "verify failed" || "${pattern}" == "FIO failed" ]]; then
