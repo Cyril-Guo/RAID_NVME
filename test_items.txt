@@ -19,8 +19,8 @@
 # test_vd_io_00_env_prepare 0
 # test_vd_io_01_lawdisk 1
 # test_vd_io_02_filesystem 2
-# test_vd_io_03_mix_4k 3
-test_vd_io_04_mix_512 4
+test_vd_io_03_mix_4k 3
+# test_vd_io_04_mix_512 4
 # test_vd_io_05_random_io_4k 5
 # test_vd_io_06_random_io_512 6
 # === END SELECTION ===
