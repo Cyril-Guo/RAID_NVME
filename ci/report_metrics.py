@@ -172,19 +172,116 @@ def infra_metrics():
     return infra_allure
 
 
+def selected_slot_count(path="test_items.txt"):
+    """How many cases are checked/enabled in test_items.txt (Feishu Total)."""
+    try:
+        from nvme_raid_test import build_run_plan
+        return len(build_run_plan(path))
+    except Exception:
+        pass
+    try:
+        from nvme_raid_test import read_enabled_selection
+        return len(read_enabled_selection(path))
+    except Exception:
+        return 0
+
+
+def execution_stats_for_feishu(test_stats, selected):
+    """Pass/fail from execution; pad skipped so Total=selected keeps Feishu math."""
+    passed = max(
+        0,
+        int(test_stats.get("tests", 0))
+        - int(test_stats.get("failures", 0))
+        - int(test_stats.get("errors", 0))
+        - int(test_stats.get("skipped", 0)),
+    )
+    failed = int(test_stats.get("failures", 0))
+    errors = int(test_stats.get("errors", 0))
+    selected = max(0, int(selected))
+    if selected <= 0:
+        return dict(test_stats)
+    accounted = passed + failed + errors
+    skipped = max(0, selected - accounted)
+    return {
+        "tests": selected,
+        "failures": failed,
+        "errors": errors,
+        "skipped": skipped,
+    }
+
+
+def test_execution_infra_stats():
+    stats = empty_stats()
+    for path in glob.glob("allure-results/*-result.json"):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                result = json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            continue
+        name = str(result.get("name") or "")
+        suite = result_suite(result)
+        if suite != "Test_Execution" and not name.startswith("Test_Execution_"):
+            continue
+        stats["tests"] += 1
+        status = str(result.get("status") or "passed")
+        if status == "failed":
+            stats["failures"] += 1
+        elif status in ("broken", "error"):
+            stats["errors"] += 1
+        elif status == "skipped":
+            stats["skipped"] += 1
+    if stats["tests"] > 0:
+        return stats
+    # Fallback: test_execution status logs
+    for path in sorted(glob.glob("test_execution_*.log")):
+        text = _read_text(path)
+        if "TEST_EXECUTION_STATUS=failed" not in text and "FIO stage failed" not in text:
+            continue
+        node = os.path.basename(path).removeprefix("test_execution_").removesuffix(".log")
+        # skip if junit already failed for this node
+        report = f"report_{node}.xml"
+        node_report = f"node-report_{node}.xml"
+        has_fail = False
+        for rp in (report, node_report):
+            if not os.path.isfile(rp):
+                continue
+            try:
+                root = ET.parse(rp).getroot()
+            except Exception:
+                continue
+            if root.find(".//failure") is not None or root.find(".//error") is not None:
+                has_fail = True
+                break
+        if has_fail:
+            continue
+        stats["tests"] += 1
+        stats["errors"] += 1
+    return stats
+
+
 def report_metrics():
+    selected = selected_slot_count()
     test_stats = merged_test_metrics(is_node_junit_report, is_infra_result)
     infra_stats = infra_metrics()
+    exec_infra = test_execution_infra_stats()
 
-    if test_stats["tests"] > 0:
-        stats = dict(test_stats)
-        add_stats(stats, infra_stats)
+    if test_stats["tests"] > 0 and (exec_infra["failures"] + exec_infra["errors"]) > 0:
+        if test_stats["failures"] == 0 and test_stats["errors"] == 0:
+            test_stats = dict(test_stats)
+            test_stats["failures"] = max(test_stats["failures"], exec_infra["failures"])
+            test_stats["errors"] = max(test_stats["errors"], exec_infra["errors"])
+
+    if test_stats["tests"] > 0 or selected > 0:
+        stats = execution_stats_for_feishu(
+            test_stats, selected if selected > 0 else test_stats["tests"]
+        )
         return {**stats, "kind": "tests"}
 
     if infra_stats["tests"] > 0:
         return {**infra_stats, "kind": "infra"}
 
     return {**empty_stats(), "kind": "empty"}
+
 
 
 def main():

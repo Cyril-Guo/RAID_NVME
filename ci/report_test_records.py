@@ -18,7 +18,7 @@ def labels(result):
 
 
 def junit_context(path):
-    stem = os.path.basename(path).removeprefix("report_").removesuffix(".xml")
+    stem = os.path.basename(path).removeprefix("node-report_").removeprefix("report_").removesuffix(".xml")
     if stem.endswith("_physical"):
         return stem.removesuffix("_physical"), "physical"
     execution_log = f"test_execution_{stem}.log"
@@ -56,7 +56,7 @@ def store_worst(records, identity, status):
 
 def merged_test_metrics(is_node_junit_report, is_infra_result):
     records = {}
-    for path in glob.glob("report_*.xml"):
+    for path in glob.glob("node-report_*.xml") + glob.glob("report_*.xml"):
         if not is_node_junit_report(path):
             continue
         try:
