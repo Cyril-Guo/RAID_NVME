@@ -154,12 +154,6 @@ def main():
         {"tag": "action", "actions": actions},
     ]
 
-    failed_cases = failed_case_names()
-    if failed_cases:
-        elements.insert(-1, {"tag": "div", "text": {
-            "tag": "lark_md", "content": "**失败/异常用例:**\n" + "\n".join(failed_cases),
-        }})
-
     payload = {
         "msg_type": "interactive",
         "card": {
