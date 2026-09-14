@@ -103,7 +103,7 @@ vd_ids=$(
 )
 for vd in $vd_ids; do
     echo "[${NODE_IP}] delete existing VD before QEMU handoff: v${vd}"
-    dpraid "/c0/v${vd}" delete || true
+    dpraid "/c0/v${vd}" delete force || true
 done
 
 slot_ids=$(

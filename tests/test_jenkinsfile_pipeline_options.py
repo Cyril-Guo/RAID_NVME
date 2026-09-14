@@ -433,7 +433,7 @@ def test_automatic_mr_restores_raid_state_before_tests_after_driver_load():
     assert "unload draid module before restoring physical RAID state if loaded" not in source
     assert "dpraid /c0/vall show" in source
     assert "dpraid /c0/eall/sall show" in source
-    assert 'dpraid "/c0/v${vd}" delete' in source
+    assert 'dpraid "/c0/v${vd}" delete force' in source
     assert 'dpraid "/c0/eall/s${slot}" delete' in source
 
 
