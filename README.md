@@ -23,11 +23,13 @@
 
 构建结束后自动：
 
-1. 收集 Jenkins console + `test_execution_*.log`
-2. 生成 Allure（含完整终端日志附件）
-3. 推送精简飞书卡片（用户名/密码 +「查看报告」进入 Allure）
+1. 收集 Jenkins console + `test_execution_*.log`（写入 Allure 附件）
+2. 生成 Allure 报告
+3. 推送飞书卡片：结果摘要 / 构建状态 / 触发来源 / 驱动 / 时间 / 节点 +「查看报告」「查看MR」
+4. **不在卡片上展示日志正文**；详情进 Allure
 
 可用参数 `DEBUG_NO_FEISHU=true` 跳过推送。
+
 
 ## 本地跑
 
