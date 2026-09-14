@@ -10,6 +10,7 @@ function fio_verify_strip_config_directives() {
     sed -i '/do_verify=/d' $Cur_Dir/configuration.tmp
     sed -i '/size=/d' $Cur_Dir/configuration.tmp
     sed -i '/serialize_overlap/d' $Cur_Dir/configuration.tmp
+    sed -i '/^stonewall$/d' $Cur_Dir/configuration.tmp
 }
 
 function fio_verify_apply_mode_options() {
@@ -34,7 +35,7 @@ function fio_verify_apply_mode_options() {
         sed -i "9i randrepeat=0" $Cur_Dir/configuration.tmp
         sed -i "9i time_based" $Cur_Dir/configuration.tmp
         sed -i "9i runtime=${run_time}" $Cur_Dir/configuration.tmp
-        sed -i "9i stonewall" $Cur_Dir/configuration.tmp
+        # No stonewall: multi-disk job sections must run in parallel (phase order is enforced by bash).
     elif [[ "$verify_mode" == "STRESS_WRITE" ]]; then
         # Writable stress outside FILL/VERIFY windows only.
         sed -i "9i size=config_size" $Cur_Dir/configuration.tmp
@@ -48,8 +49,7 @@ function fio_verify_apply_mode_options() {
         # FILL / legacy WRITE: sequential write full window before reboot.
         sed -i "9i size=config_size" $Cur_Dir/configuration.tmp
         sed -i "9i do_verify=0" $Cur_Dir/configuration.tmp
-        # Ensure subsequent STRESS jobs cannot start until FILL finishes when batched.
-        sed -i "9i stonewall" $Cur_Dir/configuration.tmp
+        # No stonewall: FILL windows across disks run together; STRESS is a separate phase.
     fi
 }
 

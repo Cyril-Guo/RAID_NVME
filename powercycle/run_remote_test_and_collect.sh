@@ -126,62 +126,134 @@ collect_io_signature() {
 
 echo "[${NODE_IP}] run ${test_label}"
 set +e
-# Arm coredumps + kdump + RAID1 pending debug on the DUT before the test session (new SSH / sudo shell).
-# eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x powercycle/enable_failure_coredumps.sh powercycle/enable_failure_kdump.sh powercycle/enable_draid_pending_debug.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} powercycle/enable_failure_coredumps.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} powercycle/enable_failure_kdump.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} powercycle/enable_draid_pending_debug.sh\"" || true
 remote_test_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} sudo -E bash -c 'ulimit -c unlimited; cd ${REMOTE_DIR} && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} python3 nvme_raid_test.py'\""
-setsid bash -c "set -o pipefail; ${remote_test_command} 2>&1 | awk '{ print strftime(\"[%Y-%m-%d %H:%M:%S]\"), \$0; fflush() }' | tee '${execution_log}'" &
-test_pid=$!
-last_progress_ts=$(date +%s)
-last_log_size=0
-last_io_signature="$(collect_io_signature || true)"
+
+# Console-first: print every line to Jenkins stdout; also append local artifact copy.
+: >"${execution_log}"
+console_print() {
+    printf '%s\n' "$1"
+    printf '%s\n' "$1" >>"${execution_log}"
+}
+
+dut_stream_dir="$(mktemp -d "/tmp/pc_dut_stream_${NODE_IP}_XXXXXX")"
+stream_dut_runtime_logs_once() {
+    local case_root remote_file key offset_file offset chunk
+    case_root="$(
+        timeout --kill-after=3s 15s bash -c "
+            ${REMOTE_SSH_COMMAND} \"ls -1d ${REMOTE_DIR}/cases/*/IO_Stress/log/ResultLog 2>/dev/null | sort | tail -n 1\"
+        " 2>/dev/null | tr -d '\r' | tail -n 1 || true
+    )"
+    [[ -n "${case_root}" ]] || return 0
+    for key in reboot_command.log dc_command.log fio_result/result.log powercycle_resume.log reboot.log; do
+        remote_file="${case_root}/${key}"
+        offset_file="${dut_stream_dir}/$(printf '%s' "${key}" | tr '/.' '__')"
+        offset="$(cat "${offset_file}" 2>/dev/null || echo 0)"
+        chunk="$(
+            timeout --kill-after=3s 20s bash -c "
+                ${REMOTE_SSH_COMMAND} \"if [[ -f $(printf '%q' "${remote_file}") ]]; then dd if=$(printf '%q' "${remote_file}") bs=1 skip=${offset} status=none 2>/dev/null; fi\"
+            " 2>/dev/null || true
+        )"
+        if [[ -n "${chunk}" ]]; then
+            while IFS= read -r line || [[ -n "${line}" ]]; do
+                console_print "[${NODE_IP}][DUT:${key}] ${line}"
+            done <<<"${chunk}"
+            offset=$((offset + ${#chunk}))
+            printf '%s' "${offset}" >"${offset_file}"
+        fi
+    done
+}
+
 idle_timed_out=0
+last_progress_ts=$(date +%s)
+last_io_signature="$(collect_io_signature || true)"
+last_log_size=0
 
-while kill -0 "${test_pid}" 2>/dev/null; do
-    sleep "${watch_interval_seconds}"
-    now_ts=$(date +%s)
-    current_log_size=$(wc -c < "${execution_log}" 2>/dev/null || echo 0)
-    current_io_signature="$(collect_io_signature || true)"
+(
+    while true; do
+        sleep "${watch_interval_seconds}"
+        now_ts=$(date +%s)
+        stream_dut_runtime_logs_once || true
+        current_log_size=$(wc -c < "${execution_log}" 2>/dev/null || echo 0)
+        current_io_signature="$(collect_io_signature || true)"
+        progressed=0
+        if [ "${current_log_size}" != "${last_log_size}" ]; then
+            progressed=1
+            last_log_size="${current_log_size}"
+        fi
+        if [ -n "${current_io_signature}" ] && [ "${current_io_signature}" != "${last_io_signature}" ]; then
+            progressed=1
+            last_io_signature="${current_io_signature}"
+        fi
+        if [ "${progressed}" = "1" ]; then
+            last_progress_ts="${now_ts}"
+            continue
+        fi
+        if [ $((now_ts - last_progress_ts)) -ge "${idle_timeout_seconds}" ]; then
+            console_print "[${NODE_IP}] ERROR: ${test_label} made no log or non-system disk IO progress for ${TEST_IDLE_TIMEOUT_MINUTES} minutes, treat as hung."
+            if [[ -f "${dut_stream_dir}/test_pgid" ]]; then
+                pgid="$(cat "${dut_stream_dir}/test_pgid")"
+                kill -TERM "-${pgid}" 2>/dev/null || true
+                sleep 5
+                kill -KILL "-${pgid}" 2>/dev/null || true
+            fi
+            printf '1' >"${dut_stream_dir}/idle_timed_out"
+            exit 0
+        fi
+    done
+) &
+watchdog_pid=$!
 
-    if [ "${current_log_size}" != "${last_log_size}" ]; then
-        last_progress_ts="${now_ts}"
-        last_log_size="${current_log_size}"
-    fi
+: >"${dut_stream_dir}/raw.out"
+setsid bash -c "set -o pipefail; ${remote_test_command} 2>&1" >"${dut_stream_dir}/raw.out" 2>&1 &
+test_pid=$!
+printf '%s' "${test_pid}" >"${dut_stream_dir}/test_pgid"
 
-    if [ -n "${current_io_signature}" ] && [ "${current_io_signature}" != "${last_io_signature}" ]; then
-        last_progress_ts="${now_ts}"
-        last_io_signature="${current_io_signature}"
-    fi
+(
+    for _ in $(seq 1 100); do
+        [[ -f "${dut_stream_dir}/raw.out" ]] && break
+        sleep 0.05
+    done
+    stdbuf -oL -eL tail -n +1 -F "${dut_stream_dir}/raw.out" 2>/dev/null | while IFS= read -r line; do
+        console_print "[$(date '+%Y-%m-%d %H:%M:%S')] ${line}"
+    done
+) &
+tail_pid=$!
 
-    if [ $((now_ts - last_progress_ts)) -ge "${idle_timeout_seconds}" ]; then
-        idle_timed_out=1
-        echo "[${NODE_IP}] ERROR: ${test_label} made no log or non-system disk IO progress for ${TEST_IDLE_TIMEOUT_MINUTES} minutes, treat as hung." | tee -a "${execution_log}"
-        kill -TERM "-${test_pid}" 2>/dev/null || kill -TERM "${test_pid}" 2>/dev/null || true
-        sleep 5
-        kill -KILL "-${test_pid}" 2>/dev/null || kill -KILL "${test_pid}" 2>/dev/null || true
-        break
-    fi
-done
+wait "${test_pid}"
+test_rc=$?
+kill "${tail_pid}" 2>/dev/null || true
+kill "${watchdog_pid}" 2>/dev/null || true
+wait "${tail_pid}" 2>/dev/null || true
+wait "${watchdog_pid}" 2>/dev/null || true
+stream_dut_runtime_logs_once || true
 
-if [ "${idle_timed_out}" = "1" ]; then
-    wait "${test_pid}" 2>/dev/null || true
+if [[ -f "${dut_stream_dir}/idle_timed_out" ]]; then
+    idle_timed_out=1
     test_rc=124
-else
-    wait "${test_pid}"
-    test_rc=$?
 fi
+rm -rf "${dut_stream_dir}" 2>/dev/null || true
 set -e
+
 cleanup_deadline=$(( $(date +%s) + cleanup_timeout_seconds ))
 
 if [ "${test_rc}" != "0" ]; then
+    echo "[${NODE_IP}] ERROR: ${test_label} failed with exit code ${test_rc}"
+
+    echo "TEST_EXECUTION_STATUS=failed"
+
+    echo "TEST_EXECUTION_EXIT_CODE=${test_rc}"
+
     {
         echo "[${NODE_IP}] ERROR: ${test_label} failed with exit code ${test_rc}"
         echo "TEST_EXECUTION_STATUS=failed"
         echo "TEST_EXECUTION_EXIT_CODE=${test_rc}"
-    } | tee -a "${execution_log}"
+    } >>"${execution_log}"
+
 fi
 
 if [ "${test_rc}" = "124" ] || [ "${test_rc}" = "137" ]; then
-    echo "[${NODE_IP}] ERROR: ${test_label} idle watchdog fired after ${TEST_IDLE_TIMEOUT_MINUTES} minutes without progress, target may be hung." | tee -a "${execution_log}"
+    echo "[${NODE_IP}] ERROR: ${test_label} idle watchdog fired after ${TEST_IDLE_TIMEOUT_MINUTES} minutes without progress, target may be hung."
+    echo "[${NODE_IP}] ERROR: ${test_label} idle watchdog fired after ${TEST_IDLE_TIMEOUT_MINUTES} minutes without progress, target may be hung." >>"${execution_log}"
 fi
 
 # Best-effort remote cleanup/report salvage after kill or normal exit.
@@ -245,12 +317,20 @@ if [ "${test_rc}" != "0" ]; then
 fi
 
 if [ ! -f "${report_file}" ]; then
+    echo "[${NODE_IP}] ERROR: Missing ${report_file}. ${test_label} did not produce a JUnit report."
+
+    echo "TEST_EXECUTION_STATUS=failed"
+
+    echo "TEST_EXECUTION_EXIT_CODE=2"
+
     {
         echo "[${NODE_IP}] ERROR: Missing ${report_file}. ${test_label} did not produce a JUnit report."
         echo "TEST_EXECUTION_STATUS=failed"
         echo "TEST_EXECUTION_EXIT_CODE=2"
-    } | tee -a "${execution_log}"
+    } >>"${execution_log}"
+
     exit 2
 fi
 
+echo "TEST_EXECUTION_STATUS=passed"
 echo "TEST_EXECUTION_STATUS=passed" >> "${execution_log}"

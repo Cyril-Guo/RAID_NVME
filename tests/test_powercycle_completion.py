@@ -30,4 +30,4 @@ def test_powercycle_parallel_supports_stress_write_and_verify_retry():
     verify = Path("IO_Stress/lib/fio_verify.sh").read_text(encoding="utf-8")
     assert "STRESS_WRITE" in power
     assert "VERIFY retry" in power
-    assert "stonewall" in verify
+    assert 'sed -i "9i stonewall"' not in verify  # must not inject stonewall
