@@ -220,7 +220,7 @@ cli/run_remote_test_and_collect.sh
         always {
             script {
                 if (params.RESTORE) {
-                    echo 'RESTORE mode: skip Feishu notification.'
+                    echo 'RESTORE mode: skip Allure/Feishu.'
                     return
                 }
 
@@ -231,9 +231,22 @@ cli/run_remote_test_and_collect.sh
                 def ipListStr = targetIPs ? targetIPs.join(', ') : ((params.TARGET_IPS ?: '').trim() ?: 'unknown')
                 def buildResult = (currentBuild.currentResult ?: currentBuild.result ?: 'SUCCESS').toString().toUpperCase()
 
-                echo 'Collect console / test execution logs for Feishu'
+                echo 'Collect console / test execution logs'
                 withEnv(["BUILD_URL=${env.BUILD_URL ?: ''}"]) {
                     sh 'python3 cli/collect_console_output.py || true'
+                }
+
+                echo 'Build Allure results (junit + console log)'
+                sh 'python3 cli/junit_to_allure.py || true'
+                try {
+                    allure(
+                        includeProperties: true,
+                        jdk: '',
+                        reportName: 'TEST REPORT',
+                        results: [[path: 'allure-results']]
+                    )
+                } catch (Exception publishEx) {
+                    echo "WARN: Allure publication failed: ${publishEx}. Continue to Feishu."
                 }
 
                 echo 'Parse junit metrics'
@@ -269,6 +282,7 @@ cli/run_remote_test_and_collect.sh
                     "START_STR=${startStr}",
                     "END_STR=${endStr}",
                     "IP_LIST=${ipListStr}",
+                    "TEST_EXECUTION_ATTEMPTED=${env.TEST_EXECUTION_ATTEMPTED ?: 'false'}",
                     "JOB_NAME=${env.JOB_NAME}",
                     "BUILD_NUMBER=${env.BUILD_NUMBER}",
                     "BUILD_URL=${env.BUILD_URL ?: ''}"
@@ -276,7 +290,7 @@ cli/run_remote_test_and_collect.sh
                     sh 'python3 cli/build_feishu_payload.py'
                 }
 
-                archiveArtifacts artifacts: 'jenkins_console.log,feishu_payload.json,report_metrics.json,test_execution_*.log,node-report_*.xml', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'jenkins_console.log,feishu_payload.json,report_metrics.json,test_execution_*.log,node-report_*.xml,allure-results/**', allowEmptyArchive: true
 
                 if (!fileExists('feishu_payload.json')) {
                     echo 'Skip Feishu notification: feishu_payload.json was not generated.'
