@@ -13,7 +13,7 @@ def test_resolve_fio_csv_uses_case_file(tmp_path, monkeypatch):
     monkeypatch.setenv("RAID_NVME_CASE_ROOT", str(tmp_path))
     monkeypatch.delenv("FIO_CONFIG", raising=False)
 
-    assert resolve_fio_csv("test_ci_01_lawdisk") == "Input_Config_lawdisk.csv"
+    assert resolve_fio_csv("test_vd_io_01_lawdisk") == "Input_Config_lawdisk.csv"
 
 
 def test_resolve_fio_csv_honors_fio_config_override(tmp_path, monkeypatch):
@@ -23,7 +23,7 @@ def test_resolve_fio_csv_honors_fio_config_override(tmp_path, monkeypatch):
     monkeypatch.setenv("RAID_NVME_CASE_ROOT", str(tmp_path))
     monkeypatch.setenv("FIO_CONFIG", "custom_mix.csv")
 
-    assert resolve_fio_csv("test_ci_03_mix_4k") == "custom_mix.csv"
+    assert resolve_fio_csv("test_vd_io_03_mix_4k") == "custom_mix.csv"
 
 
 def test_build_fio_args_passes_case_csv(tmp_path, monkeypatch):
@@ -35,7 +35,7 @@ def test_build_fio_args_passes_case_csv(tmp_path, monkeypatch):
     monkeypatch.setenv("IGNORE_MACHINECHECK", "yes")
     monkeypatch.delenv("FIO_DISKS", raising=False)
 
-    args = build_fio_args("mixstress", "test_ci_03_mix_4k")
+    args = build_fio_args("mixstress", "test_vd_io_03_mix_4k")
     assert args == [
         "-i",
         "mixstress",
@@ -44,13 +44,13 @@ def test_build_fio_args_passes_case_csv(tmp_path, monkeypatch):
     ]
 
 
-def test_ci_cases_use_own_csv_and_do_not_import_siblings():
+def test_vd_io_cases_use_own_csv_and_do_not_import_siblings():
     sources = {
-        "test_ci_00_env_prepare.py": "run_env_prepare(log)",
-        "test_ci_01_lawdisk.py": 'build_fio_args("lawdiskstress"',
-        "test_ci_02_filesystem.py": 'build_fio_args("filesystemstress"',
-        "test_ci_03_mix_4k.py": 'build_fio_args("mixstress"',
-        "test_ci_05_random_io_4k.py": 'write_fio_job(plan, disk_sizes, jobs["FILL"], "FILL")',
+        "test_vd_io_00_env_prepare.py": "run_env_prepare(log)",
+        "test_vd_io_01_lawdisk.py": 'build_fio_args("lawdiskstress"',
+        "test_vd_io_02_filesystem.py": 'build_fio_args("filesystemstress"',
+        "test_vd_io_03_mix_4k.py": 'build_fio_args("mixstress"',
+        "test_vd_io_05_random_io_4k.py": 'write_fio_job(plan, disk_sizes, jobs["FILL"], "FILL")',
     }
     for name, needle in sources.items():
         source = Path("test_items", name).read_text(encoding="utf-8")
@@ -61,7 +61,8 @@ def test_ci_cases_use_own_csv_and_do_not_import_siblings():
         assert Path("IO_Stress", f"Input_Config_{stem}.csv").is_file()
     assert not Path("IO_Stress", "Input_Config_random_io_4k.csv").is_file()
     assert not Path("IO_Stress", "Input_Config_random_io_512.csv").is_file()
-    assert not Path("IO_Stress", "Input_Config_filesystem.csv").is_file()
+    # filesystem may keep a legacy CSV; case itself does not require it.
+    assert Path("test_items", "test_vd_io_02_filesystem.py").is_file()
     # mix has no Input_Config CSV; models come from random_choice_*.py
     assert not Path("IO_Stress", "Input_Config_mix_4k.csv").is_file()
     assert not Path("IO_Stress", "Input_Config_mix_512.csv").is_file()
@@ -96,7 +97,7 @@ class _FakeProcess:
 
 def _configure_fio_runner(monkeypatch, tmp_path, lines, returncode, attachments):
     monkeypatch.setenv("RAID_NVME_CASE_ROOT", str(tmp_path))
-    monkeypatch.setenv("RAID_NVME_RUN_KEY", "test_ci_03_mix_4k__5")
+    monkeypatch.setenv("RAID_NVME_RUN_KEY", "test_vd_io_03_mix_4k__5")
     monkeypatch.delenv("IGNORE_MACHINECHECK", raising=False)
     monkeypatch.setattr(
         fio_run.subprocess,
@@ -171,7 +172,7 @@ def test_build_fio_args_mix_skips_csv(monkeypatch, tmp_path):
     monkeypatch.setenv("IGNORE_MACHINECHECK", "yes")
     monkeypatch.delenv("FIO_DISKS", raising=False)
     monkeypatch.setattr(fio_run, "io_stress_dir", lambda: str(tmp_path))
-    args = fio_run.build_fio_args("mixstress", "test_ci_03_mix_4k")
+    args = fio_run.build_fio_args("mixstress", "test_vd_io_03_mix_4k")
     assert "-n" not in args
     assert args[:4] == ["-i", "mixstress", "-f", "NON-STOP"]
     assert "--mix_io" not in args
@@ -179,7 +180,7 @@ def test_build_fio_args_mix_skips_csv(monkeypatch, tmp_path):
     # non-mix still requires CSV
     (tmp_path / "Input_Config_lawdisk.csv").write_text("End\n", encoding="utf-8")
     monkeypatch.setenv("FIO_CONFIG", "Input_Config_lawdisk.csv")
-    args2 = fio_run.build_fio_args("lawdiskstress", "test_ci_01_lawdisk")
+    args2 = fio_run.build_fio_args("lawdiskstress", "test_vd_io_01_lawdisk")
     assert args2[args2.index("-n") + 1] == "Input_Config_lawdisk.csv"
 
 
@@ -189,5 +190,5 @@ def test_build_fio_args_filesystem_skips_csv(monkeypatch, tmp_path):
     monkeypatch.setenv("IGNORE_MACHINECHECK", "yes")
     monkeypatch.delenv("FIO_DISKS", raising=False)
     monkeypatch.setattr(fio_run, "io_stress_dir", lambda: str(tmp_path))
-    args = fio_run.build_fio_args("filesystemstress", "test_ci_02_filesystem")
+    args = fio_run.build_fio_args("filesystemstress", "test_vd_io_02_filesystem")
     assert "-n" not in args

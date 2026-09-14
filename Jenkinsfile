@@ -72,7 +72,7 @@ printf '\\n'
     }
 
     if (!branch || branch == 'HEAD') {
-        // Job CI/SMOKE is named after the RAID_NVME branch it tracks.
+        // Job VD_IO/SMOKE is named after the RAID_NVME branch it tracks.
         branch = (env.JOB_BASE_NAME ?: env.JOB_NAME ?: 'unknown').toString().trim()
     }
     return branch
@@ -85,7 +85,7 @@ def dutLockName(ip) {
 }
 
 // DUT layout: /root/Cyril/Jenkins/<JOB>/<BRANCH>/<build|restore>-<N>
-// Keeps CI/SMOKE, branches, and builds from mixing in one flat directory.
+// Keeps VD_IO/SMOKE, branches, and builds from mixing in one flat directory.
 def remoteWorkspaceRoot(kind = 'build') {
     def job = sanitizePathSegment(env.JOB_BASE_NAME ?: env.JOB_NAME ?: 'job')
     def branch = sanitizePathSegment(resolveRaidNvmeBranch())
@@ -95,8 +95,8 @@ def remoteWorkspaceRoot(kind = 'build') {
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     sh """
-    chmod +x ci/deploy_workspace.sh
-    NODE_IP='${ip}' TARGET_USER='${targetUser}' SSH_OPTS='${sshOpts}' TARGET_PASSWORD='${env.TARGET_PASSWORD}' REMOTE_DIR='${remoteDir}' ci/deploy_workspace.sh
+    chmod +x vd_io/deploy_workspace.sh
+    NODE_IP='${ip}' TARGET_USER='${targetUser}' SSH_OPTS='${sshOpts}' TARGET_PASSWORD='${env.TARGET_PASSWORD}' REMOTE_DIR='${remoteDir}' vd_io/deploy_workspace.sh
     """
 }
 
@@ -212,12 +212,12 @@ pipeline {
 
                 checkout scm: scm, poll: false, changelog: false
 
-                sh 'chmod +x ci/ensure_sshpass.sh && ci/ensure_sshpass.sh'
+                sh 'chmod +x vd_io/ensure_sshpass.sh && vd_io/ensure_sshpass.sh'
 
                 script {
                     echo "Jenkins node=${env.NODE_NAME}. Different TARGET_IPs can run in parallel; same TARGET_IP is lock-serialized. Concurrent builds need enough executors on this node."
                     def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
-                    def jenkinsPrepare = load 'ci/jenkins_prepare.groovy'
+                    def jenkinsPrepare = load 'vd_io/jenkins_prepare.groovy'
 
                     if (!params.RESTORE) {
                         shouldRunTests = true
@@ -395,20 +395,20 @@ set -euo pipefail
 {
 echo "[${ip}] deploy workspace -> ${remoteDir}"
 ${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
-chmod +x ci/deploy_workspace.sh
+chmod +x vd_io/deploy_workspace.sh
 NODE_IP='${ip}' \\
 TARGET_USER='${env.TARGET_USER}' \\
 REMOTE_DIR='${remoteDir}' \\
 REMOTE_SSH_COMMAND="${targetSsh}" \\
-ci/deploy_workspace.sh
+vd_io/deploy_workspace.sh
 } 2>&1 | tee -a ${envPrepareLog}
 """)
 
                                 // draid/dpraid refresh is intentionally NOT done in Jenkins shared prepare.
-                                // The env_prepare test case runs ci/prepare_env.sh on the DUT.
+                                // The env_prepare test case runs vd_io/prepare_env.sh on the DUT.
                                 if (needsPhysicalIoDriverPrep) {
                                     echo "[${ip}] env_prepare selected: skip shared dpraid/draid prepare; case runs prepare_env.sh"
-                                    sh "printf '%s\\n' '[${ip}] skip shared install_dpraid/prepare_draid; env_prepare uses ci/prepare_env.sh' >> ${envPrepareLog}"
+                                    sh "printf '%s\\n' '[${ip}] skip shared install_dpraid/prepare_draid; env_prepare uses vd_io/prepare_env.sh' >> ${envPrepareLog}"
                                 } else {
                                     echo "[${ip}] skip shared dpraid/draid prepare (env_prepare not selected)"
                                     sh "printf '%s\\n' '[${ip}] skip shared install_dpraid/prepare_draid' >> ${envPrepareLog}"
@@ -419,14 +419,14 @@ ci/deploy_workspace.sh
 set -euo pipefail
 {
 echo "[${ip}] install python dependencies"
-${targetSsh} 'cd ${remoteDir} && chmod +x ci/install_test_dependencies.sh && ci/install_test_dependencies.sh'
+${targetSsh} 'cd ${remoteDir} && chmod +x vd_io/install_test_dependencies.sh && vd_io/install_test_dependencies.sh'
 } 2>&1 | tee -a ${envPrepareLog}
 """)
 
                                 echo "[${ip}] collect environment metadata"
                                 runTimedEnvironmentStep(ip, 'collect environment metadata', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
 set -euo pipefail
-${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && NODE_IP=${ip} REMOTE_DIR=${remoteDir} PREFIX=Node_${ip} ci/collect_environment_metadata.sh'
+${targetSsh} 'cd ${remoteDir} && chmod +x vd_io/collect_environment_metadata.sh && NODE_IP=${ip} REMOTE_DIR=${remoteDir} PREFIX=Node_${ip} vd_io/collect_environment_metadata.sh'
 """)
                                 sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=passed' >> ${envPrepareLog}"
 
@@ -434,17 +434,17 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                                 def testStatus = sh(
                                     returnStatus: true,
                                     script: """#!/bin/bash
- chmod +x ci/run_remote_test_and_collect.sh
+ chmod +x vd_io/run_remote_test_and_collect.sh
  NODE_IP='${ip}' \
  TARGET_USER='${env.TARGET_USER}' \
  REMOTE_DIR='${remoteDir}' \
  REMOTE_SSH_COMMAND="${targetSsh}" \
  REMOTE_SCP_COMMAND="${targetScp}" \
  TEST_IDLE_TIMEOUT_MINUTES='${env.TEST_IDLE_TIMEOUT_MINUTES}' \
- ci/run_remote_test_and_collect.sh
+ vd_io/run_remote_test_and_collect.sh
  """
                                 )
-                                // CI branch has no reboot/dc cases; PowerCycle wait lives on PowerCycle only.
+                                // VD_IO branch has no reboot/dc cases; PowerCycle wait lives on PowerCycle only.
                                 if (testStatus != 0) {
                                     error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"
                                 }
@@ -482,9 +482,9 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                     mkdir -p allure-results
                     cat allure-results/environment_*.properties > allure-results/environment.properties 2>/dev/null || true
                     rm -f allure-results/environment_*.properties
-                    python3 ci/collect_console_output.py
-                    python3 ci/build_status.py --manual-abort jenkins_console.log > manual_abort.txt
-                    python3 ci/junit_to_allure.py
+                    python3 vd_io/collect_console_output.py
+                    python3 vd_io/build_status.py --manual-abort jenkins_console.log > manual_abort.txt
+                    python3 vd_io/junit_to_allure.py
                     '''
                 } catch (Exception publishEx) {
                     if (publishEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(publishEx)) {
@@ -535,7 +535,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
 
                 def metricsOutput = ''
                 try {
-                    metricsOutput = sh(script: "python3 ci/report_metrics.py", returnStdout: true).trim()
+                    metricsOutput = sh(script: "python3 vd_io/report_metrics.py", returnStdout: true).trim()
                 } catch (Exception metricsEx) {
                     if (metricsEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(metricsEx)) {
                         throw metricsEx
@@ -543,7 +543,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                     publicationErrors << "Report metrics failed: ${metricsEx}"
                     echo "WARN: report_metrics failed: ${metricsEx}. Continue to Feishu finalization."
                 }
-                sh 'python3 ci/extract_failure_summary.py --output failure_summary.txt || true'
+                sh 'python3 vd_io/extract_failure_summary.py --output failure_summary.txt || true'
 
                 def metrics = metricsOutput ? metricsOutput.split(/\s+/) : [] as String[]
                 def total = 0
@@ -697,7 +697,7 @@ ${targetSsh} 'cd ${remoteDir} && chmod +x ci/collect_environment_metadata.sh && 
                     "BUILD_NUMBER=${env.BUILD_NUMBER}",
                     "BUILD_URL=${env.BUILD_URL}"
                 ]) {
-                    sh 'python3 ci/build_feishu_payload.py'
+                    sh 'python3 vd_io/build_feishu_payload.py'
                 }
                 if (!fileExists('feishu_payload.json')) {
                     echo 'Skip Feishu notification: feishu_payload.json was not generated.'

@@ -1,4 +1,4 @@
-from ci.remote_workspace_path import case_workdir, remote_workspace_root, sanitize_segment
+from vd_io.remote_workspace_path import case_workdir, remote_workspace_root, sanitize_segment
 
 
 def test_sanitize_segment_strips_origin_and_unsafe_chars():
@@ -33,8 +33,8 @@ def test_remote_workspace_root_separates_job_branch_and_build():
 
 
 def test_case_workdir_nests_under_build_root():
-    assert case_workdir("/root/Cyril/Jenkins/CI/CI/build-9", "test_ci_03_mix_4k") == (
-        "/root/Cyril/Jenkins/CI/CI/build-9/cases/test_ci_03_mix_4k"
+    assert case_workdir("/root/Cyril/Jenkins/CI/CI/build-9", "test_vd_io_03_mix_4k") == (
+        "/root/Cyril/Jenkins/CI/CI/build-9/cases/test_vd_io_03_mix_4k"
     )
 
 

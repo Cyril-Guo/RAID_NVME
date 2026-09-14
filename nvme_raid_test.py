@@ -36,9 +36,9 @@ RUN_ORDER_ENV = "RAID_NVME_RUN_ORDER"
 ITEM_ENV = "RAID_NVME_ITEM"
 _NODE_IP_REPORT_RE = re.compile(r"^\d+\.\d+\.\d+\.\d+$")
 
-_CI_NAME_RE = re.compile(r"^(test_ci_\d+_.+)\.py$", re.IGNORECASE)
+_CI_NAME_RE = re.compile(r"^(test_vd_io_\d+_.+)\.py$", re.IGNORECASE)
 _TEST_NAME_RE = re.compile(r"^test_(.+)\.py$", re.IGNORECASE)
-_CI_SHORT_RE = re.compile(r"^test_ci_\d+_(.+)$", re.IGNORECASE)
+_CI_SHORT_RE = re.compile(r"^test_vd_io_\d+_(.+)$", re.IGNORECASE)
 _SKIP_NAME_RE = re.compile(
     r"(^__init__\.py$|_common\.py$|^powercycle_launch\.py$|^fio_run\.py$|^fio_allure\.py$|^random_io_plan\.py$)",
     re.IGNORECASE,
@@ -46,7 +46,7 @@ _SKIP_NAME_RE = re.compile(
 
 
 def item_name_from_filename(filename):
-    """Map test_ci_01_lawdisk.py -> test_ci_01_lawdisk, test_foo.py -> foo."""
+    """Map test_vd_io_01_lawdisk.py -> test_vd_io_01_lawdisk, test_foo.py -> foo."""
     if _SKIP_NAME_RE.search(filename):
         return None
     match = _CI_NAME_RE.match(filename)
@@ -61,7 +61,7 @@ def item_name_from_filename(filename):
 
 
 def item_short_name(name):
-    """test_ci_01_lawdisk -> lawdisk; plain names unchanged."""
+    """test_vd_io_01_lawdisk -> lawdisk; plain names unchanged."""
     match = _CI_SHORT_RE.match(name or "")
     return match.group(1).strip().lower() if match else (name or "").strip().lower()
 
@@ -91,15 +91,15 @@ TEST_ITEMS = discover_test_items()
 
 SELECTION_BEGIN = "# === BEGIN SELECTION（自动同步；完整用例名 + 执行序号，# 表示不跑）==="
 SELECTION_END = "# === END SELECTION ==="
-_CI_ORDER_RE = re.compile(r"^test_ci_(\d+)_.+\.py$", re.IGNORECASE)
+_CI_ORDER_RE = re.compile(r"^test_vd_io_(\d+)_.+\.py$", re.IGNORECASE)
 _SELECTION_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 def parse_selection_entry(line):
     """Parse a selection line into (name, orders, enabled), or None.
 
-    Preferred: ``test_ci_03_mix_4k 5`` or ``test_ci_03_mix_4k 5 8``.
-    Also accepts order-first lines (``5 test_ci_03_mix_4k``).
+    Preferred: ``test_vd_io_03_mix_4k 5`` or ``test_vd_io_03_mix_4k 5 8``.
+    Also accepts order-first lines (``5 test_vd_io_03_mix_4k``).
     """
     text = line.strip()
     if not text:
@@ -145,7 +145,7 @@ def _selection_entry_name(line):
 
 
 def catalog_default_order(name, catalog):
-    """Prefer CI file number (test_ci_03_mix_4k.py -> 3); else None."""
+    """Prefer CI file number (test_vd_io_03_mix_4k.py -> 3); else None."""
     path = catalog.get(name, "")
     match = _CI_ORDER_RE.match(os.path.basename(path))
     if match:
@@ -205,7 +205,7 @@ def read_enabled_selection(path):
 def build_run_plan(path, test_items=None):
     """Expand enabled selection lines into ordered run slots.
 
-    ``test_ci_03_mix_4k 5 8`` contributes two slots.
+    ``test_vd_io_03_mix_4k 5 8`` contributes two slots.
     Every slot uses ``run_key`` ``{item}__{order}`` for isolated artifacts and reporting.
     """
     catalog = test_items if test_items is not None else TEST_ITEMS
@@ -731,7 +731,7 @@ def _attach_named_file_to_allure(item, base_dir, source_name, display_name, mime
 
 def collect_case_outputs(case_dir, repo_root, run_key):
     """Copy per-case junit/allure artifacts back to the build root for Jenkins collect."""
-    from ci.case_artifacts import copy_case_outputs
+    from vd_io.case_artifacts import copy_case_outputs
     copy_case_outputs(case_dir, repo_root, run_key)
 
 
@@ -920,16 +920,16 @@ def result_matches_item(result, item, run_key=None):
         for key in ("name", "fullName", "historyId", "testCaseId")
     )
     aliases = {
-        "test_ci_00_env_prepare": ("test_ci_00_env_prepare", "env_prepare"),
-        "test_ci_01_lawdisk": ("test_ci_01_lawdisk", "lawdisk", "lawdiskstress"),
-        "test_ci_02_filesystem": ("test_ci_02_filesystem", "filesystem", "filesystemstress"),
-        "test_ci_03_mix_4k": ("test_ci_03_mix_4k", "mix_4k", "mix_stress"),
-        "test_ci_04_mix_512": ("test_ci_04_mix_512", "mix_512", "mix_stress"),
-        "test_ci_05_random_io_4k": ("test_ci_05_random_io_4k", "random_io_4k", "randomio"),
-        "test_ci_06_random_io_512": ("test_ci_06_random_io_512", "random_io_512", "randomio"),
+        "test_vd_io_00_env_prepare": ("test_vd_io_00_env_prepare", "env_prepare"),
+        "test_vd_io_01_lawdisk": ("test_vd_io_01_lawdisk", "lawdisk", "lawdiskstress"),
+        "test_vd_io_02_filesystem": ("test_vd_io_02_filesystem", "filesystem", "filesystemstress"),
+        "test_vd_io_03_mix_4k": ("test_vd_io_03_mix_4k", "mix_4k", "mix_stress"),
+        "test_vd_io_04_mix_512": ("test_vd_io_04_mix_512", "mix_512", "mix_stress"),
+        "test_vd_io_05_random_io_4k": ("test_vd_io_05_random_io_4k", "random_io_4k", "randomio"),
+        "test_vd_io_06_random_io_512": ("test_vd_io_06_random_io_512", "random_io_512", "randomio"),
         # PowerCycle branch names (CI has no such cases; kept for shared helper):
-        "test_ci_01_reboot": ("test_ci_01_reboot", "reboot", "reboot_powercycle"),
-        "test_ci_02_dc": ("test_ci_02_dc", "dc", "dc_powercycle"),
+        "test_vd_io_01_reboot": ("test_vd_io_01_reboot", "reboot", "reboot_powercycle"),
+        "test_vd_io_02_dc": ("test_vd_io_02_dc", "dc", "dc_powercycle"),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))
 

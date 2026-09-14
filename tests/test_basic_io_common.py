@@ -572,7 +572,7 @@ def test_power_cycle_uses_pci_remove_and_rescan_on_qemu_and_physical(monkeypatch
 
     def fake_exists(self):
         normalized = str(self).replace("\\", "/")
-        if normalized.endswith("/sys/bus/pci/devices/0000:01:00.0/remove"):
+        if normalized.endswith("/sys/bus/pvd_io/devices/0000:01:00.0/remove"):
             return True
         return original_exists(self)
 
@@ -582,17 +582,17 @@ def test_power_cycle_uses_pci_remove_and_rescan_on_qemu_and_physical(monkeypatch
 
     basic_io_common.power_cycle_one_disk_per_group([[disk]], CommandLog())
 
-    assert ("echo 1 > /sys/bus/pci/devices/0000:01:00.0/remove", True) in calls
+    assert ("echo 1 > /sys/bus/pvd_io/devices/0000:01:00.0/remove", True) in calls
     assert (["sleep", "1"], False) in calls
-    assert ("echo 1 > /sys/bus/pci/rescan", True) in calls
+    assert ("echo 1 > /sys/bus/pvd_io/rescan", True) in calls
     assert (["sleep", "2"], False) in calls
-    assert not any("/sys/bus/pci/slots/" in str(cmd) for cmd, _ in calls)
+    assert not any("/sys/bus/pvd_io/slots/" in str(cmd) for cmd, _ in calls)
 
     calls.clear()
     monkeypatch.setenv("QEMU_VM_TARGET", "1")
     basic_io_common.power_cycle_one_disk_per_group([[disk]], CommandLog())
-    assert ("echo 1 > /sys/bus/pci/devices/0000:01:00.0/remove", True) in calls
-    assert ("echo 1 > /sys/bus/pci/rescan", True) in calls
+    assert ("echo 1 > /sys/bus/pvd_io/devices/0000:01:00.0/remove", True) in calls
+    assert ("echo 1 > /sys/bus/pvd_io/rescan", True) in calls
 
 
 def test_power_cycle_skips_excluded_nvme_models(monkeypatch):

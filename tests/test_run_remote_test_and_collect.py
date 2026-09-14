@@ -8,7 +8,7 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RUN_SCRIPT = REPO_ROOT / "ci" / "run_remote_test_and_collect.sh"
+RUN_SCRIPT = REPO_ROOT / "vd_io" / "run_remote_test_and_collect.sh"
 
 
 def _bash():

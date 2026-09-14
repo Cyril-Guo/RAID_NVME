@@ -5,7 +5,7 @@ def preparePhysicalIoDriver(Map cfg) {
     def selectedTestItems = cfg.selectedTestItems ?: []
     def jenkinsHome = cfg.jenkinsHome ?: (env.JENKINS_HOME ?: '/var/lib/jenkins')
 
-    // Accept short env_prepare and full test_ci_00_env_prepare (and future _env_prepare).
+    // Accept short env_prepare and full test_vd_io_00_env_prepare (and future _env_prepare).
     def needsEnvPrepare = selectedTestItems.any { item ->
         def name = (item ?: '').toString()
         name == 'env_prepare' || name.endsWith('_env_prepare')
@@ -124,7 +124,7 @@ def preparePhysicalIoDriver(Map cfg) {
               "${env.KERNEL_DRIVER_GITLAB_API}/projects/${env.KERNEL_DRIVER_GITLAB_PROJECT}/merge_requests/${manualMrIid}" \\
               -o kernel_driver_manual_mr.json
 
-            python3 ci/gitlab_mr_to_properties.py kernel_driver_manual_mr.json > kernel_driver_manual_mr.properties
+            python3 vd_io/gitlab_mr_to_properties.py kernel_driver_manual_mr.json > kernel_driver_manual_mr.properties
             """
         }
 

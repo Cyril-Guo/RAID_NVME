@@ -16,7 +16,7 @@ BUILD_NUMBER=${BUILD_NUMBER:-0}
 echo "[${NODE_IP}] ===== reclaim physical host from QEMU/draid ====="
 
 list_vfio_nvme_devices() {
-    for pci_path in /sys/bus/pci/devices/*; do
+    for pci_path in /sys/bus/pvd_io/devices/*; do
         [ -e "$pci_path/class" ] || continue
         pci_class=$(cat "$pci_path/class")
         [ "$pci_class" = "0x010802" ] || continue
@@ -250,7 +250,7 @@ unbind_vfio_nvme_to_host() {
 
     rm -f .jenkins_nvme_*_vfio_devices || true
 
-    echo 1 > /sys/bus/pci/rescan || true
+    echo 1 > /sys/bus/pvd_io/rescan || true
     sleep 5
     nvme list || true
 

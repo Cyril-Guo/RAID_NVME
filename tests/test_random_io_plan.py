@@ -1,7 +1,7 @@
 import pytest
 
 from test_items import random_io_plan
-from test_items import test_ci_05_random_io_4k as random_io_case
+from test_items import test_vd_io_05_random_io_4k as random_io_case
 from test_items import random_io_plan_4k, random_io_plan_512
 from test_items.random_io_plan import (
     DEFAULT_DURATION_SECONDS,

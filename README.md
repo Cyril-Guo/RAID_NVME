@@ -6,7 +6,7 @@
 
 - **分布式并发执行**：通过 Jenkins 并发调度，可同时对构建参数 `TARGET_IPS` 中配置的多个节点进行测试。
 - **自动化环境部署**：Jenkins Pipeline 会通过 SSH 自动将测试代码部署到远端服务器，目录按  
-  `/root/Cyril/Jenkins/<JOB>/<BRANCH>/build-<N>/` 分层（CI/SMOKE、分支、构建互不混杂）；  
+  `/root/Cyril/Jenkins/<JOB>/<BRANCH>/build-<N>/` 分层（VD_IO/SMOKE、分支、构建互不混杂）；  
   各用例在 `cases/<item>/` 下隔离运行，并自动加载安装所需 Python 依赖。
 - **Allure 监控报告合并**：自动从所有远端测试节点中回收测试产物（`.xml` 控制台日志和 `allure-results`），统一生成直观的 Allure UI 评估报告。
 - **飞书通知集成**：测试完成后，通过自定义飞书机器人 Webhook，自动实时推送详尽的测试结果与成功/失败数据到飞书群组。
@@ -26,7 +26,7 @@ RAID_NVME/
 ├── Stress_Monitor/         # 后台压力监控工具（共用）
 ├── History/               # 归档（旧配置 / 已移出 CI 的用例）
 └── test_items/             # 纯测试项：仅存放各 Pytest 测试用例
-    └── test_ci_00..06_*.py # CI 连续编号用例（完整名即选择名）
+    └── test_vd_io_00..06_*.py # VD_IO 连续编号用例（完整名即选择名）
 ```
 
 > 说明：`IO_Stress`、`MachineCheck`、`Stress_Monitor` 为多个测试项共用的引擎/工具，
@@ -40,7 +40,7 @@ Jenkins 通过 **`sshpass` + 密码** 连接被测机，**不再依赖 SSH 免�
 - 默认用户：`root`（`TARGET_USER`）
 - 默认密码：`123456`（`TARGET_PASSWORD`，可在 Jenkins「Build with Parameters」覆盖）
 - SSH 选项强制密码认证：`PreferredAuthentications=password`，`PubkeyAuthentication=no`
-- Jenkins 节点首次准备时会执行 `ci/ensure_sshpass.sh` 安装 `sshpass`
+- Jenkins 节点首次准备时会执行 `vd_io/ensure_sshpass.sh` 安装 `sshpass`
 
 确认被测机已开启 root 的密码 SSH 登录即可，无需再配置 `ssh-keygen` / `ssh-copy-id`。
 
@@ -54,59 +54,59 @@ Jenkins 通过 **`sshpass` + 密码** 连接被测机，**不再依赖 SSH 免�
 编辑项目根目录中的 `test_items.txt`：
 
 1. **`BEGIN/END SELECTION` 块**：列出全部已发现用例。  
-   - **格式**：`<完整用例名> <序号> [序号 ...]`（完整用例名 = `test_items/test_ci_NN_*.py` 去掉 `.py`）  
+   - **格式**：`<完整用例名> <序号> [序号 ...]`（完整用例名 = `test_items/test_vd_io_NN_*.py` 去掉 `.py`）  
    - 行首 `#` = 不跑；去掉 `#` = 跑  
-   - **按数字升序执行**（与 `test_ci_NN_*` 编号一致：`00`..`06`）  
-   - 同一名称可写多个序号以重复执行，例如 `test_ci_03_mix_4k 3 5`  
+   - **按数字升序执行**（与 `test_vd_io_NN_*` 编号一致：`00`..`06`）  
+   - 同一名称可写多个序号以重复执行，例如 `test_vd_io_03_mix_4k 3 5`  
    - 同步会按序号重排、保留启用状态，并给新用例补上 `# <name> <序号>`（也可手动  
      `python nvme_raid_test.py --sync-selection`）
 2. **`[完整用例名]` 参数块**：块名必须与选择名一致，只写该用例会用到的键。
 
-**CI 分支当前用例**（连续编号 `00`..`06`）：
+**VD_IO 分支当前用例**（连续编号 `00`..`06`）：
 
 | 文件 | 选择名 | 说明 |
 |------|--------|------|
-| `test_ci_00_env_prepare.py` | `test_ci_00_env_prepare` | 环境准备 |
-| `test_ci_01_lawdisk.py` | `test_ci_01_lawdisk` | 不区分 4k/512；改 `FIO_CONFIG` 指向的 CSV |
-| `test_ci_02_filesystem.py` | `test_ci_02_filesystem` | 无 CSV；内置 16 分区 × 16 模型 × 180s 轮 |
-| `test_ci_03_mix_4k.py` | `test_ci_03_mix_4k` | mix 4k（无 CSV） |
-| `test_ci_04_mix_512.py` | `test_ci_04_mix_512` | mix 512（无 CSV） |
-| `test_ci_05_random_io_4k.py` | `test_ci_05_random_io_4k` | random_io 4k 对齐（无 CSV） |
-| `test_ci_06_random_io_512.py` | `test_ci_06_random_io_512` | random_io 512/历史池（无 CSV） |
+| `test_vd_io_00_env_prepare.py` | `test_vd_io_00_env_prepare` | 环境准备 |
+| `test_vd_io_01_lawdisk.py` | `test_vd_io_01_lawdisk` | 不区分 4k/512；改 `FIO_CONFIG` 指向的 CSV |
+| `test_vd_io_02_filesystem.py` | `test_vd_io_02_filesystem` | 无 CSV；内置 16 分区 × 16 模型 × 180s 轮 |
+| `test_vd_io_03_mix_4k.py` | `test_vd_io_03_mix_4k` | mix 4k（无 CSV） |
+| `test_vd_io_04_mix_512.py` | `test_vd_io_04_mix_512` | mix 512（无 CSV） |
+| `test_vd_io_05_random_io_4k.py` | `test_vd_io_05_random_io_4k` | random_io 4k 对齐（无 CSV） |
+| `test_vd_io_06_random_io_512.py` | `test_vd_io_06_random_io_512` | random_io 512/历史池（无 CSV） |
 
-> `reboot` / `dc` / `basic_io` / `basic_rebuild_io` 不在 CI 分支；见 **`PowerCycle`** 分支与 `History/`。
+> `reboot` / `dc` / `basic_io` / `basic_rebuild_io` 不在 VD_IO 分支；见 **`PowerCycle`** 分支与 `History/`。
 
 ```text
 # === BEGIN SELECTION（自动同步；完整用例名 + 执行序号，# 表示不跑）===
-# test_ci_00_env_prepare 0
-# test_ci_01_lawdisk 1
-# test_ci_02_filesystem 2
-test_ci_03_mix_4k 3
-# test_ci_04_mix_512 4
-# test_ci_05_random_io_4k 5
-# test_ci_06_random_io_512 6
+# test_vd_io_00_env_prepare 0
+# test_vd_io_01_lawdisk 1
+# test_vd_io_02_filesystem 2
+test_vd_io_03_mix_4k 3
+# test_vd_io_04_mix_512 4
+# test_vd_io_05_random_io_4k 5
+# test_vd_io_06_random_io_512 6
 # === END SELECTION ===
 
-[test_ci_01_lawdisk]
+[test_vd_io_01_lawdisk]
 FIO_CONFIG      = Input_Config_lawdisk.csv
 IGNORE_MACHINECHECK    = yes
 
-[test_ci_03_mix_4k]
+[test_vd_io_03_mix_4k]
 IGNORE_MACHINECHECK    = yes
 MIX_FAIL_ON_ANY = yes
 ```
 
-上面启用项按序号执行：`test_ci_03_mix_4k`(3)。下方 `[...]` 只是参数，不决定是否执行。
+上面启用项按序号执行：`test_vd_io_03_mix_4k`(3)。下方 `[...]` 只是参数，不决定是否执行。
 
 参数含义：
 
 - `FIO_CONFIG`：仅 `lawdisk`；`filesystem` / `mix` / `random_io` 不需要 Input_Config CSV。
-- mix 的 4k/512 由用例脚本内置（`test_ci_03_mix_4k` / `test_ci_04_mix_512`），无需额外参数。
+- mix 的 4k/512 由用例脚本内置（`test_vd_io_03_mix_4k` / `test_vd_io_04_mix_512`），无需额外参数。
 - `MIX_FAIL_ON_ANY`：仅 mix；任一 FIO 失败是否判失败。
 - `IGNORE_MACHINECHECK`：MachineCheck 结果不一致时是否继续 (yes/no)。旧名 `IGNORE_ERROR` 仍可读。
 - `FIO_DISKS`：指定数据盘 (如 `sdb,sdc`)，留空为全部数据盘。
 - `FIO_RUNTIME`：filesystem 的 fio 压测阶段总时长，单位秒且必须是 180 的整数倍。
-- `STRESS_MONITOR` / `MONITOR_RUNTIME`：仅 `test_ci_01_lawdisk` / `test_ci_02_filesystem`。
+- `STRESS_MONITOR` / `MONITOR_RUNTIME`：仅 `test_vd_io_01_lawdisk` / `test_vd_io_02_filesystem`。
 - `RANDOM_IO_DURATION`：仅 random_io。
 
 > 白名单为空时不跑任何用例（破坏性测试的安全默认）。停止/清理（restore）
@@ -177,12 +177,12 @@ RAID_NVME 测试框架自身的 `checkout` 设为 `poll:false`，因此往测试
 * `Jenkinsfile` 中默认写入了特定的飞书 Webhook 地址与机器人 UI 解析卡片。如果在其他域/新环境中运行，请替换对应的 `FEISHU_WEBHOOK` 值。
 
 
-## CI artifact names
+## VD_IO artifact names
 
 - `case-report_<run_key>.xml` — per-case JUnit
 - `node-report.xml` — merged JUnit on DUT
 - `node-report_<IP>.xml` — Jenkins copy per node
-- See `ci/REPORTING.md` for the full table.
+- See `vd_io/REPORTING.md` for the full table.
 
 ## Concurrent builds
 

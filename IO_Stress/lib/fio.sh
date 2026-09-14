@@ -35,7 +35,7 @@ FIO_EIO_BUNDLE_TRIGGERED="${FIO_EIO_BUNDLE_TRIGGERED:-0}"
 # Background collect by default so watchdog idle timer is not blocked by gcore/tar.
 FIO_LIVE_BUNDLE_BG="${FIO_LIVE_BUNDLE_BG:-1}"
 
-# Walk up from known roots looking for ci/collect_failure_bundle.sh.
+# Walk up from known roots looking for vd_io/collect_failure_bundle.sh.
 find_raid_nvme_repo_root() {
     local base d i
     for base in \
@@ -49,7 +49,7 @@ find_raid_nvme_repo_root() {
         [ -n "${base}" ] || continue
         d=$(cd "${base}" 2>/dev/null && pwd) || continue
         for i in 1 2 3 4 5 6; do
-            if [ -f "${d}/ci/collect_failure_bundle.sh" ]; then
+            if [ -f "${d}/vd_io/collect_failure_bundle.sh" ]; then
                 printf '%s\n' "${d}"
                 return 0
             fi
@@ -89,11 +89,11 @@ trigger_live_failure_bundle() {
     fi
 
     repo_root=$(find_raid_nvme_repo_root) || {
-        echo "$(date '+%F %T') [FIO] WARN: cannot locate ci/collect_failure_bundle.sh; skip live bundle" \
+        echo "$(date '+%F %T') [FIO] WARN: cannot locate vd_io/collect_failure_bundle.sh; skip live bundle" \
             | tee -a "${result_dir:-/tmp}/result.log" 2>/dev/null || true
         return 0
     }
-    script="${repo_root}/ci/collect_failure_bundle.sh"
+    script="${repo_root}/vd_io/collect_failure_bundle.sh"
     run_key="${RAID_NVME_RUN_KEY:-${FIO_LAST_CONFIG:-fio_live}}"
     remote_dir="${REMOTE_DIR:-${repo_root}}"
     safe_key=$(_fio_safe_token "${run_key}")
@@ -2131,7 +2131,7 @@ function get_config_filelist() {
     elif [[ $mix_io == YES ]];then
         cd $file_dir
 	rm -rf MixIO*.csv
-	# CI cases set MIX_RANDOM_CHOICE=random_choice_4k.py|random_choice_512.py
+	# VD_IO cases set MIX_RANDOM_CHOICE=random_choice_4k.py|random_choice_512.py
 	mix_choice="${MIX_RANDOM_CHOICE:-random_choice_4k.py}"
 	case "$mix_choice" in
 	    /*) mix_choice_path="$mix_choice" ;;

@@ -3,7 +3,7 @@ import hashlib
 from pathlib import Path
 
 try:
-    from ci.report_identity import all_attachments, read_json, save_json
+    from vd_io.report_identity import all_attachments, read_json, save_json
 except ModuleNotFoundError:
     from report_identity import all_attachments, read_json, save_json
 

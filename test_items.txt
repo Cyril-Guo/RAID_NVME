@@ -4,7 +4,7 @@
 # BEGIN/END SELECTION 块会在运行 nvme_raid_test.py 时自动同步
 # （也可手动：python nvme_raid_test.py --sync-selection）。
 #
-# 命名规范：test_ci_<NN>_<name>[ _4k|_512 ]
+# 命名规范：test_vd_io_<NN>_<name>[ _4k|_512 ]
 #   - NN 连续编号（00..06）
 #   - lawdisk / filesystem：不区分 4k/512，靠手动改 FIO_CONFIG 指向的 CSV
 #   - mix / random_io：仍分 4k / 512（用例设置 MIX_RANDOM_CHOICE=random_choice_{4k|512}.py）
@@ -16,13 +16,13 @@
 # ============================================================
 
 # === BEGIN SELECTION（自动同步；完整用例名 + 执行序号，# 表示不跑）===
-# test_ci_00_env_prepare 0
-# test_ci_01_lawdisk 1
-# test_ci_02_filesystem 2
-# test_ci_03_mix_4k 3
-test_ci_04_mix_512 4
-# test_ci_05_random_io_4k 5
-# test_ci_06_random_io_512 6
+# test_vd_io_00_env_prepare 0
+# test_vd_io_01_lawdisk 1
+# test_vd_io_02_filesystem 2
+# test_vd_io_03_mix_4k 3
+test_vd_io_04_mix_512 4
+# test_vd_io_05_random_io_4k 5
+# test_vd_io_06_random_io_512 6
 # === END SELECTION ===
 
 
@@ -42,41 +42,41 @@ test_ci_04_mix_512 4
 #   RANDOM_IO_DURATION   — 仅 random_io，墙钟（Nh/Nm/Ns/秒）；到点不新开轮
 # ============================================================
 
-[test_ci_00_env_prepare]
+[test_vd_io_00_env_prepare]
 # Stop QEMU if running, unload draid, return vfio devices to host,
 # then CSD flash clear + dpraid/draid reload + VD/PD clear.
 
-[test_ci_01_lawdisk]
+[test_vd_io_01_lawdisk]
 FIO_CONFIG      = Input_Config_lawdisk.csv
 IGNORE_MACHINECHECK    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
-[test_ci_02_filesystem]
+[test_vd_io_02_filesystem]
 FIO_RUNTIME     = 43200
 IGNORE_MACHINECHECK    = yes
 FIO_DISKS       =
 STRESS_MONITOR  = no
 MONITOR_RUNTIME = 21600
 
-[test_ci_03_mix_4k]
+[test_vd_io_03_mix_4k]
 IGNORE_MACHINECHECK    = yes
 FIO_DISKS       =
 MIX_FAIL_ON_ANY = yes
 
-[test_ci_04_mix_512]
+[test_vd_io_04_mix_512]
 IGNORE_MACHINECHECK    = yes
 FIO_DISKS       =
 MIX_FAIL_ON_ANY = yes
 
-[test_ci_05_random_io_4k]
+[test_vd_io_05_random_io_4k]
 IGNORE_MACHINECHECK       = yes
 FIO_DISKS          =
 # 空=默认 43200s；任意正数（Nh/Nm/Ns/秒）。到点后跑完当前轮再停。
 RANDOM_IO_DURATION =
 
-[test_ci_06_random_io_512]
+[test_vd_io_06_random_io_512]
 IGNORE_MACHINECHECK       = yes
 FIO_DISKS          =
 # 空=默认 43200s；任意正数（Nh/Nm/Ns/秒）。到点后跑完当前轮再停。

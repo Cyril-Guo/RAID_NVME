@@ -4,9 +4,9 @@ from pathlib import Path
 def pipeline_sources():
     paths = [
         Path("Jenkinsfile"),
-        *sorted(Path("ci").glob("*.sh")),
-        *sorted(Path("ci").glob("*.py")),
-        *sorted(Path("ci").glob("*.groovy")),
+        *sorted(Path("vd_io").glob("*.sh")),
+        *sorted(Path("vd_io").glob("*.py")),
+        *sorted(Path("vd_io").glob("*.groovy")),
     ]
     return "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
@@ -34,7 +34,7 @@ def test_apt_get_waits_for_dpkg_lock():
 
 def test_jenkins_ui_keeps_ignore_and_mix_fail_in_test_items_only():
     jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
-    run_remote = Path("ci/run_remote_test_and_collect.sh").read_text(encoding="utf-8")
+    run_remote = Path("vd_io/run_remote_test_and_collect.sh").read_text(encoding="utf-8")
     runner = Path("nvme_raid_test.py").read_text(encoding="utf-8")
     items = Path("test_items.txt").read_text(encoding="utf-8")
 
@@ -55,8 +55,8 @@ def test_debug_no_feishu_only_skips_notification():
 
     assert "name: 'DEBUG_NO_FEISHU'" in source
     assert "DEBUG_NO_FEISHU=true, skip Feishu notification." in source
-    assert "python3 ci/build_feishu_payload.py" in source
-    assert "python3 ci/extract_failure_summary.py --output failure_summary.txt" in source
+    assert "python3 vd_io/build_feishu_payload.py" in source
+    assert "python3 vd_io/extract_failure_summary.py --output failure_summary.txt" in source
     assert "feishu_payload.json" in source
     assert "def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'" in source
     assert '"BUILD_RESULT=${buildResult}"' in source
@@ -93,24 +93,24 @@ def test_failure_logs_are_added_to_allure_and_feishu_report():
 
     assert "TEST_EXECUTION_STATUS=failed" in source
     assert "TEST_EXECUTION_EXIT_CODE=${test_rc}" in source
-    assert "python3 ci/collect_console_output.py" in source
+    assert "python3 vd_io/collect_console_output.py" in source
     assert "jenkins_console.log" in source
-    assert "终端输出" in Path("ci/junit_to_allure.py").read_text(encoding="utf-8")
+    assert "终端输出" in Path("vd_io/junit_to_allure.py").read_text(encoding="utf-8")
     assert "write_failed_execution_results" in source
-    assert "python3 ci/extract_failure_summary.py --output failure_summary.txt" in jenkinsfile
+    assert "python3 vd_io/extract_failure_summary.py --output failure_summary.txt" in jenkinsfile
     assert "failure_summary.txt" in jenkinsfile
-    feishu = Path("ci/build_feishu_payload.py").read_text(encoding="utf-8")
+    feishu = Path("vd_io/build_feishu_payload.py").read_text(encoding="utf-8")
     assert "查看MR" in feishu
     assert "详细日志" not in feishu
     assert "失败摘要" not in feishu
     assert "summary_indicates_hard_failure" in feishu
-    assert "fio command failed" not in Path("ci/build_feishu_payload.py").read_text(encoding="utf-8").split("_HARD_SUMMARY_MARKERS", 1)[1].split(")", 1)[0]
+    assert "fio command failed" not in Path("vd_io/build_feishu_payload.py").read_text(encoding="utf-8").split("_HARD_SUMMARY_MARKERS", 1)[1].split(")", 1)[0]
     assert "MIX_FAIL_ON_ANY=no" in jenkinsfile
     assert "报告类型" not in feishu
     assert "Hard failure summary detected; override BUILD_RESULT" in jenkinsfile
-    assert "FIO Failure Detail" in Path("ci/junit_to_allure.py").read_text(encoding="utf-8")
+    assert "FIO Failure Detail" in Path("vd_io/junit_to_allure.py").read_text(encoding="utf-8")
     assert "FIO 任务摘要" in Path("test_items/fio_allure.py").read_text(encoding="utf-8")
-    assert "complete local execution logs" in Path("ci/collect_console_output.py").read_text(encoding="utf-8")
+    assert "complete local execution logs" in Path("vd_io/collect_console_output.py").read_text(encoding="utf-8")
 
 
 def test_manual_mr_iid_reruns_merge_request():
@@ -150,7 +150,7 @@ def test_target_hang_times_out_and_keeps_pipeline_control():
     assert "ConnectTimeout=15" in source
     assert "TEST_IDLE_TIMEOUT_MINUTES='${env.TEST_IDLE_TIMEOUT_MINUTES}'" in source
     assert ': "${TEST_IDLE_TIMEOUT_MINUTES:?TEST_IDLE_TIMEOUT_MINUTES is required}"' in source
-    assert "ci/io_progress_signature.sh" in source
+    assert "vd_io/io_progress_signature.sh" in source
     assert "made no log or non-system disk IO progress for ${TEST_IDLE_TIMEOUT_MINUTES} minutes" in source
     assert "idle watchdog fired after ${TEST_IDLE_TIMEOUT_MINUTES} minutes without progress" in source
     assert "[STAGE] item=${item} phase=machinecheck_before start" in fio_all
@@ -161,7 +161,7 @@ def test_target_hang_times_out_and_keeps_pipeline_control():
 def test_manual_abort_is_not_converted_to_failure_or_feishu_notification():
     source = pipeline_sources()
 
-    assert "ci/build_status.py --manual-abort jenkins_console.log" in source
+    assert "vd_io/build_status.py --manual-abort jenkins_console.log" in source
     assert "isManualInterruption" in source
     assert "endsWith('UserInterruption')" in source
     assert "throw e" in source
@@ -184,9 +184,9 @@ def test_report_publication_failures_do_not_skip_notification_finalization():
 def test_environment_prepare_hang_times_out_after_15_minutes():
     source = pipeline_sources()
     jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
-    prepare = Path("ci/jenkins_prepare.groovy").read_text(encoding="utf-8")
+    prepare = Path("vd_io/jenkins_prepare.groovy").read_text(encoding="utf-8")
 
-    assert "load 'ci/jenkins_prepare.groovy'" in jenkinsfile
+    assert "load 'vd_io/jenkins_prepare.groovy'" in jenkinsfile
     assert "preparePhysicalIoDriver" in jenkinsfile
     assert "def preparePhysicalIoDriver" in prepare
 
@@ -210,9 +210,9 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
     assert "artifacts/dpraid" in jenkinsfile
     assert "clear dirty CSD flash before loading draid" not in jenkinsfile
     assert "restore RAID state before test" not in jenkinsfile
-    assert "ci/clear_8p_csd_flash.sh" not in jenkinsfile
-    assert "ci/restore_physical_raid_state.sh" not in jenkinsfile
-    assert "ci/wait_powercycle_completion.sh" not in jenkinsfile
+    assert "vd_io/clear_8p_csd_flash.sh" not in jenkinsfile
+    assert "vd_io/restore_physical_raid_state.sh" not in jenkinsfile
+    assert "vd_io/wait_powercycle_completion.sh" not in jenkinsfile
     assert "powercycleWaitStatus" not in jenkinsfile
     assert "wait powercycle completion" not in jenkinsfile
     assert "RAID_CLI_REPO" in source
@@ -220,7 +220,7 @@ def test_environment_prepare_hang_times_out_after_15_minutes():
 
 
 def test_test_idle_watchdog_tracks_non_system_disk_io_progress():
-    source = Path("ci/io_progress_signature.sh").read_text(encoding="utf-8")
+    source = Path("vd_io/io_progress_signature.sh").read_text(encoding="utf-8")
 
     assert "lsblk -nr -o NAME,PKNAME,MOUNTPOINT" in source
     assert '"/sys/block/${dev}/stat"' in source
@@ -231,7 +231,7 @@ def test_test_idle_watchdog_tracks_non_system_disk_io_progress():
     assert "/^dp[0-9]+-vd[0-9]+$/" in source
 
 
-def test_ci_is_manual_only_without_cron_or_auto_mr_trigger():
+def test_vd_io_is_manual_only_without_cron_or_auto_mr_trigger():
     jenkinsfile = Path("Jenkinsfile").read_text(encoding="utf-8")
     source = pipeline_sources()
 
@@ -258,7 +258,7 @@ def test_draid_module_reload_retries_and_reports_memory_on_insmod_failure():
 
 
 def test_draid_module_unload_and_load_are_disabled():
-    source = Path("ci/prepare_draid_driver.sh").read_text(encoding="utf-8")
+    source = Path("vd_io/prepare_draid_driver.sh").read_text(encoding="utf-8")
     stripped_lines = [line.strip() for line in source.splitlines() if line.strip()]
 
     assert "Module unload/load (rmmod/insmod) is temporarily disabled for CI" in source
@@ -269,7 +269,7 @@ def test_draid_module_unload_and_load_are_disabled():
 
 
 def test_draid_controller_state_check_and_reset_are_disabled():
-    source = Path("ci/prepare_draid_driver.sh").read_text(encoding="utf-8")
+    source = Path("vd_io/prepare_draid_driver.sh").read_text(encoding="utf-8")
     active_lines = {
         line.strip()
         for line in source.splitlines()
@@ -337,7 +337,7 @@ def test_physical_host_ssh_uses_password_with_default_and_override():
     assert "PubkeyAuthentication=no" in jenkinsfile
     assert "def hostSshCmd(ip)" in jenkinsfile
     assert "def hostScpCmd()" in jenkinsfile
-    assert "ci/ensure_sshpass.sh" in jenkinsfile
+    assert "vd_io/ensure_sshpass.sh" in jenkinsfile
     assert 'hostSshCmd(ip)' in jenkinsfile
     assert '    "ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"' not in jenkinsfile
     assert "TARGET_PASSWORD=${TARGET_PASSWORD:-123456}" in source
@@ -348,7 +348,7 @@ def test_draid_driver_and_test_dependency_steps_target_physical_host_only():
     source = Path("Jenkinsfile").read_text(encoding="utf-8")
 
     assert "QEMU_VM_TARGET" not in source
-    assert "ci/install_test_dependencies.sh" in source
+    assert "vd_io/install_test_dependencies.sh" in source
     assert "needsPhysicalIoDriverPrep" in source
     assert "env_prepare" in source
 

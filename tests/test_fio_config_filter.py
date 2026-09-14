@@ -23,7 +23,7 @@ def test_fio_runner_only_iterates_generated_log_configs():
     assert "for configuration in `ls -p $Config_Dir | grep -v / | sort" not in source
 
 
-def test_ci_filesystem_profile_is_random_mixed_aligned_and_unaligned_io():
+def test_vd_io_filesystem_profile_is_random_mixed_aligned_and_unaligned_io():
     with Path("IO_Stress/Input_Config_filesystem.csv").open(
         encoding="utf-8", newline=""
     ) as handle:
@@ -62,7 +62,7 @@ def test_ci_filesystem_profile_is_random_mixed_aligned_and_unaligned_io():
     assert sum(weight for size, weight in weighted_sizes if size % 512 != 0) == 50
 
 
-def test_ci_filesystem_prepares_sixteen_partitions_and_buffered_async_io():
+def test_vd_io_filesystem_prepares_sixteen_partitions_and_buffered_async_io():
     source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
 
     assert "FILESYSTEM_PARTITIONS_PER_DISK=16" in source
@@ -134,7 +134,7 @@ def test_filesystem_partition_refresh_runs_partx_after_successful_partprobe(tmp_
     ]
 
 
-def test_ci_filesystem_runtime_can_be_overridden_from_test_items():
+def test_vd_io_filesystem_runtime_can_be_overridden_from_test_items():
     source = Path("IO_Stress/lib/fio.sh").read_text(encoding="utf-8")
     config = Path("test_items.txt").read_text(encoding="utf-8")
 
@@ -143,7 +143,7 @@ def test_ci_filesystem_runtime_can_be_overridden_from_test_items():
     assert "FIO_RUNTIME" in config
 
 
-def test_ci_filesystem_appends_sixteen_distinct_fio_jobs(tmp_path):
+def test_vd_io_filesystem_appends_sixteen_distinct_fio_jobs(tmp_path):
     first_config_path = (tmp_path / "round1.log").as_posix()
     second_config_path = (tmp_path / "round2.log").as_posix()
     result = subprocess.run(
@@ -183,7 +183,7 @@ def test_ci_filesystem_appends_sixteen_distinct_fio_jobs(tmp_path):
     assert first_content.count("numjobs=1") == 22
 
 
-def test_ci_filesystem_generates_one_changed_model_set_per_three_minutes(tmp_path):
+def test_vd_io_filesystem_generates_one_changed_model_set_per_three_minutes(tmp_path):
     config_dir = (tmp_path / "jobs").as_posix()
     result = subprocess.run(
         [

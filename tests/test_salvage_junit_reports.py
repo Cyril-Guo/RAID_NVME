@@ -1,12 +1,12 @@
 from pathlib import Path
 
-from ci import salvage_junit_reports
+from vd_io import salvage_junit_reports
 
 
 def test_merge_from_directory_writes_node_report(tmp_path):
     item_dir = tmp_path / "items"
     item_dir.mkdir()
-    (item_dir / "case-report_test_ci_01_lawdisk.xml").write_text(
+    (item_dir / "case-report_test_vd_io_01_lawdisk.xml").write_text(
         """<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
   <testcase classname="test_items.lawdisk" name="test_lawdiskstress" />
@@ -18,7 +18,7 @@ def test_merge_from_directory_writes_node_report(tmp_path):
 
     items = salvage_junit_reports.merge_from_directory(str(item_dir), str(output))
 
-    assert items == ["test_ci_01_lawdisk"]
+    assert items == ["test_vd_io_01_lawdisk"]
     assert output.exists()
     assert "test_lawdiskstress" in output.read_text(encoding="utf-8")
 
@@ -26,7 +26,7 @@ def test_merge_from_directory_writes_node_report(tmp_path):
 def test_merge_from_directory_keeps_duplicate_run_keys(tmp_path):
     item_dir = tmp_path / "items"
     item_dir.mkdir()
-    for run_key in ("test_ci_01_lawdisk__2", "test_ci_01_lawdisk__5"):
+    for run_key in ("test_vd_io_01_lawdisk__2", "test_vd_io_01_lawdisk__5"):
         (item_dir / f"case-report_{run_key}.xml").write_text(
             f"""<?xml version="1.0" encoding="utf-8"?>
 <testsuite name="pytest" tests="1">
@@ -39,16 +39,16 @@ def test_merge_from_directory_keeps_duplicate_run_keys(tmp_path):
 
     items = salvage_junit_reports.merge_from_directory(str(item_dir), str(output))
 
-    assert items == ["test_ci_01_lawdisk__2", "test_ci_01_lawdisk__5"]
+    assert items == ["test_vd_io_01_lawdisk__2", "test_vd_io_01_lawdisk__5"]
     merged = output.read_text(encoding="utf-8")
     assert merged.count("testcase") == 2
-    assert "test_items.test_ci_01_lawdisk__2" in merged
-    assert "test_items.test_ci_01_lawdisk__5" in merged
+    assert "test_items.test_vd_io_01_lawdisk__2" in merged
+    assert "test_items.test_vd_io_01_lawdisk__5" in merged
 
 
 def test_monitor_pkill_pattern_does_not_embed_plain_path():
     assert salvage_junit_reports.MONITOR_PKILL_PATTERN == "[S]tress_Monitor/main.py"
-    source = Path("ci/salvage_junit_reports.py").read_text(encoding="utf-8")
+    source = Path("vd_io/salvage_junit_reports.py").read_text(encoding="utf-8")
     assert "pkill -TERM -f Stress_Monitor/main.py" not in source
     assert "pkill -KILL -f Stress_Monitor/main.py" not in source
     assert "sys.path.insert" in source

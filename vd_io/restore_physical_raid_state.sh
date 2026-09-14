@@ -45,6 +45,6 @@ for slot in $slot_ids; do
     dpraid "/c0/eall/s${slot}" delete || true
 done
 
-echo 1 > /sys/bus/pci/rescan || true
+echo 1 > /sys/bus/pvd_io/rescan || true
 sleep 5
 nvme list || true

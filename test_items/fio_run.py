@@ -129,7 +129,12 @@ def collect_failure_lines(text, ignore_machinecheck=False, ignore_fio_job_errors
 
 
 def resolve_fio_csv(item):
-    name = os.environ.get("FIO_CONFIG", "").strip() or f"Input_Config_{item}.csv"
+    # test_vd_io_01_lawdisk -> lawdisk for default Input_Config_lawdisk.csv
+    short = item or ""
+    match = re.match(r"^test_vd_io_\d+_(.+)$", short, re.IGNORECASE)
+    if match:
+        short = match.group(1)
+    name = os.environ.get("FIO_CONFIG", "").strip() or f"Input_Config_{short}.csv"
     name = os.path.basename(name.replace("\\", "/"))
     path = os.path.join(io_stress_dir(), name)
     if not os.path.isfile(path):

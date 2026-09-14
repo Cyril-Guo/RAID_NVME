@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install host/DUT packages needed by CI physical tests and env_prepare draid builds.
+# Install host/DUT packages needed by VD_IO physical tests and env_prepare draid builds.
 # Mirrors SMOKE driver-build deps (make/gcc/headers/kmod) plus ripgrep for
 # kernel_driver portable-check (scripts/check_portable_sources.sh).
 set -euo pipefail

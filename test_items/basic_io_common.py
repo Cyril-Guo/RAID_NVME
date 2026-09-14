@@ -441,11 +441,11 @@ def delete_existing_pds(log):
 
 
 def flash_clear_script_path():
-    return Path(__file__).resolve().parents[1] / "ci" / "flash-clear.sh"
+    return Path(__file__).resolve().parents[1] / "vd_io" / "flash-clear.sh"
 
 
 def clear_8p_script_path():
-    return Path(__file__).resolve().parents[1] / "ci" / "clear_8p_csd_flash.sh"
+    return Path(__file__).resolve().parents[1] / "vd_io" / "clear_8p_csd_flash.sh"
 
 
 def draid_ko_path():
@@ -574,12 +574,12 @@ def release_and_clear_csd(disks, log):
 def run_env_prepare(log):
     """DUT environment prepare used by the env_prepare test case.
 
-    Runs ci/prepare_env.sh: reclaim host, install dpraid, rebuild draid,
+    Runs vd_io/prepare_env.sh: reclaim host, install dpraid, rebuild draid,
     SMOKE-aligned CSD clear (rmmod/insmod/FORCE clear/rmmod/insmod), then
     clear leftover VD/PD.
     """
     repo_root = Path(__file__).resolve().parents[1]
-    script = repo_root / "ci" / "prepare_env.sh"
+    script = repo_root / "vd_io" / "prepare_env.sh"
     if not script.is_file():
         raise AssertionError(f"Missing prepare script: {script}")
 
@@ -861,15 +861,15 @@ def slot_from_bdf(bdf, log):
 def drop_pci_disk(bdf, log, remove_settle_seconds=1, rescan_settle_seconds=2):
     """Simulate disk drop via PCI hot-remove, then rescan to bring the device back.
 
-    Uses /sys/bus/pci/devices/<bdf>/remove + pci rescan on both QEMU and physical hosts.
-    Slot power sysfs (/sys/bus/pci/slots/*/power) is platform-specific and often not writable.
+    Uses /sys/bus/pvd_io/devices/<bdf>/remove + pci rescan on both QEMU and physical hosts.
+    Slot power sysfs (/sys/bus/pvd_io/slots/*/power) is platform-specific and often not writable.
     """
-    remove_path = f"/sys/bus/pci/devices/{bdf}/remove"
+    remove_path = f"/sys/bus/pvd_io/devices/{bdf}/remove"
     if not Path(remove_path).exists():
         raise AssertionError(f"PCI device sysfs missing for BDF {bdf}: {remove_path}")
     run_cmd(f"echo 1 > {remove_path}", log, check=True, shell=True)
     run_cmd(["sleep", str(remove_settle_seconds)], log, check=True)
-    run_cmd("echo 1 > /sys/bus/pci/rescan", log, check=True, shell=True)
+    run_cmd("echo 1 > /sys/bus/pvd_io/rescan", log, check=True, shell=True)
     run_cmd(["sleep", str(rescan_settle_seconds)], log, check=True)
 
 

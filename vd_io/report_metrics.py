@@ -5,8 +5,8 @@ import re
 import xml.etree.ElementTree as ET
 
 try:
-    from ci.build_status import console_was_manually_aborted
-    from ci.report_test_records import merged_test_metrics
+    from vd_io.build_status import console_was_manually_aborted
+    from vd_io.report_test_records import merged_test_metrics
 except ModuleNotFoundError:
     from build_status import console_was_manually_aborted
     from report_test_records import merged_test_metrics
@@ -49,7 +49,7 @@ def add_stats(total, item):
 def is_node_junit_report(path):
     """Accept node-level reports only; skip per-item case-report_*.xml files."""
     try:
-        from ci.report_names import is_node_junit_report as _impl
+        from vd_io.report_names import is_node_junit_report as _impl
     except ModuleNotFoundError:
         from report_names import is_node_junit_report as _impl
     return _impl(path) or bool(NODE_REPORT_RE.match(os.path.basename(path)))

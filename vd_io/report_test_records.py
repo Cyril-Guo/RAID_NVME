@@ -5,7 +5,7 @@ import os
 import xml.etree.ElementTree as ET
 
 try:
-    from ci.report_identity import case_run_key, function_name, host, run_key
+    from vd_io.report_identity import case_run_key, function_name, host, run_key
 except ModuleNotFoundError:
     from report_identity import case_run_key, function_name, host, run_key
 
@@ -33,7 +33,7 @@ def store_worst(records, identity, status):
 def merged_test_metrics(is_node_junit_report, is_infra_result):
     """Return status counts merged by host, run key and test function."""
     records = {}
-    for path in glob.glob("report_*.xml"):
+    for path in glob.glob("node-report_*.xml") + glob.glob("report_*.xml"):
         if not is_node_junit_report(path):
             continue
         try:

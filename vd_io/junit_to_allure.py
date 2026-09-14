@@ -7,12 +7,12 @@ import uuid
 import xml.etree.ElementTree as ET
 
 try:
-    from ci.build_status import console_was_manually_aborted
-    from ci.extract_failure_summary import extract_failure_lines
-    from ci.report_metrics import execution_log_has_explicit_failure, is_node_junit_report
-    from ci.report_identity import native_case_exists, normalize_results, discard_junit_placeholders, case_run_key
-    from ci.allure_fixture_cleanup import flatten_fixtures
-    from ci.report_artifacts import attach_workspace_artifacts
+    from vd_io.build_status import console_was_manually_aborted
+    from vd_io.extract_failure_summary import extract_failure_lines
+    from vd_io.report_metrics import execution_log_has_explicit_failure, is_node_junit_report
+    from vd_io.report_identity import native_case_exists, normalize_results, discard_junit_placeholders, case_run_key
+    from vd_io.allure_fixture_cleanup import flatten_fixtures
+    from vd_io.report_artifacts import attach_workspace_artifacts
 except ModuleNotFoundError:
     from build_status import console_was_manually_aborted
     from extract_failure_summary import extract_failure_lines
@@ -121,13 +121,13 @@ def result_matches_item(result, item, run_key=None):
         parts.append(str(label.get("value", "")).lower())
     text = " ".join(parts)
     aliases = {
-        "test_ci_00_env_prepare": ("test_ci_00_env_prepare", "env_prepare"),
-        "test_ci_01_lawdisk": ("test_ci_01_lawdisk", "lawdisk", "lawdiskstress"),
-        "test_ci_02_filesystem": ("test_ci_02_filesystem", "filesystem", "filesystemstress"),
-        "test_ci_03_mix_4k": ("test_ci_03_mix_4k", "mix_4k", "mixstress", "mix_stress"),
-        "test_ci_04_mix_512": ("test_ci_04_mix_512", "mix_512", "mixstress", "mix_stress"),
-        "test_ci_05_random_io_4k": ("test_ci_05_random_io_4k", "random_io_4k"),
-        "test_ci_06_random_io_512": ("test_ci_06_random_io_512", "random_io_512"),
+        "test_vd_io_00_env_prepare": ("test_vd_io_00_env_prepare", "env_prepare"),
+        "test_vd_io_01_lawdisk": ("test_vd_io_01_lawdisk", "lawdisk", "lawdiskstress"),
+        "test_vd_io_02_filesystem": ("test_vd_io_02_filesystem", "filesystem", "filesystemstress"),
+        "test_vd_io_03_mix_4k": ("test_vd_io_03_mix_4k", "mix_4k", "mixstress", "mix_stress"),
+        "test_vd_io_04_mix_512": ("test_vd_io_04_mix_512", "mix_512", "mixstress", "mix_stress"),
+        "test_vd_io_05_random_io_4k": ("test_vd_io_05_random_io_4k", "random_io_4k"),
+        "test_vd_io_06_random_io_512": ("test_vd_io_06_random_io_512", "random_io_512"),
     }
     return any(alias in text for alias in aliases.get(item, (item,)))
 
@@ -811,7 +811,9 @@ def main():
 
     existing_ids = existing_history_ids(allure_dir)
     junit_files = sorted(
-        path for path in glob.glob("report_*.xml") if is_node_junit_report(path)
+        path
+        for path in (glob.glob("node-report_*.xml") + glob.glob("report_*.xml"))
+        if is_node_junit_report(path)
     )
     generated = 0
     for junit_file in junit_files:

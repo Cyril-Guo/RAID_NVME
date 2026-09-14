@@ -30,7 +30,7 @@ from test_items.random_io_plan_512 import (
 
 
 def test_random_io():
-    item = (os.environ.get("RAID_NVME_ITEM") or "test_ci_06_random_io_512").strip() or "test_ci_06_random_io_512"
+    item = (os.environ.get("RAID_NVME_ITEM") or "test_vd_io_06_random_io_512").strip() or "test_vd_io_06_random_io_512"
 
     stress_dir = io_stress_dir()
     disk_sizes = list_test_disks()
