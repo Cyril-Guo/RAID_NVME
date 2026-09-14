@@ -1,0 +1,6 @@
+# RAID_NVME main branch pointer
+# Feature branches (Jenkins):
+#   VD_IO      — was CI; physical VD IO soak (vd_io/ + test_vd_io_*)
+#   PowerCycle — reboot/dc power-cycle
+#   SMOKE      — smoke
+VD_IO
