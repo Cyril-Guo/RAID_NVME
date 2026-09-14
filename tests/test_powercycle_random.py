@@ -196,3 +196,13 @@ def test_build_plan_stages_io_committed_false():
     assert next_state.get("io_committed") is False
     assert next_state.get("pending_verify") is True
 
+
+
+def test_layout_windows_covers_disk_stripes():
+    disk = 16 * 1024 * 1024 * 1024
+    windows = generate_window_specs(disk, plan_seed=123, rng=random.Random(123))
+    assert len(windows) >= 8
+    offsets = sorted(m.offset for m in windows)
+    # First window in early band, last window in late band.
+    assert offsets[0] < disk // 4
+    assert offsets[-1] >= (disk * 3) // 4

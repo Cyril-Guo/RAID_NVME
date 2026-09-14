@@ -9,7 +9,7 @@ set -euo pipefail
 : "${REMOTE_SSH_COMMAND:?REMOTE_SSH_COMMAND is required}"
 
 ITEMS_FILE="${TEST_ITEMS_FILE:-test_items.txt}"
-POLL_SECONDS="${POWER_CYCLE_POLL_SECONDS:-30}"
+POLL_SECONDS="${POWER_CYCLE_POLL_SECONDS:-15}"
 RESULT_REL="IO_Stress/log/ResultLog"
 
 # Prefer per-case workdir when it exists on DUT; otherwise use build-root only.
@@ -240,7 +240,7 @@ item_triggered() {
 item_failed() {
     local run_key="$1"
     local item="${run_key%%__*}"
-    local log_name root text ignore_error
+    local log_name root ignore_error match_file match_line
     local -a patterns=(
         "FIO stage failed"
         "FIO stage abort"
@@ -283,48 +283,69 @@ item_failed() {
         )
     fi
     log_name="$(powercycle_log_name "${item}")"
+
+    # IMPORTANT: only inspect runtime logs under ResultLog.
+    # Never recursive-grep the workspace — unit tests / run_fio.sh source contain
+    # the literal string "FIO stage failed" and caused false FAILURE (PowerCycle #1).
     while IFS= read -r root; do
         # Explicit abort marker file (STOP-after-commit).
         # shellcheck disable=SC2086
         text="$(eval ${REMOTE_SSH_COMMAND} "test -f $(printf '%q' "${root}/powercycle_abort_after_commit") && printf FOUND" 2>/dev/null || true)"
         if [[ "${text}" == *FOUND* ]]; then
-            echo "[${NODE_IP}] detected failure marker in ${item}: powercycle_abort_after_commit" >&2
+            echo "[${NODE_IP}] $(date '+%F %T') detected failure marker in ${item}: powercycle_abort_after_commit (${root}/powercycle_abort_after_commit)" >&2
             return 0
         fi
-        for pattern in "${patterns[@]}"; do
-            # Prefer known log locations (command/resume + fio_result/result.log).
-            # shellcheck disable=SC2086
-            text="$(eval ${REMOTE_SSH_COMMAND} "grep -F $(printf '%q' "${pattern}") ${root}/${log_name} ${root}/powercycle_resume.log ${root}/fio_result/result.log 2>/dev/null" || true)"
-            if [[ -n "${text}" ]]; then
-                echo "[${NODE_IP}] detected failure marker in ${item}: ${pattern}" >&2
-                return 0
-            fi
-        done
-        # Recursive fallback under ResultLog.
-        for pattern in "${patterns[@]}"; do
-            # shellcheck disable=SC2086
-            text="$(eval ${REMOTE_SSH_COMMAND} "grep -R -F -e $(printf '%q' "${pattern}") ${root} 2>/dev/null | head -n 1" || true)"
-            if [[ -n "${text}" ]]; then
-                echo "[${NODE_IP}] detected failure marker in ${item}: ${pattern}" >&2
-                return 0
-            fi
+        local -a files=(
+            "${root}/${log_name}"
+            "${root}/powercycle_resume.log"
+            "${root}/fio_result/result.log"
+            "${root}/result.log"
+        )
+        local f pattern
+        for f in "${files[@]}"; do
+            for pattern in "${patterns[@]}"; do
+                # shellcheck disable=SC2086
+                match_line="$(eval ${REMOTE_SSH_COMMAND} "grep -F $(printf '%q' "${pattern}") $(printf '%q' "${f}") 2>/dev/null | tail -n 1" || true)"
+                if [[ -n "${match_line}" ]]; then
+                    echo "[${NODE_IP}] $(date '+%F %T') detected failure marker in ${item}: ${pattern}" >&2
+                    echo "[${NODE_IP}]   file: ${f}" >&2
+                    echo "[${NODE_IP}]   line: ${match_line}" >&2
+                    return 0
+                fi
+            done
         done
     done < <(result_roots_for_item "${run_key}")
     return 1
 }
 
+
+dump_remote_progress() {
+    local run_key="$1"
+    local item="${run_key%%__*}"
+    local log_name root
+    log_name="$(powercycle_log_name "${item}")"
+    while IFS= read -r root; do
+        echo "[${NODE_IP}] $(date '+%F %T') ---- progress snapshot root=${root} ----"
+        # shellcheck disable=SC2086
+        eval ${REMOTE_SSH_COMMAND} "echo '[ls]'; ls -la $(printf '%q' "${root}") 2>/dev/null | sed -n '1,40p'; echo '[${log_name} tail]'; tail -n 20 $(printf '%q' "${root}/${log_name}") 2>/dev/null || true; echo '[resume tail]'; tail -n 20 $(printf '%q' "${root}/powercycle_resume.log") 2>/dev/null || true; echo '[result tail]'; tail -n 15 $(printf '%q' "${root}/fio_result/result.log") 2>/dev/null || true; echo '[reboot.log]'; cat $(printf '%q' "${root}/reboot.log") 2>/dev/null || true" || true
+    done < <(result_roots_for_item "${run_key}")
+}
+
 wait_one_item() {
     local run_key="$1"
     local item="${run_key%%__*}"
-    local cycles timeout_min deadline now remaining
+    local cycles timeout_min deadline now remaining elapsed started
     cycles="$(read_item_cycles "${item}")"
-    # Auto plan budget per loop: FILL windows + 5x45s STRESS + VERIFY + reboot/DC boot margin.
+    # Auto plan budget per loop: FILL windows + STRESS + VERIFY + reboot/DC boot margin.
     # Override with POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES when needed.
     timeout_min="${POWER_CYCLE_COMPLETION_TIMEOUT_MINUTES:-$((cycles * 30))}"
-    deadline=$(( $(date +%s) + timeout_min * 60 ))
+    started=$(date +%s)
+    deadline=$(( started + timeout_min * 60 ))
     local trigger_window="${POWER_CYCLE_TRIGGER_CONFIRM_SECONDS:-1800}"
+    local poll="${POLL_SECONDS}"
 
-    echo "[${NODE_IP}] waiting for ${item} powercycle completion (cycles=${cycles}, timeout=${timeout_min}m)"
+    echo "[${NODE_IP}] $(date '+%F %T') waiting for ${item} powercycle completion (run_key=${run_key}, cycles=${cycles}, timeout=${timeout_min}m, poll=${poll}s)"
+    dump_remote_progress "${run_key}"
 
     # Confirm trigger via request-start marker (or completion/failure).
     # Unreachable-as-trigger is gated: Jenkins sets POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER=1
@@ -332,60 +353,82 @@ wait_one_item() {
     local saw_trigger=0
     local allow_unreachable_trigger="${POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER:-0}"
     local trigger_deadline=$(( $(date +%s) + trigger_window ))
+    local round=0
     while [ "$(date +%s)" -lt "${trigger_deadline}" ]; do
+        round=$((round + 1))
+        now=$(date +%s)
+        elapsed=$(( now - started ))
+        remaining=$(( (trigger_deadline - now) ))
         if item_completed "${run_key}"; then
-            echo "[${NODE_IP}] ${item} already completed"
+            echo "[${NODE_IP}] $(date '+%F %T') ${item} already completed (elapsed=${elapsed}s)"
             return 0
         fi
         if remote_reachable; then
+            echo "[${NODE_IP}] $(date '+%F %T') trigger-check #${round}: SSH up, elapsed=${elapsed}s, trigger_window_left=${remaining}s"
             if item_failed "${run_key}"; then
-                echo "[${NODE_IP}] ERROR: ${item} failed before/during powercycle" >&2
+                echo "[${NODE_IP}] $(date '+%F %T') ERROR: ${item} failed before/during powercycle" >&2
+                dump_remote_progress "${run_key}"
                 return 1
             fi
             if item_triggered "${run_key}"; then
                 saw_trigger=1
+                echo "[${NODE_IP}] $(date '+%F %T') ${item} trigger confirmed (request start)"
                 break
+            fi
+            echo "[${NODE_IP}] $(date '+%F %T') ${item} SSH up but request-start not seen yet"
+            if (( round % 3 == 0 )); then
+                dump_remote_progress "${run_key}"
             fi
         else
             if [[ "${allow_unreachable_trigger}" == "1" ]]; then
                 saw_trigger=1
-                echo "[${NODE_IP}] ${item} host unreachable; treat powercycle as triggered (ALLOW_UNREACHABLE_TRIGGER=1)"
+                echo "[${NODE_IP}] $(date '+%F %T') ${item} host unreachable; treat powercycle as triggered (ALLOW_UNREACHABLE_TRIGGER=1)"
                 break
             fi
-            echo "[${NODE_IP}] ${item} host unreachable; waiting (set POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER=1 after pytest)"
+            echo "[${NODE_IP}] $(date '+%F %T') trigger-check #${round}: host unreachable; waiting (set POWER_CYCLE_ALLOW_UNREACHABLE_TRIGGER=1 after pytest), elapsed=${elapsed}s"
         fi
-        sleep "${POLL_SECONDS}"
+        sleep "${poll}"
     done
 
     if [[ "${saw_trigger}" -ne 1 ]]; then
-        echo "[${NODE_IP}] ERROR: ${item} never reached request start; cannot close powercycle loop" >&2
+        echo "[${NODE_IP}] $(date '+%F %T') ERROR: ${item} never reached request start; cannot close powercycle loop" >&2
+        dump_remote_progress "${run_key}"
         return 1
     fi
 
+    round=0
     while [ "$(date +%s)" -lt "${deadline}" ]; do
+        round=$((round + 1))
+        now=$(date +%s)
+        elapsed=$(( now - started ))
+        remaining=$(( (deadline - now) / 60 ))
+        remaining_s=$(( deadline - now ))
         if remote_reachable; then
             if item_failed "${run_key}"; then
-                echo "[${NODE_IP}] ERROR: ${item} failed during powercycle" >&2
+                echo "[${NODE_IP}] $(date '+%F %T') ERROR: ${item} failed during powercycle (elapsed=${elapsed}s)" >&2
+                dump_remote_progress "${run_key}"
                 return 1
             fi
             if item_completed "${run_key}"; then
-                echo "[${NODE_IP}] ${item} powercycle completed"
+                echo "[${NODE_IP}] $(date '+%F %T') ${item} powercycle completed (elapsed=${elapsed}s)"
+                dump_remote_progress "${run_key}"
                 return 0
             fi
-            now=$(date +%s)
-            remaining=$(( (deadline - now) / 60 ))
-            echo "[${NODE_IP}] ${item} still running (SSH up, ~${remaining}m left)"
+            echo "[${NODE_IP}] $(date '+%F %T') wait #${round}: ${item} still running (SSH up, elapsed=${elapsed}s, ~${remaining}m/${remaining_s}s left)"
         else
-            now=$(date +%s)
-            remaining=$(( (deadline - now) / 60 ))
-            echo "[${NODE_IP}] ${item} host unreachable during powercycle (~${remaining}m left)"
+            echo "[${NODE_IP}] $(date '+%F %T') wait #${round}: ${item} host unreachable during powercycle (elapsed=${elapsed}s, ~${remaining}m/${remaining_s}s left)"
         fi
-        sleep "${POLL_SECONDS}"
+        if (( round % 2 == 0 )); then
+            dump_remote_progress "${run_key}"
+        fi
+        sleep "${poll}"
     done
 
-    echo "[${NODE_IP}] ERROR: ${item} powercycle did not complete within ${timeout_min} minutes" >&2
+    echo "[${NODE_IP}] $(date '+%F %T') ERROR: ${item} powercycle did not complete within ${timeout_min} minutes" >&2
+    dump_remote_progress "${run_key}"
     return 1
 }
+
 
 parse_selected_powercycle_items
 if [[ "${#selected_run_keys[@]}" -eq 0 ]]; then

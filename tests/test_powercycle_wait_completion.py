@@ -8,6 +8,11 @@ def test_wait_powercycle_completion_script_exists_and_checks_markers():
     assert "read_item_ignore_error" in source
     assert "item_short_name" in source
     assert "FIO command failed" in source
+    assert "Never recursive-grep the workspace" in source
+    assert "dump_remote_progress" in source
+    failed_fn = source.split("item_failed()", 1)[1].split("dump_remote_progress", 1)[0]
+    assert "grep -R" not in failed_fn
+    assert "tests/test_" not in failed_fn
     assert "Power-cycle reboot/dc command failed" in source
     assert "Whitelist field differences" in source
     assert '[[ "${ignore_error}" != "yes" ]]' in source

@@ -30,6 +30,103 @@ function get_min_test_disk_size_bytes() {
     echo "$min_size"
 }
 
+# Run VERIFY / FILL / STRESS window configs of one phase in parallel.
+# Each CSV row is still one fio config; same-phase windows share wall-clock time.
+function run_powercycle_parallel_phases() {
+    local csv="$Cur_Dir/$filename"
+    local -a modes=()
+    local -a configs=()
+    local line mode configuration
+    local phase
+    local jobnum=1
+    local fail=0
+    local pids=()
+    local outs=()
+    local rcs=()
+    local i pid out rc
+
+    if [[ ! -f "$csv" ]]; then
+        echo "ERROR: powercycle csv missing: $csv"
+        return 1
+    fi
+
+    mkdir -p "$Result_Dir/detresult" >/dev/null 2>&1 || true
+    cd "$Config_Dir" || return 1
+
+    mapfile -t configs < <(ls -1p "$Config_Dir" | grep -v / | grep '\.log$' | sort -n -k 1 -t -)
+    # Skip header; collect Verify_Mode column in CSV order (matches configure() order).
+    mapfile -t modes < <(awk -F',' 'NR>1 && $1!="End" && $1!="" {print $9}' "$csv")
+    if [[ "${#configs[@]}" -eq 0 ]]; then
+        echo "ERROR: no fio configs generated for powercycle"
+        return 1
+    fi
+    if [[ "${#modes[@]}" -ne "${#configs[@]}" ]]; then
+        echo "WARN: csv modes=${#modes[@]} configs=${#configs[@]}; falling back to serial run_all"
+        run_all
+        return $?
+    fi
+
+    echo "$(date '+%F %T') [POWERCYCLE] parallel phases enabled windows_total=${#configs[@]}"
+    printf "%-10s %-12s %-10s %-12s %-10s %-10s %-8s %-18s %-18s %-12s %-11s %-10s %-10s\n" Test-Mode, Queue-Depth, Blocksize, NumJbs, ReadIOPS, WriteIOPS, IOPS, Read_Bandwidth, Write_Bandwindth, Bandwidth, Latency, CPUusr%, CPUsys% >>"$Result_Dir/result_$loop.csv"
+
+    for phase in VERIFY FILL STRESS; do
+        pids=()
+        outs=()
+        local phase_count=0
+        for i in "${!configs[@]}"; do
+            [[ "${modes[$i]}" == "$phase" ]] || continue
+            phase_count=$((phase_count + 1))
+        done
+        [[ "$phase_count" -gt 0 ]] || continue
+
+        echo "$(date '+%F %T') [POWERCYCLE] phase=${phase} parallel_jobs=${phase_count}"
+        for i in "${!configs[@]}"; do
+            [[ "${modes[$i]}" == "$phase" ]] || continue
+            configuration="${configs[$i]}"
+            out="$Result_Dir/detresult/${loop}_${jobnum}.txt"
+            echo "$(date '+%F %T') [POWERCYCLE] launch phase=${phase} job=${jobnum} config=${configuration}" | tee -a "$Result_Dir/result.log"
+            (
+                echo "$(date '+%m-%d %H:%M:%S')" >"$out"
+                echo "Job ${jobnum} phase=${phase} config=${configuration} (parallel)" >>"$out"
+                run_fio_with_watchdog "$configuration" "$out" \
+                    --write_bw_log="$LogAd/test-fio-${jobnum}" \
+                    --write_iops_log="$LogAd/test-fio-${jobnum}"
+                echo $? >"${out}.rc"
+            ) &
+            pids+=($!)
+            outs+=("$out")
+            jobnum=$((jobnum + 1))
+        done
+
+        fail=0
+        for i in "${!pids[@]}"; do
+            pid="${pids[$i]}"
+            out="${outs[$i]}"
+            if ! wait "$pid"; then
+                fail=1
+            fi
+            rc="$(cat "${out}.rc" 2>/dev/null || echo 1)"
+            echo "$(date '+%F %T') [POWERCYCLE] phase=${phase} finished out=$(basename "$out") rc=${rc}" | tee -a "$Result_Dir/result.log"
+            if [[ "$rc" -ne 0 ]]; then
+                fail=1
+                echo "FIO stage abort, phase=${phase}, out=$(basename "$out"), rc=${rc}" | tee -a "$Result_Dir/result.log"
+                if [[ -f "$out" ]]; then
+                    tail -n 40 "$out" | tee -a "$Result_Dir/result.log" || true
+                fi
+            else
+                echo "********** $(date '+%m-%d %H:%M:%S') parallel ${phase} OK $(basename "$out")**********" >>"$Result_Dir/result.log"
+            fi
+        done
+        if [[ "$fail" -ne 0 ]]; then
+            echo "$(date '+%F %T') [POWERCYCLE] phase=${phase} FAILED" | tee -a "$Result_Dir/result.log"
+            return 1
+        fi
+        echo "$(date '+%F %T') [POWERCYCLE] phase=${phase} OK" | tee -a "$Result_Dir/result.log"
+    done
+    cd "$Job_Dir" || true
+    return 0
+}
+
 function prepare_powercycle_plan() {
     local power_log="$ResultLog/reboot_command.log"
     if [ "$item" = "DC" ]; then

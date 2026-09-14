@@ -1407,9 +1407,16 @@ function do_fio() {
         set_disk_rc=$?
         echo "$(date '+%F %T') [FIO] set_Disk rc=$set_disk_rc" | tee -a "$power_log"
         [[ $set_disk_rc -ne 0 ]] && return $set_disk_rc
-        run_mode
-        run_rc=$?
-        echo "$(date '+%F %T') [FIO] run_mode rc=$run_rc" | tee -a "$power_log"
+        if powercycle_mode_enabled && declare -F run_powercycle_parallel_phases >/dev/null 2>&1; then
+            echo "$(date '+%F %T') [FIO] using parallel powercycle phases" | tee -a "$power_log"
+            run_powercycle_parallel_phases
+            run_rc=$?
+            echo "$(date '+%F %T') [FIO] parallel_phases rc=$run_rc" | tee -a "$power_log"
+        else
+            run_mode
+            run_rc=$?
+            echo "$(date '+%F %T') [FIO] run_mode rc=$run_rc" | tee -a "$power_log"
+        fi
         [[ $run_rc -ne 0 ]] && return $run_rc
         # Commit before reboot/dc so pending VERIFY survives power loss.
         # Reboot failure must NOT discard this state (disk already matches it).

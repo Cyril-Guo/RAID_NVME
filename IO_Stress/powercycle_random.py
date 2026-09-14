@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from typing import List, Optional
 
 # Scattered windows per loop; FILL/STRESS before reboot, VERIFY after reboot.
-WINDOW_COUNT = 5
+WINDOW_COUNT = 16
 WINDOW_BYTES = 128 * 1024 * 1024
 DEFAULT_STRESS_RUNTIME = 45
 FILL_VERIFY_IODEPTH = 64
@@ -88,7 +88,9 @@ def _layout_seed(plan_seed: int, disk_size_bytes: int) -> int:
 def _effective_window_count(disk_size_bytes: int) -> int:
     if disk_size_bytes < WINDOW_BYTES:
         return 1
-    return min(WINDOW_COUNT, max(1, disk_size_bytes // WINDOW_BYTES))
+    # Prefer more windows on large disks so LBA stripes cover head/mid/tail.
+    by_size = max(1, disk_size_bytes // WINDOW_BYTES)
+    return min(WINDOW_COUNT, by_size)
 
 
 def _window_size_bytes(block_size: int) -> int:
@@ -101,54 +103,71 @@ def layout_windows(
     disk_size_bytes: int,
     plan_seed: int,
 ) -> List[PowercycleModel]:
-    """Place non-overlapping windows across the disk (deterministic from plan_seed)."""
+    """Place one window in each equal LBA stripe so coverage spans head→tail.
+
+    Within each stripe the offset is still randomized (deterministic from plan_seed).
+    Falls back to free-space packing only if a stripe cannot hold its window.
+    """
     if disk_size_bytes < ALIGNMENT_BYTES:
         raise ValueError(f"disk too small: {disk_size_bytes}")
 
-    sized = [(model, model.block_size, model.size) for model in models]
-    total_payload = sum(item[2] for item in sized)
+    count = len(models)
+    total_payload = sum(model.size for model in models)
     if total_payload > disk_size_bytes:
         raise ValueError(
-            f"disk too small for {len(sized)} windows: need {total_payload}B, have {disk_size_bytes}B"
+            f"disk too small for {count} windows: need {total_payload}B, have {disk_size_bytes}B"
         )
 
     rng = random.Random(_layout_seed(plan_seed, disk_size_bytes))
-    rng.shuffle(sized)
-
-    free = [(0, disk_size_bytes)]
     placed: List[PowercycleModel] = []
+    occupied: List[tuple[int, int]] = []
 
-    for model, bs, size_bytes in sized:
-        candidates = []
-        for idx, (start, end) in enumerate(free):
-            aligned_start = _align_up(start, bs)
-            if aligned_start + size_bytes > end:
-                continue
-            max_start = _align_down(end - size_bytes, bs)
-            if max_start < aligned_start:
-                continue
+    def overlaps(start: int, end: int) -> bool:
+        for left, right in occupied:
+            if start < right and end > left:
+                return True
+        return False
+
+    for index, model in enumerate(models):
+        bs = model.block_size
+        size_bytes = model.size
+        band_start = (disk_size_bytes * index) // count
+        band_end = (disk_size_bytes * (index + 1)) // count
+        if band_end - band_start < size_bytes:
+            band_start = 0
+            band_end = disk_size_bytes
+
+        aligned_start = _align_up(band_start, bs)
+        max_start = _align_down(band_end - size_bytes, bs)
+        offset_bytes = None
+        if max_start >= aligned_start:
             steps = ((max_start - aligned_start) // bs) + 1
-            candidates.append((idx, aligned_start, steps))
+            for _ in range(steps):
+                candidate = aligned_start + rng.randrange(steps) * bs
+                if not overlaps(candidate, candidate + size_bytes):
+                    offset_bytes = candidate
+                    break
 
-        if not candidates:
-            raise ValueError(
-                f"disk too fragmented for window bs={bs} size={size_bytes} on {disk_size_bytes}B disk"
-            )
+        if offset_bytes is None:
+            # Fallback: search whole disk for a free aligned slot.
+            aligned_start = _align_up(0, bs)
+            max_start = _align_down(disk_size_bytes - size_bytes, bs)
+            if max_start < aligned_start:
+                raise ValueError(
+                    f"disk too fragmented for window bs={bs} size={size_bytes} on {disk_size_bytes}B disk"
+                )
+            steps = ((max_start - aligned_start) // bs) + 1
+            for _ in range(min(steps, 4096)):
+                candidate = aligned_start + rng.randrange(steps) * bs
+                if not overlaps(candidate, candidate + size_bytes):
+                    offset_bytes = candidate
+                    break
+            if offset_bytes is None:
+                raise ValueError(
+                    f"disk too fragmented for window bs={bs} size={size_bytes} on {disk_size_bytes}B disk"
+                )
 
-        idx, aligned_start, steps = rng.choices(
-            candidates, weights=[item[2] for item in candidates], k=1
-        )[0]
-        offset_bytes = aligned_start + rng.randrange(steps) * bs
-        end_bytes = offset_bytes + size_bytes
-
-        start, end = free.pop(idx)
-        parts = []
-        if start < offset_bytes:
-            parts.append((start, offset_bytes))
-        if end_bytes < end:
-            parts.append((end_bytes, end))
-        free[idx:idx] = parts
-
+        occupied.append((offset_bytes, offset_bytes + size_bytes))
         placed.append(
             PowercycleModel(
                 block_size=model.block_size,
