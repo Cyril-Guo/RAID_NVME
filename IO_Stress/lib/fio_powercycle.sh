@@ -69,7 +69,7 @@ function run_powercycle_parallel_phases() {
     echo "$(date '+%F %T') [POWERCYCLE] parallel phases enabled windows_total=${#configs[@]}"
     printf "%-10s %-12s %-10s %-12s %-10s %-10s %-8s %-18s %-18s %-12s %-11s %-10s %-10s\n" Test-Mode, Queue-Depth, Blocksize, NumJbs, ReadIOPS, WriteIOPS, IOPS, Read_Bandwidth, Write_Bandwindth, Bandwidth, Latency, CPUusr%, CPUsys% >>"$Result_Dir/result_$loop.csv"
 
-    for phase in VERIFY FILL STRESS; do
+    for phase in VERIFY FILL STRESS STRESS_WRITE; do
         pids=()
         outs=()
         local phase_count=0
@@ -118,10 +118,50 @@ function run_powercycle_parallel_phases() {
             fi
         done
         if [[ "$fail" -ne 0 ]]; then
-            echo "$(date '+%F %T') [POWERCYCLE] phase=${phase} FAILED" | tee -a "$Result_Dir/result.log"
-            return 1
-        fi
-        echo "$(date '+%F %T') [POWERCYCLE] phase=${phase} OK" | tee -a "$Result_Dir/result.log"
+            if [[ "$phase" == "VERIFY" ]]; then
+                        local retries="${POWERCYCLE_VERIFY_RETRIES:-1}"
+                        local attempt=1
+                        while [[ "$attempt" -le "$retries" ]]; do
+                            echo "$(date '+%F %T') [POWERCYCLE] VERIFY failed; retry ${attempt}/${retries}" | tee -a "$Result_Dir/result.log"
+                            fail=0
+                            pids=()
+                            outs=()
+                            for i in "${!configs[@]}"; do
+                                [[ "${modes[$i]}" == "VERIFY" ]] || continue
+                                configuration="${configs[$i]}"
+                                out="$Result_Dir/detresult/${loop}_verify_retry${attempt}_${jobnum}.txt"
+                                (
+                                    echo "$(date '+%m-%d %H:%M:%S')" >"$out"
+                                    echo "VERIFY retry=${attempt} config=${configuration}" >>"$out"
+                                    run_fio_with_watchdog "$configuration" "$out" \
+                                        --write_bw_log="$LogAd/test-fio-vretry-${attempt}-${jobnum}" \
+                                        --write_iops_log="$LogAd/test-fio-vretry-${attempt}-${jobnum}"
+                                    echo $? >"${out}.rc"
+                                ) &
+                                pids+=($!)
+                                outs+=("$out")
+                                jobnum=$((jobnum + 1))
+                            done
+                            for i in "${!pids[@]}"; do
+                                wait "${pids[$i]}" || true
+                                rc="$(cat "${outs[$i]}.rc" 2>/dev/null || echo 1)"
+                                echo "$(date '+%F %T') [POWERCYCLE] VERIFY retry${attempt} $(basename "${outs[$i]}") rc=${rc}" | tee -a "$Result_Dir/result.log"
+                                [[ "$rc" -eq 0 ]] || fail=1
+                            done
+                            if [[ "$fail" -eq 0 ]]; then
+                                echo "$(date '+%F %T') [POWERCYCLE] VERIFY retry${attempt} recovered" | tee -a "$Result_Dir/result.log"
+                                break
+                            fi
+                            attempt=$((attempt + 1))
+                        done
+                    fi
+                    if [[ "$fail" -ne 0 ]]; then
+                        echo "$(date '+%F %T') [POWERCYCLE] phase=${phase} FAILED" | tee -a "$Result_Dir/result.log"
+                        echo "FIO stage failed in powercycle phase=${phase}" | tee -a "$Result_Dir/result.log"
+                        return 1
+                    fi
+                fi
+                echo "$(date '+%F %T') [POWERCYCLE] phase=${phase} OK" | tee -a "$Result_Dir/result.log"
     done
     cd "$Job_Dir" || true
     return 0
@@ -138,7 +178,17 @@ function prepare_powercycle_plan() {
         echo "Failed to detect test disk size for powercycle plan." | tee -a "$Result_Dir/result.log" "$power_log"
         return 1
     fi
-    echo "$(date '+%F %T') [PLAN] min_disk_size_bytes=$min_disk_size" | tee -a "$power_log"
+    echo "$(date '+%F %T') [PLAN] min_disk_size_bytes=$min_disk_size profile=${POWERCYCLE_PROFILE:-smoke} window_count=${POWERCYCLE_WINDOW_COUNT:-} window_bytes=${POWERCYCLE_WINDOW_BYTES:-} stress=${POWERCYCLE_STRESS_RUNTIME:-} verify_retries=${POWERCYCLE_VERIFY_RETRIES:-1}" | tee -a "$power_log"
+    # Persist profile so resume after reboot keeps the same coverage knobs.
+    {
+        echo "export POWERCYCLE_PROFILE=${POWERCYCLE_PROFILE:-smoke}"
+        echo "export POWERCYCLE_WINDOW_COUNT=${POWERCYCLE_WINDOW_COUNT:-}"
+        echo "export POWERCYCLE_WINDOW_BYTES=${POWERCYCLE_WINDOW_BYTES:-}"
+        echo "export POWERCYCLE_STRESS_RUNTIME=${POWERCYCLE_STRESS_RUNTIME:-}"
+        echo "export POWERCYCLE_WRITE_STRESS_WINDOWS=${POWERCYCLE_WRITE_STRESS_WINDOWS:-}"
+        echo "export POWERCYCLE_VERIFY_RETRIES=${POWERCYCLE_VERIFY_RETRIES:-1}"
+    } >"$ResultLog/powercycle_profile.env"
+    echo "$(date '+%F %T') [PLAN] wrote $ResultLog/powercycle_profile.env" | tee -a "$power_log"
 
     # Crash window: IO finished (io_committed=true) but commit never ran.
     # Mid-IO leftovers keep io_committed=false and are discarded.

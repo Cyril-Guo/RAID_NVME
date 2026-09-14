@@ -319,6 +319,11 @@ cd "$CP_ROOT_DIR"
 mkdir -p "$ResultLog"
 echo "\$(date '+%F %T') [RESUME] start on boot, tty output=/dev/tty1" | tee -a "$ResultLog/powercycle_resume.log" /dev/tty1
 export POWER_CYCLE_COMMAND_GRACE="${POWER_CYCLE_COMMAND_GRACE:-90}"
+if [[ -f "$ResultLog/powercycle_profile.env" ]]; then
+  # shellcheck disable=SC1090
+  . "$ResultLog/powercycle_profile.env"
+  echo "\$(date '+%F %T') [RESUME] loaded powercycle_profile.env profile=\${POWERCYCLE_PROFILE:-smoke}" | tee -a "$ResultLog/powercycle_resume.log" /dev/tty1
+fi
 bash "$CP_ROOT_DIR/run_fio.sh" "$item" "$check" "$bmc_reset" "$flag" "$delay" "$mode" "$wait" "$port" "$server_ip" "$LOOP" "$acserverport" "$safe" "$sysStaticIP" "$blackBoxStaticIP" "$runtime" "$filename" "$fs_type" "$disk_mode" "$specified_disk" "$remote" "$mix_io" "$log_interval" 2>&1 | tee -a "$ResultLog/powercycle_resume.log" /dev/tty1
 exit \${PIPESTATUS[0]}
 EOF

@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from typing import List, Optional
 
 # Scattered windows per loop; FILL/STRESS before reboot, VERIFY after reboot.
-WINDOW_COUNT = 16
+WINDOW_COUNT = 16  # smoke default; release/profile may raise via resolve_profile()
 WINDOW_BYTES = 128 * 1024 * 1024
 DEFAULT_STRESS_RUNTIME = 45
 FILL_VERIFY_IODEPTH = 64
@@ -16,6 +16,52 @@ MIN_BLOCK_BYTES = 512
 MAX_BLOCK_BYTES = 16 * 1024 * 1024
 ALIGNMENT_BYTES = 512
 VERIFY_TYPE = "crc32c"
+
+# Profiles (overridable by env / test_items.txt):
+#   smoke   - daily CI
+#   release - stronger coverage for pre-release soak
+_PROFILE_DEFAULTS = {
+    "smoke": {
+        "window_count": 16,
+        "window_bytes": 128 * 1024 * 1024,
+        "stress_runtime": 45,
+        "write_stress_windows": 8,
+        "verify_retries": 1,
+    },
+    "release": {
+        "window_count": 32,
+        "window_bytes": 512 * 1024 * 1024,
+        "stress_runtime": 120,
+        "write_stress_windows": 16,
+        "verify_retries": 2,
+    },
+}
+
+
+def resolve_profile(name: Optional[str] = None) -> dict:
+    profile = (name or os.environ.get("POWERCYCLE_PROFILE") or "smoke").strip().lower()
+    if profile not in _PROFILE_DEFAULTS:
+        profile = "smoke"
+    cfg = dict(_PROFILE_DEFAULTS[profile])
+    cfg["name"] = profile
+
+    def _env_int(key: str, dest: str) -> None:
+        raw = os.environ.get(key, "").strip()
+        if not raw:
+            return
+        try:
+            cfg[dest] = max(1, int(raw))
+        except ValueError:
+            pass
+
+    _env_int("POWERCYCLE_WINDOW_COUNT", "window_count")
+    _env_int("POWERCYCLE_WINDOW_BYTES", "window_bytes")
+    _env_int("POWERCYCLE_STRESS_RUNTIME", "stress_runtime")
+    _env_int("POWERCYCLE_WRITE_STRESS_WINDOWS", "write_stress_windows")
+    _env_int("POWERCYCLE_VERIFY_RETRIES", "verify_retries")
+    return cfg
+
+
 HEADER = [
     "Block_Size",
     "Random_Percentage",
@@ -85,16 +131,15 @@ def _layout_seed(plan_seed: int, disk_size_bytes: int) -> int:
     return int(hashlib.sha256(raw).hexdigest()[:16], 16)
 
 
-def _effective_window_count(disk_size_bytes: int) -> int:
-    if disk_size_bytes < WINDOW_BYTES:
+def _effective_window_count(disk_size_bytes: int, window_bytes: int, window_count: int) -> int:
+    if disk_size_bytes < window_bytes:
         return 1
-    # Prefer more windows on large disks so LBA stripes cover head/mid/tail.
-    by_size = max(1, disk_size_bytes // WINDOW_BYTES)
-    return min(WINDOW_COUNT, by_size)
+    by_size = max(1, disk_size_bytes // window_bytes)
+    return min(window_count, by_size)
 
 
-def _window_size_bytes(block_size: int) -> int:
-    size = _align_down(WINDOW_BYTES, block_size) or block_size
+def _window_size_bytes(block_size: int, window_bytes: int) -> int:
+    size = _align_down(window_bytes, block_size) or block_size
     return max(size, block_size)
 
 
@@ -189,9 +234,16 @@ def generate_window_specs(
     disk_size_bytes: int,
     plan_seed: int,
     rng: Optional[random.Random] = None,
+    *,
+    window_count: Optional[int] = None,
+    window_bytes: Optional[int] = None,
+    occupied: Optional[List[tuple[int, int]]] = None,
 ) -> List[PowercycleModel]:
     rng = rng or random.Random(plan_seed)
-    count = _effective_window_count(disk_size_bytes)
+    profile = resolve_profile()
+    win_count = window_count if window_count is not None else profile["window_count"]
+    win_bytes = window_bytes if window_bytes is not None else profile["window_bytes"]
+    count = _effective_window_count(disk_size_bytes, win_bytes, win_count)
     rw_pool = list(RW_CHOICES)
     rng.shuffle(rw_pool)
 
@@ -200,7 +252,7 @@ def generate_window_specs(
         block_size = rng.choice(BLOCK_SIZES_BYTES)
         if block_size > MAX_BLOCK_BYTES:
             block_size = MAX_BLOCK_BYTES
-        size_bytes = _window_size_bytes(block_size)
+        size_bytes = _window_size_bytes(block_size, win_bytes)
         rw = rw_pool[index % len(rw_pool)]
         specs.append(
             PowercycleModel(
@@ -213,7 +265,63 @@ def generate_window_specs(
             )
         )
 
-    return layout_windows(specs, disk_size_bytes, plan_seed)
+    placed = layout_windows(specs, disk_size_bytes, plan_seed)
+    if not occupied:
+        return placed
+
+    # Re-place avoiding occupied ranges (for write-stress windows).
+    return layout_windows_avoiding(placed, disk_size_bytes, plan_seed ^ 0xA5A5, occupied)
+
+
+
+def layout_windows_avoiding(
+    models: List[PowercycleModel],
+    disk_size_bytes: int,
+    plan_seed: int,
+    occupied: List[tuple[int, int]],
+) -> List[PowercycleModel]:
+    """Place models into free space that does not overlap occupied FILL/VERIFY windows."""
+    rng = random.Random(_layout_seed(plan_seed, disk_size_bytes))
+    busy = list(occupied)
+    placed: List[PowercycleModel] = []
+
+    def overlaps(start: int, end: int) -> bool:
+        for left, right in busy:
+            if start < right and end > left:
+                return True
+        return False
+
+    for model in models:
+        bs = model.block_size
+        size_bytes = model.size
+        aligned_start = _align_up(0, bs)
+        max_start = _align_down(disk_size_bytes - size_bytes, bs)
+        if max_start < aligned_start:
+            raise ValueError(f"disk too small for avoid-layout window size={size_bytes}")
+        steps = ((max_start - aligned_start) // bs) + 1
+        offset_bytes = None
+        for _ in range(min(steps, 8192)):
+            candidate = aligned_start + rng.randrange(steps) * bs
+            if not overlaps(candidate, candidate + size_bytes):
+                offset_bytes = candidate
+                break
+        if offset_bytes is None:
+            raise ValueError("unable to place write-stress window outside FILL/VERIFY regions")
+        busy.append((offset_bytes, offset_bytes + size_bytes))
+        placed.append(
+            PowercycleModel(
+                block_size=model.block_size,
+                queue_depth=model.queue_depth,
+                offset=offset_bytes,
+                size=size_bytes,
+                verify_type=model.verify_type,
+                random_percentage=model.random_percentage,
+                read_percentage=model.read_percentage,
+                num_jobs=model.num_jobs,
+            )
+        )
+    placed.sort(key=lambda item: item.offset)
+    return placed
 
 
 def model_to_row(
@@ -236,6 +344,12 @@ def model_to_row(
         read_pct = 100
         iodepth = FILL_VERIFY_IODEPTH
     elif verify_mode == "STRESS":
+        # Read-only stress on FILL/VERIFY windows so crc32c payload survives to next-loop VERIFY.
+        random_pct = 100
+        read_pct = 100
+        run_time = str(stress_runtime)
+    elif verify_mode == "STRESS_WRITE":
+        # Writable stress in free LBA space (never part of pending_verify).
         run_time = str(stress_runtime)
     elif verify_mode == "WRITE":
         # Legacy alias for FILL.
@@ -305,6 +419,8 @@ def build_plan(
     rng: Optional[random.Random] = None,
 ):
     rng = rng or random.Random()
+    profile = resolve_profile()
+    stress_runtime = profile["stress_runtime"]
     rows: list[list[str]] = []
     summary: list[str] = []
 
@@ -312,7 +428,7 @@ def build_plan(
     if pending:
         for model_data in pending:
             model = PowercycleModel(**model_data)
-            rows.append(model_to_row(model, "VERIFY"))
+            rows.append(model_to_row(model, "VERIFY", stress_runtime=stress_runtime))
         summary.append(
             "verify previous windows: "
             + ", ".join(
@@ -324,20 +440,50 @@ def build_plan(
     next_state = {"pending_verify": False, "windows": None, "plan_seed": None, "io_committed": False}
     if current_loop < total_loops:
         plan_seed = rng.randint(1, 2**31 - 1)
-        windows = generate_window_specs(min_disk_size_bytes, plan_seed, rng=rng)
+        windows = generate_window_specs(
+            min_disk_size_bytes,
+            plan_seed,
+            rng=rng,
+            window_count=profile["window_count"],
+            window_bytes=profile["window_bytes"],
+        )
         for model in windows:
-            rows.append(model_to_row(model, "FILL"))
+            rows.append(model_to_row(model, "FILL", stress_runtime=stress_runtime))
+        # Read-only stress on FILL windows (must not destroy verify payload).
         for model in windows:
-            rows.append(model_to_row(model, "STRESS"))
+            rows.append(model_to_row(model, "STRESS", stress_runtime=stress_runtime))
+
+        occupied = [(m.offset, m.offset + m.size) for m in windows]
+        write_n = min(
+            profile["write_stress_windows"],
+            max(1, min_disk_size_bytes // max(profile["window_bytes"], 1) // 4),
+        )
+        write_windows: List[PowercycleModel] = []
+        try:
+            write_windows = generate_window_specs(
+                min_disk_size_bytes,
+                plan_seed ^ 0x5F5F,
+                rng=rng,
+                window_count=write_n,
+                window_bytes=profile["window_bytes"],
+                occupied=occupied,
+            )
+            for model in write_windows:
+                rows.append(model_to_row(model, "STRESS_WRITE", stress_runtime=stress_runtime))
+        except ValueError as exc:
+            summary.append(f"write-stress skipped: {exc}")
+
         next_state = {
             "pending_verify": True,
             "plan_seed": plan_seed,
             "windows": [asdict(model) for model in windows],
             "io_committed": False,
+            "profile": profile["name"],
         }
         summary.append(
-            f"fill+stress {len(windows)} scattered windows (seed={plan_seed}, "
-            f"stress={DEFAULT_STRESS_RUNTIME}s each)"
+            f"profile={profile['name']} fill+ro-stress {len(windows)} windows "
+            f"+ write-stress {len(write_windows)} free windows "
+            f"(seed={plan_seed}, stress={stress_runtime}s, window_bytes={profile['window_bytes']})"
         )
 
     return rows, next_state, summary

@@ -26,6 +26,17 @@ function fio_verify_apply_mode_options() {
         sed -i "9i size=config_size" $Cur_Dir/configuration.tmp
         sed -i "9i verify_only=1" $Cur_Dir/configuration.tmp
     elif [[ "$verify_mode" == "STRESS" ]]; then
+        # Read-only stress on FILL/VERIFY windows (CSV forces read_pct=100).
+        sed -i "9i size=config_size" $Cur_Dir/configuration.tmp
+        sed -i "9i do_verify=0" $Cur_Dir/configuration.tmp
+        sed -i "9i ramp_time=5" $Cur_Dir/configuration.tmp
+        sed -i "9i norandommap" $Cur_Dir/configuration.tmp
+        sed -i "9i randrepeat=0" $Cur_Dir/configuration.tmp
+        sed -i "9i time_based" $Cur_Dir/configuration.tmp
+        sed -i "9i runtime=${run_time}" $Cur_Dir/configuration.tmp
+        sed -i "9i stonewall" $Cur_Dir/configuration.tmp
+    elif [[ "$verify_mode" == "STRESS_WRITE" ]]; then
+        # Writable stress outside FILL/VERIFY windows only.
         sed -i "9i size=config_size" $Cur_Dir/configuration.tmp
         sed -i "9i do_verify=0" $Cur_Dir/configuration.tmp
         sed -i "9i ramp_time=5" $Cur_Dir/configuration.tmp
@@ -37,6 +48,8 @@ function fio_verify_apply_mode_options() {
         # FILL / legacy WRITE: sequential write full window before reboot.
         sed -i "9i size=config_size" $Cur_Dir/configuration.tmp
         sed -i "9i do_verify=0" $Cur_Dir/configuration.tmp
+        # Ensure subsequent STRESS jobs cannot start until FILL finishes when batched.
+        sed -i "9i stonewall" $Cur_Dir/configuration.tmp
     fi
 }
 

@@ -23,3 +23,11 @@ def test_powercycle_completion_has_success_path():
     assert "test_end" in run_source
     assert "local rc=${1:-0}" in fio_source
     assert 'exit "${rc}"' in fio_source
+
+
+def test_powercycle_parallel_supports_stress_write_and_verify_retry():
+    power = Path("IO_Stress/lib/fio_powercycle.sh").read_text(encoding="utf-8")
+    verify = Path("IO_Stress/lib/fio_verify.sh").read_text(encoding="utf-8")
+    assert "STRESS_WRITE" in power
+    assert "VERIFY retry" in power
+    assert "stonewall" in verify

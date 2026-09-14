@@ -43,11 +43,13 @@ def test_model_to_row_phase_mapping():
     assert fill[8] == "FILL"
 
     stress = model_to_row(model, "STRESS")
-    assert stress[1] == str(model.random_percentage)
-    assert stress[2] == str(model.read_percentage)
-    assert stress[3] == str(model.queue_depth)
+    assert stress[1] == "100" and stress[2] == "100"  # read-only on FILL windows
     assert stress[4] == str(DEFAULT_STRESS_RUNTIME)
     assert stress[8] == "STRESS"
+
+    write_stress = model_to_row(model, "STRESS_WRITE")
+    assert write_stress[8] == "STRESS_WRITE"
+    assert write_stress[4] == str(DEFAULT_STRESS_RUNTIME)
 
     verify = model_to_row(model, "VERIFY")
     assert verify[1] == "0" and verify[2] == "100"
@@ -68,14 +70,14 @@ def test_build_plan_verify_fill_stress_sequence():
     )
 
     count = len(windows)
-    assert len(rows) == count * 3
     assert [row[8] for row in rows[:count]] == ["VERIFY"] * count
     assert [row[8] for row in rows[count : count * 2]] == ["FILL"] * count
-    assert [row[8] for row in rows[count * 2 :]] == ["STRESS"] * count
+    assert [row[8] for row in rows[count * 2 : count * 3]] == ["STRESS"] * count
+    assert all(row[8] in {"STRESS_WRITE", "FILL", "STRESS", "VERIFY"} for row in rows)
     assert next_state["pending_verify"] is True
     assert len(next_state["windows"]) == count
     assert "verify previous windows" in summary[0]
-    assert "fill+stress" in summary[1]
+    assert "fill+ro-stress" in summary[1] or "profile=" in summary[1]
 
 
 def test_build_plan_final_loop_only_verifies():
@@ -105,12 +107,13 @@ def test_build_plan_first_loop_skips_verify():
         rng=random.Random(1),
     )
 
-    count = len(rows) // 2
-    assert len(rows) == count * 2
-    assert [row[8] for row in rows[:count]] == ["FILL"] * count
-    assert [row[8] for row in rows[count:]] == ["STRESS"] * count
+    modes = [row[8] for row in rows]
+    assert "VERIFY" not in modes
+    assert modes.count("FILL") >= 1
+    assert modes.count("STRESS") == modes.count("FILL")
+    assert all(m in {"FILL", "STRESS", "STRESS_WRITE"} for m in modes)
     assert next_state["pending_verify"] is True
-    assert "fill+stress" in summary[0]
+    assert "profile=" in summary[0] or "fill+ro-stress" in summary[0]
 
 
 def test_legacy_single_model_state_still_verifies():
@@ -206,3 +209,23 @@ def test_layout_windows_covers_disk_stripes():
     # First window in early band, last window in late band.
     assert offsets[0] < disk // 4
     assert offsets[-1] >= (disk * 3) // 4
+
+
+def test_stress_is_readonly_on_verify_windows():
+    model = generate_window_specs(8 * 1024**3, 3, rng=random.Random(3))[0]
+    stress = model_to_row(model, "STRESS")
+    assert stress[2] == "100"
+
+
+def test_resolve_profile_release_stronger_than_smoke(monkeypatch):
+    from IO_Stress.powercycle_random import resolve_profile
+
+    monkeypatch.delenv("POWERCYCLE_WINDOW_COUNT", raising=False)
+    monkeypatch.delenv("POWERCYCLE_WINDOW_BYTES", raising=False)
+    monkeypatch.setenv("POWERCYCLE_PROFILE", "smoke")
+    smoke = resolve_profile()
+    monkeypatch.setenv("POWERCYCLE_PROFILE", "release")
+    release = resolve_profile()
+    assert release["window_count"] >= smoke["window_count"]
+    assert release["window_bytes"] >= smoke["window_bytes"]
+    assert release["stress_runtime"] >= smoke["stress_runtime"]

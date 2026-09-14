@@ -20,6 +20,11 @@ chmod +x lib/* run_fio.sh >/dev/null 2>&1 || true
 arguments_parse "$@"
 check_arguments
 
+if [[ -n "${ResultLog:-}" && -f "${ResultLog}/powercycle_profile.env" ]]; then
+    # shellcheck disable=SC1090
+    . "${ResultLog}/powercycle_profile.env"
+fi
+
 dotrap
 
 if [[ "$item" != "REBOOT" && "$item" != "DC" ]]; then

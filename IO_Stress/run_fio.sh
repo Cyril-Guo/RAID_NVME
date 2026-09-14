@@ -17,6 +17,12 @@ dotrap
 
 arguments_accept "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8" "$9" "${10}" "${11}" "${12}" "${13}" "${14}" "${15}" "${16}" "${17}" "${18}" "${19}" "${20}" "${21}" "${22}"
 
+if [[ -n "${ResultLog:-}" && -f "${ResultLog}/powercycle_profile.env" ]]; then
+    # shellcheck disable=SC1090
+    . "${ResultLog}/powercycle_profile.env"
+    echo "$(date '+%F %T') [PROFILE] loaded ${ResultLog}/powercycle_profile.env (profile=${POWERCYCLE_PROFILE:-smoke})"
+fi
+
 count_time
 
 item_=$1
