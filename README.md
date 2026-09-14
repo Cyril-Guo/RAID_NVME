@@ -19,6 +19,16 @@
 
 去掉行首 `#` 即启用。
 
+## 飞书
+
+构建结束后自动：
+
+1. 收集 Jenkins console + `test_execution_*.log`
+2. 解析 `node-report_*.xml` 测试结果
+3. 推送飞书卡片（含测试结果与完整终端日志；过长会截断并保留 Jenkins 链接）
+
+可用参数 `DEBUG_NO_FEISHU=true` 跳过推送。
+
 ## 本地跑
 
 ```bash
