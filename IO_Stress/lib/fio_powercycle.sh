@@ -61,9 +61,8 @@ function run_powercycle_parallel_phases() {
         return 1
     fi
     if [[ "${#modes[@]}" -ne "${#configs[@]}" ]]; then
-        echo "WARN: csv modes=${#modes[@]} configs=${#configs[@]}; falling back to serial run_all"
-        run_all
-        return $?
+        echo "ERROR: csv modes=${#modes[@]} configs=${#configs[@]} mismatch; refusing to run (would mis-bind VERIFY/FILL)"
+        return 1
     fi
 
     echo "$(date '+%F %T') [POWERCYCLE] parallel phases enabled windows_total=${#configs[@]}"
@@ -73,6 +72,11 @@ function run_powercycle_parallel_phases() {
         pids=()
         outs=()
         local phase_count=0
+        if [[ "$phase" == "VERIFY" ]]; then
+            export POWERCYCLE_FIO_SOFT_RESULT=1
+        else
+            unset POWERCYCLE_FIO_SOFT_RESULT || true
+        fi
         for i in "${!configs[@]}"; do
             [[ "${modes[$i]}" == "$phase" ]] || continue
             phase_count=$((phase_count + 1))
@@ -109,9 +113,14 @@ function run_powercycle_parallel_phases() {
             echo "$(date '+%F %T') [POWERCYCLE] phase=${phase} finished out=$(basename "$out") rc=${rc}" | tee -a "$Result_Dir/result.log"
             if [[ "$rc" -ne 0 ]]; then
                 fail=1
-                echo "FIO stage abort, phase=${phase}, out=$(basename "$out"), rc=${rc}" | tee -a "$Result_Dir/result.log"
-                if [[ -f "$out" ]]; then
-                    tail -n 40 "$out" | tee -a "$Result_Dir/result.log" || true
+                if [[ "$phase" == "VERIFY" ]]; then
+                    # Soft marker only — wait must not treat this as final failure.
+                    echo "$(date '+%F %T') [POWERCYCLE] VERIFY soft-fail out=$(basename "$out") rc=${rc}" | tee -a "$Result_Dir/result.log"
+                else
+                    echo "FIO stage abort, phase=${phase}, out=$(basename "$out"), rc=${rc}" | tee -a "$Result_Dir/result.log"
+                    if [[ -f "$out" ]]; then
+                        tail -n 40 "$out" | tee -a "$Result_Dir/result.log" || true
+                    fi
                 fi
             else
                 echo "********** $(date '+%m-%d %H:%M:%S') parallel ${phase} OK $(basename "$out")**********" >>"$Result_Dir/result.log"
@@ -156,10 +165,12 @@ function run_powercycle_parallel_phases() {
                         done
                     fi
                     if [[ "$fail" -ne 0 ]]; then
+                        unset POWERCYCLE_FIO_SOFT_RESULT || true
                         echo "$(date '+%F %T') [POWERCYCLE] phase=${phase} FAILED" | tee -a "$Result_Dir/result.log"
                         echo "FIO stage failed in powercycle phase=${phase}" | tee -a "$Result_Dir/result.log"
                         return 1
                     fi
+                    unset POWERCYCLE_FIO_SOFT_RESULT || true
                 fi
                 echo "$(date '+%F %T') [POWERCYCLE] phase=${phase} OK" | tee -a "$Result_Dir/result.log"
     done
@@ -177,6 +188,18 @@ function prepare_powercycle_plan() {
     if [[ -z "$min_disk_size" ]]; then
         echo "Failed to detect test disk size for powercycle plan." | tee -a "$Result_Dir/result.log" "$power_log"
         return 1
+    fi
+    local profile_retries
+    profile_retries="$(
+        python3 - <<'PY'
+import os
+from powercycle_random import resolve_profile
+print(resolve_profile().get("verify_retries", 1))
+PY
+    )"
+    if [[ -z "${POWERCYCLE_VERIFY_RETRIES:-}" ]]; then
+        POWERCYCLE_VERIFY_RETRIES="$profile_retries"
+        export POWERCYCLE_VERIFY_RETRIES
     fi
     echo "$(date '+%F %T') [PLAN] min_disk_size_bytes=$min_disk_size profile=${POWERCYCLE_PROFILE:-release} window_count=${POWERCYCLE_WINDOW_COUNT:-} window_bytes=${POWERCYCLE_WINDOW_BYTES:-} stress=${POWERCYCLE_STRESS_RUNTIME:-} verify_retries=${POWERCYCLE_VERIFY_RETRIES:-1}" | tee -a "$power_log"
     # Persist profile so resume after reboot keeps the same coverage knobs.

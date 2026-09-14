@@ -307,6 +307,16 @@ item_failed() {
                 # shellcheck disable=SC2086
                 match_line="$(eval ${REMOTE_SSH_COMMAND} "grep -F $(printf '%q' "${pattern}") $(printf '%q' "${f}") 2>/dev/null | tail -n 1" || true)"
                 if [[ -n "${match_line}" ]]; then
+                    # If VERIFY later recovered, ignore retryable markers that may remain from soft attempts.
+                    # Final hard failure always writes "FIO stage failed" which is never ignored.
+                    if [[ "${pattern}" == "FIO stage abort" || "${pattern}" == "FIO command failed" || "${pattern}" == "verify failed" || "${pattern}" == "FIO failed" ]]; then
+                        recovered="$(eval ${REMOTE_SSH_COMMAND} "grep -F 'VERIFY' $(printf '%q' "${f}") 2>/dev/null | grep -F 'recovered' | tail -n 1" || true)"
+                        hard="$(eval ${REMOTE_SSH_COMMAND} "grep -F 'FIO stage failed' $(printf '%q' "${f}") 2>/dev/null | tail -n 1" || true)"
+                        if [[ -n "${recovered}" && -z "${hard}" ]]; then
+                            echo "[${NODE_IP}] $(date '+%F %T') ignore soft failure marker after VERIFY recovered: ${pattern}" >&2
+                            continue
+                        fi
+                    fi
                     echo "[${NODE_IP}] $(date '+%F %T') detected failure marker in ${item}: ${pattern}" >&2
                     echo "[${NODE_IP}]   file: ${f}" >&2
                     echo "[${NODE_IP}]   line: ${match_line}" >&2

@@ -1095,20 +1095,33 @@ run_fio_with_watchdog()
     FIO_LAST_RC="$fio_rc"
     echo "$(date '+%F %T') [FIO] finish model=${model_label} config=${config_name} rc=${fio_rc} elapsed=${elapsed}s(${elapsed_hms}) planned_runtime=${planned_runtime}s" | tee -a "$output_file"
     if [[ $fio_rc -eq 124 ]]; then
-        echo "FIO command failed, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file" "$Result_Dir/result.log"
-        append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
-        if fio_log_has_eio "$output_file"; then
-            trigger_live_failure_bundle "fio_eio_exit:${config_name}"
+        if [[ "${POWERCYCLE_FIO_SOFT_RESULT:-0}" == "1" ]]; then
+            echo "POWERCYCLE soft fio fail, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file"
+            append_fio_error_detail_soft "$output_file" "$model_label" "$fio_rc"
+        else
+            echo "FIO command failed, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file" "$Result_Dir/result.log"
+            append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
+            if fio_log_has_eio "$output_file"; then
+                trigger_live_failure_bundle "fio_eio_exit:${config_name}"
+            fi
         fi
         return "$fio_rc"
     fi
     if [[ $fio_rc -ne 0 ]]; then
-        # Any FIO/disk IO error fails the stage immediately.
-        echo "FIO command failed, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file" "$Result_Dir/result.log"
-        append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
-        # If EIO and we missed the live window, collect ASAP after exit.
-        if fio_log_has_eio "$output_file"; then
-            trigger_live_failure_bundle "fio_eio_exit:${config_name}"
+        if [[ "${POWERCYCLE_FIO_SOFT_RESULT:-0}" == "1" ]]; then
+            # Retryable VERIFY attempt: keep detail in detresult only.
+            # Do NOT write wait-sensitive markers (FIO command failed / verify failed tails)
+            # into ResultLog; wait_powercycle_completion would FALSE-FAIL after recovery.
+            echo "POWERCYCLE soft fio fail, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file"
+            append_fio_error_detail_soft "$output_file" "$model_label" "$fio_rc"
+        else
+            # Any FIO/disk IO error fails the stage immediately.
+            echo "FIO command failed, model=${model_label}, config=${config_name}, elapsed=${elapsed}s(${elapsed_hms}), planned_runtime=${planned_runtime}s, rc=${fio_rc}" | tee -a "$output_file" "$Result_Dir/result.log"
+            append_fio_error_detail "$output_file" "$model_label" "$fio_rc"
+            # If EIO and we missed the live window, collect ASAP after exit.
+            if fio_log_has_eio "$output_file"; then
+                trigger_live_failure_bundle "fio_eio_exit:${config_name}"
+            fi
         fi
     fi
     return $fio_rc
@@ -1150,6 +1163,40 @@ append_fio_error_detail()
 
 
 
+
+
+
+# Soft variant: write error detail only to the job detresult, never ResultLog.
+# Avoids leaking "verify failed" / fio error lines into wait_powercycle_completion scans.
+append_fio_error_detail_soft()
+{
+    local log_file="$1"
+    local model_label="${2:-unknown}"
+    local fio_rc="${3:-?}"
+    local log_name
+    local matched=""
+
+    log_name=$(basename "${log_file:-unknown.log}")
+    {
+        echo "----- POWERCYCLE soft fio detail begin (log=${log_name} model=${model_label} rc=${fio_rc}) -----"
+        if [[ -n "$log_file" && -f "$log_file" ]]; then
+            matched=$(
+                grep -E \
+                    'fio:|io_u error|err=|error=|Invalid argument|I/O error|Input/output error|No such device|direct IO errored|failed to|errno=|verify' \
+                    "$log_file" 2>/dev/null | tail -n 60 || true
+            )
+            if [[ -n "$matched" ]]; then
+                printf '%s\n' "$matched"
+            else
+                echo "(no fio error keywords matched; last 40 lines of ${log_name}:)"
+                tail -n 40 "$log_file" 2>/dev/null || true
+            fi
+        else
+            echo "(fio log missing: ${log_file:-})"
+        fi
+        echo "----- POWERCYCLE soft fio detail end -----"
+    } >>"${log_file:-/dev/null}"
+}
 
 
 function run_all()
@@ -1417,7 +1464,10 @@ function do_fio() {
                 fi
                 filename="$b"
                 echo "$(date '+%F %T') [FIO] generating powercycle job configs from $b" | tee -a "$power_log"
-                configure
+                if ! configure; then
+                    echo "$(date '+%F %T') [FIO] ERROR: configure failed for $b" | tee -a "$power_log" "$Result_Dir/result.log"
+                    return 1
+                fi
                 cfg_n=$(ls -1p "$Config_Dir" 2>/dev/null | grep -v / | grep '\.log$' | wc -l | tr -d ' ')
                 echo "$(date '+%F %T') [FIO] generated job configs count=${cfg_n}" | tee -a "$power_log"
                 if [[ "${cfg_n:-0}" -le 0 ]]; then
