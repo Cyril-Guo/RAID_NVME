@@ -1,9 +1,11 @@
-﻿
-# Python cache
+.pytest_cache/
 __pycache__/
-*.py[cod]
-*.pyo
-
-# Per-case DUT/local workspaces created by nvme_raid_test.py
-cases/
-storcli2.log
+*.pyc
+reports/
+allure-results/
+allure-report/
+node-report*.xml
+test_execution_*.log
+*.log
+.idea/
+.vscode/

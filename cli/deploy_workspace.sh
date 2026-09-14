@@ -12,19 +12,16 @@ if [ -z "${REMOTE_SSH_COMMAND:-}" ]; then
     REMOTE_SSH_COMMAND="sshpass -e ssh ${SSH_OPTS} ${TARGET_USER}@${NODE_IP}"
 fi
 
+eval "${REMOTE_SSH_COMMAND} 'mkdir -p ${REMOTE_DIR}'"
+
 tar \
   --exclude='./.git' \
-  --exclude='./kernel_driver/.git' \
-  --exclude='./raid_cli' \
-  --exclude='./cases' \
   --exclude='./.pytest_cache' \
   --exclude='./__pycache__' \
   --exclude='./allure-results' \
+  --exclude='./reports' \
   --exclude='./report.xml' \
   --exclude='./report_*.xml' \
-  --exclude='./case-report_*.xml' \
   --exclude='./node-report*.xml' \
   --exclude='./test_execution_*.log' \
-  --exclude='./environment_prepare_*.log' \
-  --exclude='./feishu_payload.json' \
   -czf - . | eval "${REMOTE_SSH_COMMAND} 'tar -xzf - -C ${REMOTE_DIR}'"

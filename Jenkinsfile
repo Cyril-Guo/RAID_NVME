@@ -1,22 +1,7 @@
 def targetIPs = []
-def kernelDriverCommit = ''
-def kernelDriverFullCommit = ''
-def kernelDriverRef = ''
-def kernelDriverMrIid = ''
-def kernelDriverMrTitle = ''
-def kernelDriverMrUpdatedAt = ''
-def kernelDriverMrUrl = ''
-def raidCliCommit = ''
-def raidCliFullCommit = ''
-def raidCliDpraidPath = ''
-def triggerSource = ''
 def shouldRunTests = false
-// Only env_prepare pulls latest raid_cli+kernel_driver and stages dpraid for DUT refresh.
-def needsPhysicalIoDriverPrep = false
-def selectedTestItems = []
 
 def hostSshCmd(ip) {
-    // Use sshpass -e so callers can also safely store/expand the command string.
     return "SSHPASS='${env.TARGET_PASSWORD}' sshpass -e ssh ${env.SSH_OPTS} ${env.TARGET_USER}@${ip}"
 }
 
@@ -35,8 +20,6 @@ def sanitizePathSegment(value) {
 }
 
 def resolveRaidNvmeBranch() {
-    // Prefer Jenkins-provided branch envs, then scm config, then git, then job name.
-    // Freestyle/Pipeline jobs often lack BRANCH_NAME and check out detached HEAD.
     def branch = (
         env.BRANCH_NAME ?: env.GIT_BRANCH ?: env.CHANGE_BRANCH ?: ''
     ).toString().trim().replaceAll('^origin/', '')
@@ -59,12 +42,6 @@ def resolveRaidNvmeBranch() {
 set +e
 b=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
 if [ -n "$b" ] && [ "$b" != "HEAD" ]; then printf '%s\\n' "$b"; exit 0; fi
-b=$(git name-rev --name-only --exclude='tags/*' HEAD 2>/dev/null \\
-    | sed -e 's#^remotes/origin/##' -e 's#^origin/##' -e 's#\\^0$##')
-if [ -n "$b" ] && [ "$b" != "undefined" ] && [ "$b" != "HEAD" ] && [[ "$b" != *"~"* ]]; then
-    printf '%s\\n' "$b"
-    exit 0
-fi
 printf '\\n'
 ''',
             returnStdout: true
@@ -72,80 +49,35 @@ printf '\\n'
     }
 
     if (!branch || branch == 'HEAD') {
-        // Job VD_IO/SMOKE is named after the RAID_NVME branch it tracks.
-        branch = (env.JOB_BASE_NAME ?: env.JOB_NAME ?: 'unknown').toString().trim()
+        branch = (env.JOB_BASE_NAME ?: env.JOB_NAME ?: 'CLI').toString().trim()
     }
     return branch
 }
 
-
-// Serialize all CI activity on one DUT across concurrent builds.
 def dutLockName(ip) {
     return "raid-nvme-dut-${ip}"
 }
 
-// DUT layout: /root/Cyril/Jenkins/<JOB>/<BRANCH>/<build|restore>-<N>
-// Keeps VD_IO/SMOKE, branches, and builds from mixing in one flat directory.
-def remoteWorkspaceRoot(kind = 'build') {
-    def job = sanitizePathSegment(env.JOB_BASE_NAME ?: env.JOB_NAME ?: 'job')
+def remoteWorkspaceRoot(kind) {
+    def job = sanitizePathSegment(env.JOB_BASE_NAME ?: env.JOB_NAME ?: 'CLI')
     def branch = sanitizePathSegment(resolveRaidNvmeBranch())
-    def prefix = (kind == 'restore') ? 'restore' : 'build'
-    return "/root/Cyril/Jenkins/${job}/${branch}/${prefix}-${env.BUILD_NUMBER}"
+    def build = sanitizePathSegment(env.BUILD_NUMBER ?: '0')
+    return "/root/Cyril/Jenkins/${job}/${branch}/${kind}-${build}"
 }
 
 def copyWorkspaceToRemote(ip, remoteDir, targetUser, sshOpts) {
     sh """
-    chmod +x vd_io/deploy_workspace.sh
-    NODE_IP='${ip}' TARGET_USER='${targetUser}' SSH_OPTS='${sshOpts}' TARGET_PASSWORD='${env.TARGET_PASSWORD}' REMOTE_DIR='${remoteDir}' vd_io/deploy_workspace.sh
-    """
-}
-
-def isManualInterruption(interruption) {
-    // CPS Groovy cannot resolve CauseOfInterruption$UserInterruption at compile time.
-    // Match by runtime class name instead of instanceof.
-    try {
-        def causes = interruption?.getCauses()
-        if (!causes) {
-            return false
-        }
-        return causes.any { cause ->
-            def name = cause?.getClass()?.getName() ?: ''
-            return name.endsWith('UserInterruption')
-        }
-    } catch (Exception ignored) {
-        return false
-    }
-}
-
-def runTimedEnvironmentStep(ip, label, envPrepareLog, timeoutMinutes, scriptText) {
-    def stepStatus = 0
-    try {
-        timeout(time: timeoutMinutes.toInteger(), unit: 'MINUTES') {
-            stepStatus = sh(returnStatus: true, script: scriptText)
-        }
-    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
-        if (isManualInterruption(e)) {
-            echo "[${ip}] ${label} manually aborted; preserve ABORTED without failure marker"
-            throw e
-        }
-        sh "printf '%s\\n%s\\n' '[${ip}] ERROR: ${label} timed out after ${timeoutMinutes} minutes' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
-        error "[${ip}] ${label} timed out after ${timeoutMinutes} minutes"
-    }
-    if (stepStatus != 0) {
-        sh "printf '%s\\n%s\\n' '[${ip}] ERROR: ${label} failed with exit code ${stepStatus}' 'ENVIRONMENT_PREPARE_STATUS=failed' >> ${envPrepareLog}"
-        error "[${ip}] ${label} failed with exit code ${stepStatus}"
-    }
+chmod +x cli/deploy_workspace.sh
+NODE_IP='${ip}' TARGET_USER='${targetUser}' SSH_OPTS='${sshOpts}' \\
+TARGET_PASSWORD='${env.TARGET_PASSWORD}' REMOTE_DIR='${remoteDir}' \\
+cli/deploy_workspace.sh
+"""
 }
 
 pipeline {
     agent any
 
     options {
-        // Allow multiple builds in parallel. Remote workspaces already include
-        // BUILD_NUMBER (/root/Cyril/Jenkins/<job>/<branch>/build-<N>), so
-        // workspace trees do not collide. Same TARGET_IP is serialized via
-        // lock(resource: "raid-nvme-dut-<ip>") (requires Lockable Resources plugin).
-        // Different IPs can run in parallel; Jenkins agent needs enough executors.
         skipDefaultCheckout()
     }
 
@@ -153,29 +85,12 @@ pipeline {
         booleanParam(
             name: 'RESTORE',
             defaultValue: false,
-            description: 'Only stop and clean up running test processes on target nodes. Do not run tests in this build.'
-        )
-        booleanParam(
-            name: 'DEBUG_NO_FEISHU',
-            defaultValue: false,
-            description: 'Debug mode: run the same pipeline but skip Feishu notification.'
+            description: 'Only stop running CLI test processes on target nodes. Do not run tests.'
         )
         text(
             name: 'TARGET_IPS',
             defaultValue: '192.168.22.134',
             description: 'Target node IPv4 addresses, one per line. Blank lines and lines beginning with # are ignored.'
-        )
-        string(
-            name: 'MANUAL_MR_IID',
-            defaultValue: '',
-            trim: true,
-            description: 'Optional: kernel_driver merge request IID, for example 141. Takes priority over MANUAL_KERNEL_DRIVER_REF.'
-        )
-        string(
-            name: 'MANUAL_KERNEL_DRIVER_REF',
-            defaultValue: '',
-            trim: true,
-            description: 'Optional: kernel_driver branch to test. Empty means main; ignored when MANUAL_MR_IID is set.'
         )
         string(
             name: 'TARGET_PASSWORD',
@@ -186,76 +101,21 @@ pipeline {
     }
 
     environment {
-        FEISHU_WEBHOOK = credentials('feishu-webhook')
         TARGET_USER = 'root'
         TARGET_PASSWORD = "${params.TARGET_PASSWORD?.trim() ?: '123456'}"
-        TEST_IDLE_TIMEOUT_MINUTES = '15'
-        ENVIRONMENT_STEP_TIMEOUT_MINUTES = '15'
-        TEST_EXECUTION_ATTEMPTED = 'false'
         SSH_OPTS = '-o StrictHostKeyChecking=no -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ConnectTimeout=15'
-
-        KERNEL_DRIVER_REPO = 'git@192.168.21.185:raid_max/kernel_driver.git'
-        KERNEL_DRIVER_BRANCH = 'main'
-        KERNEL_DRIVER_CRED = 'kernel_driver_ssh'
-        KERNEL_DRIVER_GITLAB_API = 'http://192.168.21.185:8081/api/v4'
-        KERNEL_DRIVER_GITLAB_PROJECT = 'raid_max%2Fkernel_driver'
-        KERNEL_DRIVER_GITLAB_TOKEN_CRED = 'kernel_driver_gitlab_token'
-        RAID_CLI_REPO = 'git@192.168.21.185:general_tools/raid_cli.git'
-        RAID_CLI_BRANCH = 'hostraid_cli'
-        RAID_CLI_CRED = 'kernel_driver_ssh'
     }
 
     stages {
         stage('Prepare Workspace') {
             steps {
                 cleanWs()
-
                 checkout scm: scm, poll: false, changelog: false
-
-                sh 'chmod +x vd_io/ensure_sshpass.sh && vd_io/ensure_sshpass.sh'
-
-                script {
-                    echo "Jenkins node=${env.NODE_NAME}. Different TARGET_IPs can run in parallel; same TARGET_IP is lock-serialized. Concurrent builds need enough executors on this node."
-                    def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
-                    def jenkinsPrepare = load 'vd_io/jenkins_prepare.groovy'
-
-                    if (!params.RESTORE) {
-                        shouldRunTests = true
-                        def selectedRaw = sh(
-                            script: '''python3 - <<'PY'
-from nvme_raid_test import read_enabled_selection
-print(" ".join(read_enabled_selection("test_items.txt")))
-PY''',
-                            returnStdout: true
-                        ).trim()
-                        selectedTestItems = selectedRaw ? selectedRaw.split(' ') as List : []
-                        def prep = jenkinsPrepare.preparePhysicalIoDriver(
-                            script: this,
-                            env: env,
-                            params: params,
-                            selectedTestItems: selectedTestItems,
-                            jenkinsHome: jenkinsHome,
-                        )
-                        needsPhysicalIoDriverPrep = prep.needsPhysicalIoDriverPrep
-                        triggerSource = prep.triggerSource
-                        kernelDriverCommit = prep.kernelDriverCommit
-                        kernelDriverFullCommit = prep.kernelDriverFullCommit
-                        kernelDriverRef = prep.kernelDriverRef
-                        kernelDriverMrIid = prep.kernelDriverMrIid
-                        kernelDriverMrTitle = prep.kernelDriverMrTitle
-                        kernelDriverMrUpdatedAt = prep.kernelDriverMrUpdatedAt
-                        kernelDriverMrUrl = prep.kernelDriverMrUrl
-                        raidCliCommit = prep.raidCliCommit
-                        raidCliFullCommit = prep.raidCliFullCommit
-                        raidCliDpraidPath = prep.raidCliDpraidPath
-                    }
-                }
+                sh 'chmod +x cli/*.sh'
 
                 script {
-                    if (!shouldRunTests && !params.RESTORE) {
-                        echo 'Skip target node loading because this build is not configured to run tests.'
-                        return
-                    }
+                    echo "Jenkins node=${env.NODE_NAME}. Branch=${resolveRaidNvmeBranch()}."
+                    shouldRunTests = !params.RESTORE
 
                     def ipContent = (params.TARGET_IPS ?: '').trim()
                     targetIPs = ipContent.split('\\r?\\n')
@@ -274,23 +134,9 @@ PY''',
                         }
                     }
                     if (invalidIPs.size() > 0) {
-                        error "Invalid TARGET_IPS entries: ${invalidIPs.join(', ')}. Enter one IPv4 address per line."
+                        error "Invalid TARGET_IPS entries: ${invalidIPs.join(', ')}."
                     }
-
                     echo "Target nodes: ${targetIPs}"
-                }
-            }
-        }
-
-        stage('Kernel Driver Placeholder') {
-            when { expression { return !params.RESTORE && shouldRunTests && needsPhysicalIoDriverPrep } }
-            steps {
-                script {
-                    echo "kernel_driver commit for this run: ${kernelDriverCommit ?: 'unknown'}"
-                    if (kernelDriverMrIid) {
-                        echo "kernel_driver MR for this run: !${kernelDriverMrIid} ${kernelDriverMrUrl}"
-                    }
-                    echo 'kernel_driver/raid_cli were pulled because env_prepare is selected.'
                 }
             }
         }
@@ -300,413 +146,69 @@ PY''',
             steps {
                 script {
                     def restoreTasks = [:]
-
                     for (int i = 0; i < targetIPs.size(); i++) {
                         def ip = targetIPs[i]
-
                         restoreTasks["Restore_${ip}"] = {
                             lock(resource: dutLockName(ip)) {
-                            stage("Restore on ${ip}") {
-                                def remoteDir = remoteWorkspaceRoot('restore')
-
-                                def restoreSsh = hostSshCmd(ip)
-
-                                echo "[${ip}] stop running test processes"
-                                sh """
-                                ${restoreSsh} '
-                                    pkill -9 -f nvme_raid_test.py 2>/dev/null || true
-                                    pkill -2 -f Stress_Monitor/main.py 2>/dev/null || true
-                                    pkill -9 -f run_fio.sh 2>/dev/null || true
-                                    pkill -9 -f Fio_All.sh 2>/dev/null || true
-                                    pkill -9 fio 2>/dev/null || true
-                                ' || true
-                                """
-
-                                echo "[${ip}] deploy restore scripts"
-                                sh "${restoreSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
-                                copyWorkspaceToRemote(ip, remoteDir, env.TARGET_USER, env.SSH_OPTS)
-
-                                echo "[${ip}] execute restore"
-                                sh """
-                                ${restoreSsh} '
-                                    cd ${remoteDir}/IO_Stress && bash ./Fio_All.sh -i restore || true
-                                '
-                                """
-
-                                echo "[${ip}] clean temporary directory"
-                                sh "${restoreSsh} 'rm -rf ${remoteDir}' || true"
+                                stage("Restore on ${ip}") {
+                                    def restoreSsh = hostSshCmd(ip)
+                                    echo "[${ip}] stop CLI test processes"
+                                    sh """
+                                    ${restoreSsh} '
+                                        pkill -9 -f nvme_raid_test.py 2>/dev/null || true
+                                        pkill -9 -f pytest 2>/dev/null || true
+                                    ' || true
+                                    """
+                                }
                             }
-                            } // lock dut
                         }
                     }
-
                     parallel restoreTasks
                 }
             }
         }
 
         stage('Run Tests') {
-            when { expression { return !params.RESTORE && shouldRunTests } }
+            when { expression { return shouldRunTests } }
             steps {
                 script {
-                    env.TEST_EXECUTION_ATTEMPTED = 'true'
-                    if (needsPhysicalIoDriverPrep) {
-                        def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
-                        def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
-                        def raidCliRepoPathForRun = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo"
-                        def raidCliDpraidPathForRun = raidCliDpraidPath ?: "${raidCliRepoPathForRun}/dpraid"
-
-                        sh "test -x '${raidCliDpraidPathForRun}'"
-                        sh "test -x artifacts/dpraid"
-                        raidCliFullCommit = sh(
-                            script: "git -C '${raidCliRepoPathForRun}' rev-parse HEAD 2>/dev/null || echo unknown",
-                            returnStdout: true
-                        ).trim()
-                        raidCliCommit = sh(
-                            script: "git -C '${raidCliRepoPathForRun}' rev-parse --short HEAD 2>/dev/null || echo unknown",
-                            returnStdout: true
-                        ).trim()
-                        echo "Use dpraid artifact: ${raidCliDpraidPathForRun} (staged at artifacts/dpraid for env_prepare)"
-                        echo "Use raid_cli(${env.RAID_CLI_BRANCH}) commit: ${raidCliCommit}"
-                        sh "test -d kernel_driver/drivers/draid && test -f kernel_driver/drivers/draid/Makefile"
-                    } else {
-                        echo 'Skip dpraid/kernel_driver requirements: env_prepare not selected.'
-                    }
-
                     def parallelTasks = [:]
-
                     for (int i = 0; i < targetIPs.size(); i++) {
                         def ip = targetIPs[i]
-
                         parallelTasks["Node_${ip}"] = {
                             lock(resource: dutLockName(ip)) {
-                            stage("Test on ${ip}") {
-                                def remoteDir = remoteWorkspaceRoot('build')
-                                def envPrepareLog = "environment_prepare_${ip}.log"
-                                def targetSsh = hostSshCmd(ip)
-                                def targetScp = hostScpCmd()
+                                stage("Test on ${ip}") {
+                                    def remoteDir = remoteWorkspaceRoot('build')
+                                    def targetSsh = hostSshCmd(ip)
+                                    def targetScp = hostScpCmd()
 
-                                writeFile file: envPrepareLog, text: "[${ip}] Environment_Prepare started\n"
-                                echo "[${ip}] remote workspace: ${remoteDir}"
+                                    echo "[${ip}] remote workspace: ${remoteDir}"
+                                    sh "${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'"
+                                    copyWorkspaceToRemote(ip, remoteDir, env.TARGET_USER, env.SSH_OPTS)
 
-                                echo "[${ip}] deploy workspace"
-                                runTimedEnvironmentStep(ip, 'deploy workspace', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
+                                    def testStatus = sh(
+                                        returnStatus: true,
+                                        script: """#!/bin/bash
 set -euo pipefail
-{
-echo "[${ip}] deploy workspace -> ${remoteDir}"
-${targetSsh} 'rm -rf ${remoteDir} && mkdir -p ${remoteDir}'
-chmod +x vd_io/deploy_workspace.sh
+chmod +x cli/run_remote_test_and_collect.sh
 NODE_IP='${ip}' \\
 TARGET_USER='${env.TARGET_USER}' \\
 REMOTE_DIR='${remoteDir}' \\
 REMOTE_SSH_COMMAND="${targetSsh}" \\
-vd_io/deploy_workspace.sh
-} 2>&1 | tee -a ${envPrepareLog}
-""")
-
-                                // draid/dpraid refresh is intentionally NOT done in Jenkins shared prepare.
-                                // The env_prepare test case runs vd_io/prepare_env.sh on the DUT.
-                                if (needsPhysicalIoDriverPrep) {
-                                    echo "[${ip}] env_prepare selected: skip shared dpraid/draid prepare; case runs prepare_env.sh"
-                                    sh "printf '%s\\n' '[${ip}] skip shared install_dpraid/prepare_draid; env_prepare uses vd_io/prepare_env.sh' >> ${envPrepareLog}"
-                                } else {
-                                    echo "[${ip}] skip shared dpraid/draid prepare (env_prepare not selected)"
-                                    sh "printf '%s\\n' '[${ip}] skip shared install_dpraid/prepare_draid' >> ${envPrepareLog}"
+REMOTE_SCP_COMMAND="${targetScp}" \\
+cli/run_remote_test_and_collect.sh
+"""
+                                    )
+                                    junit allowEmptyResults: true, testResults: "node-report_${ip}.xml"
+                                    archiveArtifacts artifacts: "test_execution_${ip}.log,node-report_${ip}.xml", allowEmptyArchive: true
+                                    if (testStatus != 0) {
+                                        error "[${ip}] CLI tests failed with exit code ${testStatus}"
+                                    }
                                 }
-
-                                echo "[${ip}] install python dependencies"
-                                runTimedEnvironmentStep(ip, 'install python dependencies', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
-set -euo pipefail
-{
-echo "[${ip}] install python dependencies"
-${targetSsh} 'cd ${remoteDir} && chmod +x vd_io/install_test_dependencies.sh && vd_io/install_test_dependencies.sh'
-} 2>&1 | tee -a ${envPrepareLog}
-""")
-
-                                echo "[${ip}] collect environment metadata"
-                                runTimedEnvironmentStep(ip, 'collect environment metadata', envPrepareLog, env.ENVIRONMENT_STEP_TIMEOUT_MINUTES, """#!/bin/bash
-set -euo pipefail
-${targetSsh} 'cd ${remoteDir} && chmod +x vd_io/collect_environment_metadata.sh && NODE_IP=${ip} REMOTE_DIR=${remoteDir} PREFIX=Node_${ip} vd_io/collect_environment_metadata.sh'
-""")
-                                sh "printf '%s\\n' 'ENVIRONMENT_PREPARE_STATUS=passed' >> ${envPrepareLog}"
-
-                                echo "[${ip}] run nvme_raid_test.py and copy back reports"
-                                def testStatus = sh(
-                                    returnStatus: true,
-                                    script: """#!/bin/bash
- chmod +x vd_io/run_remote_test_and_collect.sh
- NODE_IP='${ip}' \
- TARGET_USER='${env.TARGET_USER}' \
- REMOTE_DIR='${remoteDir}' \
- REMOTE_SSH_COMMAND="${targetSsh}" \
- REMOTE_SCP_COMMAND="${targetScp}" \
- TEST_IDLE_TIMEOUT_MINUTES='${env.TEST_IDLE_TIMEOUT_MINUTES}' \
- vd_io/run_remote_test_and_collect.sh
- """
-                                )
-                                // VD_IO branch has no reboot/dc cases; PowerCycle wait lives on PowerCycle only.
-                                if (testStatus != 0) {
-                                    error "[${ip}] nvme_raid_test.py or report collection failed with exit code ${testStatus}"
-                                }
-
                             }
-                            } // lock dut
                         }
                     }
-
                     parallel parallelTasks
-                }
-            }
-        }
-
-    }
-
-    post {
-        always {
-            script {
-                if (params.RESTORE) {
-                    echo 'Restore-only build finished.'
-                    return
-                }
-
-                if (!shouldRunTests) {
-                    echo 'No test run was requested. Nothing to report.'
-                    return
-                }
-
-                sh 'sudo chown -R jenkins:jenkins . || true'
-
-                def publicationErrors = []
-                try {
-                    sh '''
-                    mkdir -p allure-results
-                    cat allure-results/environment_*.properties > allure-results/environment.properties 2>/dev/null || true
-                    rm -f allure-results/environment_*.properties
-                    python3 vd_io/collect_console_output.py
-                    python3 vd_io/build_status.py --manual-abort jenkins_console.log > manual_abort.txt
-                    python3 vd_io/junit_to_allure.py
-                    '''
-                } catch (Exception publishEx) {
-                    if (publishEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(publishEx)) {
-                        throw publishEx
-                    }
-                    publicationErrors << "Report preparation failed: ${publishEx}"
-                    echo "WARN: Report preparation failed: ${publishEx}. Continue to Feishu finalization."
-                }
-
-                def manuallyAborted = currentBuild.currentResult == 'ABORTED' ||
-                    (fileExists('manual_abort.txt') && readFile('manual_abort.txt').trim() == 'true')
-
-                // Node-level reports only (node-report_<IP>.xml); skip case-report_<run_key>.xml.
-                try {
-                    junit testResults: 'node-report_*.*.*.*.xml, report_*.*.*.*.xml', allowEmptyResults: true
-                } catch (Exception publishEx) {
-                    if (publishEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(publishEx)) {
-                        throw publishEx
-                    }
-                    publicationErrors << "JUnit publication failed: ${publishEx}"
-                    echo "WARN: JUnit publication failed: ${publishEx}. Continue to Feishu finalization."
-                }
-
-                try {
-                    allure(
-                        includeProperties: true,
-                        jdk: '',
-                        reportName: 'TEST REPORT',
-                        results: [[path: 'allure-results']]
-                    )
-                } catch (Exception publishEx) {
-                    if (publishEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(publishEx)) {
-                        throw publishEx
-                    }
-                    publicationErrors << "Allure publication failed: ${publishEx}"
-                    echo "WARN: Allure publication failed: ${publishEx}. Continue to Feishu finalization."
-                }
-
-                try {
-                    archiveArtifacts artifacts: 'jenkins_console.log, test_execution_*.log, environment_prepare_*.log, allure-results/*monitor*.tar.gz, allure-results/*case_debug_*.tar.gz, allure-results/*failure_bundle_*.tar.gz, failure_bundle_*.tar.gz', allowEmptyArchive: true
-                } catch (Exception publishEx) {
-                    if (publishEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(publishEx)) {
-                        throw publishEx
-                    }
-                    publicationErrors << "Artifact archive failed: ${publishEx}"
-                    echo "WARN: Artifact archive failed: ${publishEx}. Continue to Feishu finalization."
-                }
-
-                def metricsOutput = ''
-                try {
-                    metricsOutput = sh(script: "python3 vd_io/report_metrics.py", returnStdout: true).trim()
-                } catch (Exception metricsEx) {
-                    if (metricsEx instanceof org.jenkinsci.plugins.workflow.steps.FlowInterruptedException && isManualInterruption(metricsEx)) {
-                        throw metricsEx
-                    }
-                    publicationErrors << "Report metrics failed: ${metricsEx}"
-                    echo "WARN: report_metrics failed: ${metricsEx}. Continue to Feishu finalization."
-                }
-                sh 'python3 vd_io/extract_failure_summary.py --output failure_summary.txt || true'
-
-                def metrics = metricsOutput ? metricsOutput.split(/\s+/) : [] as String[]
-                def total = 0
-                def failed = 0
-                def errors = 0
-                def skipped = 0
-                def reportKind = 'empty'
-                if (metrics.size() >= 4) {
-                    try {
-                        total = metrics[0].toInteger()
-                        failed = metrics[1].toInteger()
-                        errors = metrics[2].toInteger()
-                        skipped = metrics[3].toInteger()
-                        reportKind = metrics.size() > 4 ? metrics[4] : 'tests'
-                    } catch (Exception parseEx) {
-                        echo "WARN: failed to parse report_metrics output '${metricsOutput}': ${parseEx}"
-                        total = 0
-                        failed = 0
-                        errors = 0
-                        skipped = 0
-                        reportKind = 'empty'
-                    }
-                } else {
-                    echo "WARN: unexpected report_metrics output '${metricsOutput}'"
-                }
-                def hasFailureSummary = fileExists('failure_summary.txt') && readFile('failure_summary.txt').trim()
-
-                if (manuallyAborted) {
-                    echo 'Manual abort detected; keep ABORTED and skip Feishu notification.'
-                    return
-                }
-
-                if (publicationErrors) {
-                    currentBuild.result = 'FAILURE'
-                    def publicationSummary = publicationErrors.join('\n') + '\n'
-                    writeFile file: 'report_publication_failure.txt', text: publicationSummary
-                    def existingSummary = fileExists('failure_summary.txt') ? readFile('failure_summary.txt') : ''
-                    writeFile file: 'failure_summary.txt', text: existingSummary + publicationSummary
-                    hasFailureSummary = true
-                    total = Math.max(total, 1)
-                    errors = Math.max(errors, 1)
-                    if (reportKind == 'empty') {
-                        reportKind = 'infra'
-                    }
-                }
-
-                def startStr = new Date(currentBuild.startTimeInMillis).format('yyyy-MM-dd HH:mm:ss')
-                def endStr = new Date().format('yyyy-MM-dd HH:mm:ss')
-                def ipListStr = targetIPs.join(', ')
-                def buildResult = currentBuild.currentResult ?: currentBuild.result ?: 'UNKNOWN'
-                if (failed + errors > 0 && buildResult in ['SUCCESS', 'UNKNOWN', '']) {
-                    echo "Report metrics contain failures; override BUILD_RESULT ${buildResult} -> FAILURE"
-                    currentBuild.result = 'FAILURE'
-                    buildResult = 'FAILURE'
-                }
-                // If JUnit stayed green but logs already captured hard FIO/env failures,
-                // force Jenkins + Feishu BUILD_RESULT to FAILURE before payload generation.
-                // Do not treat plain "FIO command failed" as hard: MIX_FAIL_ON_ANY=no records
-                // those lines while intentionally continuing.
-                if (hasFailureSummary && buildResult in ['SUCCESS', 'UNKNOWN', '']) {
-                    def summaryLower = readFile('failure_summary.txt').toLowerCase()
-                    def hardMarkers = [
-                        'fio stage failed',
-                        'fio stage abort',
-                        'mix_fail_on_any=yes, fail',
-                        'idle watchdog timeout',
-                        'idle watchdog fired',
-                        'environment_prepare_status=failed',
-                        'test_execution_status=failed',
-                        'insmod ./draid.ko failed',
-                        'draid kernel module load failed',
-                        'draid module load failed',
-                        'traceback',
-                        'assertionerror',
-                    ]
-                    def softMixContinue = summaryLower.contains('mix_fail_on_any=no, continue') &&
-                        !summaryLower.contains('mix_fail_on_any=yes, fail')
-                    def stageStops = [
-                        'fio stage failed',
-                        'fio stage abort',
-                        'idle watchdog timeout',
-                        'idle watchdog fired',
-                        'environment_prepare_status=failed',
-                        'test_execution_status=failed',
-                        'traceback',
-                        'assertionerror',
-                    ]
-                    def isHard = softMixContinue ?
-                        stageStops.any { summaryLower.contains(it) } :
-                        hardMarkers.any { summaryLower.contains(it) }
-                    if (isHard) {
-                        echo "Hard failure summary detected; override BUILD_RESULT ${buildResult} -> FAILURE for Feishu card"
-                        currentBuild.result = 'FAILURE'
-                        buildResult = 'FAILURE'
-                        if (failed + errors == 0) {
-                            errors = Math.max(errors, 1)
-                            if (total <= 0) {
-                                total = 1
-                                reportKind = 'infra'
-                            }
-                        }
-                    }
-                }
-                def testAttempted = (env.TEST_EXECUTION_ATTEMPTED == 'true')
-                if (total == 0 && !hasFailureSummary) {
-                    echo "Skip Feishu notification: no reportable test or environment prepare result was generated in this build. testAttempted=${testAttempted}, result=${buildResult}"
-                    return
-                }
-                if (total == 0 && hasFailureSummary) {
-                    // Prefer countable env/execution items from report_metrics; only force a
-                    // single infra error when logs could not be turned into metrics.
-                    reportKind = 'infra'
-                    total = 1
-                    errors = Math.max(errors, 1)
-                    echo "Feishu notification will use a fallback infra count because no countable results were generated."
-                }
-                if (!raidCliCommit || raidCliCommit == 'unknown') {
-                    def jenkinsHome = env.JENKINS_HOME ?: '/var/lib/jenkins'
-                    def raidCliMarkerName = "${env.JOB_NAME}_${env.RAID_CLI_BRANCH}_raid_cli_commit".replaceAll('[^A-Za-z0-9_.-]', '_')
-                    def raidCliRepoPath = "${jenkinsHome}/.raid_nvme/${raidCliMarkerName}.repo"
-                    raidCliFullCommit = sh(
-                        script: "git -C '${raidCliRepoPath}' rev-parse HEAD 2>/dev/null || echo unknown",
-                        returnStdout: true
-                    ).trim()
-                    raidCliCommit = sh(
-                        script: "git -C '${raidCliRepoPath}' rev-parse --short HEAD 2>/dev/null || echo unknown",
-                        returnStdout: true
-                    ).trim()
-                }
-                withEnv([
-                    "TOTAL=${total}",
-                    "FAILED=${failed}",
-                    "ERRORS=${errors}",
-                    "SKIPPED=${skipped}",
-                    "REPORT_KIND=${reportKind}",
-                    "BUILD_RESULT=${buildResult}",
-                    "START_STR=${startStr}",
-                    "END_STR=${endStr}",
-                    "IP_LIST=${ipListStr}",
-                    "TRIGGER_SOURCE=${triggerSource ?: 'unknown'}",
-                    "KERNEL_DRIVER_BRANCH=${env.KERNEL_DRIVER_BRANCH}",
-                    "KERNEL_DRIVER_REF=${kernelDriverRef ?: ''}",
-                    "KERNEL_DRIVER_COMMIT=${kernelDriverCommit ?: 'unknown'}",
-                    "KERNEL_DRIVER_MR_IID=${kernelDriverMrIid ?: ''}",
-                    "KERNEL_DRIVER_MR_TITLE=${kernelDriverMrTitle ?: ''}",
-                    "KERNEL_DRIVER_MR_UPDATED_AT=${kernelDriverMrUpdatedAt ?: ''}",
-                    "KERNEL_DRIVER_MR_URL=${kernelDriverMrUrl ?: ''}",
-                    "RAID_CLI_BRANCH=${env.RAID_CLI_BRANCH}",
-                    "RAID_CLI_COMMIT=${raidCliCommit ?: 'unknown'}",
-                    "JOB_NAME=${env.JOB_NAME}",
-                    "BUILD_NUMBER=${env.BUILD_NUMBER}",
-                    "BUILD_URL=${env.BUILD_URL}"
-                ]) {
-                    sh 'python3 vd_io/build_feishu_payload.py'
-                }
-                if (!fileExists('feishu_payload.json')) {
-                    echo 'Skip Feishu notification: feishu_payload.json was not generated.'
-                    return
-                }
-                if (params.DEBUG_NO_FEISHU) {
-                    echo 'DEBUG_NO_FEISHU=true, skip Feishu notification.'
-                } else {
-                    sh "curl -fsS -X POST -H 'Content-Type: application/json' -d @feishu_payload.json ${env.FEISHU_WEBHOOK}"
                 }
             }
         }

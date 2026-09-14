@@ -1,83 +1,15 @@
 # ============================================================
-# 测试项选择
+# CLI 测试项选择
 # ------------------------------------------------------------
-# BEGIN/END SELECTION 块会在运行 nvme_raid_test.py 时自动同步
-# （也可手动：python nvme_raid_test.py --sync-selection）。
+# 命名：test_cli_<NN>_<name>
+# 行格式：<完整用例名> <执行序号>
+# 行首 # 表示不跑
 #
-# 命名规范：test_vd_io_<NN>_<name>[ _4k|_512 ]
-#   - NN 连续编号（00..06）
-#   - lawdisk / filesystem：不区分 4k/512，靠手动改 FIO_CONFIG 指向的 CSV
-#   - mix / random_io：仍分 4k / 512（用例设置 MIX_RANDOM_CHOICE=random_choice_{4k|512}.py）
-#   - Stress_Monitor 仅 lawdisk / filesystem 支持
-#   - 行格式：<完整用例名> <执行序号>；可写多个序号重复执行
-#   - 行首 # 表示不跑；去掉 # 即启用
-#
-# 电源循环 reboot/dc 与 basic_io 不在本分支（见 PowerCycle / History）
+# 用例约定：每一步用 cli_step.run_step / run_steps
+#   - 完整打印将要执行的命令
+#   - 完整打印命令输出（stdout/stderr）与返回码
+#   - 严格按列表顺序逐步执行，不做并行/旁路监控
 # ============================================================
 
 # === BEGIN SELECTION（自动同步；完整用例名 + 执行序号，# 表示不跑）===
-# test_vd_io_00_env_prepare 0
-# test_vd_io_01_lawdisk 1
-# test_vd_io_02_filesystem 2
-# test_vd_io_03_mix_4k 3
-test_vd_io_04_mix_512 4
-# test_vd_io_05_random_io_4k 5
-# test_vd_io_06_random_io_512 6
 # === END SELECTION ===
-
-
-# ============================================================
-# 各用例参数（块名必须与选择名一致）
-# lawdisk：改 FIO_CONFIG= 指向的 CSV 内容即可（手动）
-# filesystem / mix / random_io：无 Input_Config CSV
-# random_io：4k→random_io_plan_4k；512→random_io_plan_512（历史池）
-# RANDOM_IO_DURATION：空=默认 43200s；任意正数均可（Nh / Nm / Ns / 纯秒数）
-# 时长到点后不新开轮，当前轮 FILL→STRESS→VERIFY 跑完再结束
-#
-# IGNORE_MACHINECHECK / MIX_FAIL_ON_ANY：仅在本文件各用例块配置（不进 Jenkins UI）
-#   IGNORE_MACHINECHECK — MachineCheck 不一致是否继续（旧名 IGNORE_ERROR 仍可读）
-#   MIX_FAIL_ON_ANY     — mix 任一 FIO 失败是否判失败（默认 yes）
-# 时长旋钮：
-#   FIO_RUNTIME          — 仅 filesystem，秒，≥180 且整除 180
-#   RANDOM_IO_DURATION   — 仅 random_io，墙钟（Nh/Nm/Ns/秒）；到点不新开轮
-# ============================================================
-
-[test_vd_io_00_env_prepare]
-# Stop QEMU if running, unload draid, return vfio devices to host,
-# then CSD flash clear + dpraid/draid reload + VD/PD clear.
-
-[test_vd_io_01_lawdisk]
-FIO_CONFIG      = Input_Config_lawdisk.csv
-IGNORE_MACHINECHECK    = yes
-FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME = 21600
-
-[test_vd_io_02_filesystem]
-FIO_RUNTIME     = 43200
-IGNORE_MACHINECHECK    = yes
-FIO_DISKS       =
-STRESS_MONITOR  = no
-MONITOR_RUNTIME = 21600
-
-[test_vd_io_03_mix_4k]
-IGNORE_MACHINECHECK    = yes
-FIO_DISKS       =
-MIX_FAIL_ON_ANY = yes
-
-[test_vd_io_04_mix_512]
-IGNORE_MACHINECHECK    = yes
-FIO_DISKS       =
-MIX_FAIL_ON_ANY = yes
-
-[test_vd_io_05_random_io_4k]
-IGNORE_MACHINECHECK       = yes
-FIO_DISKS          =
-# 空=默认 43200s；任意正数（Nh/Nm/Ns/秒）。到点后跑完当前轮再停。
-RANDOM_IO_DURATION =
-
-[test_vd_io_06_random_io_512]
-IGNORE_MACHINECHECK       = yes
-FIO_DISKS          =
-# 空=默认 43200s；任意正数（Nh/Nm/Ns/秒）。到点后跑完当前轮再停。
-RANDOM_IO_DURATION =

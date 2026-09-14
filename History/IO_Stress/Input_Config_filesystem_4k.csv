@@ -1,3 +1,0 @@
-Block_Size,Random_Percentage,Read_Percentage,Queue_Depth,Run_Time(ss:mm:hh:dd),Number_of_Jobs,Offset
-bssplit=4k/8:8k/6:12k/4:16k/6:20k/3:24k/3:28k/3:32k/6:40k/3:48k/3:56k/3:64k/6:80k/3:96k/3:112k/3:128k/5:160k/3:192k/3:224k/3:256k/5:320k/3:384k/3:448k/3:512k/5:768k/3:1m/5:2m/4:4m/4:8m/4:16m/4,100,50,32,180,1,0
-End,,,,,,

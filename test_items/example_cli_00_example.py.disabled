@@ -1,0 +1,22 @@
+"""
+示例（默认不启用）：逐步发令并完整回显。
+
+启用方式：
+1. 去掉本文件名里的前缀，或复制为 test_cli_00_example.py
+2. 在 test_items.txt 的 SELECTION 中取消注释对应行
+"""
+from __future__ import annotations
+
+# from test_items.cli_step import run_step, run_steps
+#
+#
+# def test_cli_00_example():
+#     # 单步
+#     run_step("uname -a", step_name="uname")
+#     # 多步（严格顺序）
+#     run_steps(
+#         [
+#             ("pwd", "pwd"),
+#             ("ls", ["ls", "-la", "/dev"]),
+#         ]
+#     )
