@@ -36,7 +36,7 @@ def host(result):
 
 def run_from_class(classname):
     value = str(classname).rsplit(".", 1)[-1]
-    return re.sub(r"^test_(?:ci|smoke)_\d+_", "", value)
+    return re.sub(r"^test_(?:ci|smoke|vd_io)_\d+_", "", value)
 
 
 def run_key(result):
@@ -47,7 +47,7 @@ def run_key(result):
         match = re.search(r"(?:^|[.:/])([a-z][a-z0-9_]*?__\d+)(?:$|[.:/#])", str(value))
         if match:
             return match[1]
-        match = re.search(r"test_(?:ci|smoke)_\d+_([a-z0-9_]+)", str(value))
+        match = re.search(r"test_(?:ci|smoke|vd_io)_\d+_([a-z0-9_]+)", str(value))
         if match:
             return match[1]
     return ""
@@ -167,7 +167,7 @@ def discard_junit_placeholders(allure_dir):
     hosts = {host(r) for p in Path(allure_dir).glob("*-result.json")
              if (r := read_json(p)) and (run_key(r) or function_name(r).startswith("test_"))}
     for path in Path(".").glob("report_*.xml"):
-        node = path.stem.removeprefix("report_").removesuffix("_physical")
+        node = path.stem.removeprefix("node-report_").removeprefix("report_").removesuffix("_physical")
         if node not in hosts:
             continue
         try:

@@ -141,13 +141,13 @@ def test_report_metrics_includes_infra_allure_alongside_junit(tmp_path, monkeypa
         encoding="utf-8",
     )
 
-    assert report_metrics.report_metrics() == {
-        "tests": 2,
-        "failures": 0,
-        "errors": 1,
-        "skipped": 0,
-        "kind": "tests",
-    }
+    metrics = report_metrics.report_metrics()
+    # Infra must not inflate Feishu Total when real tests exist.
+    assert metrics["kind"] == "tests"
+    assert metrics["tests"] == 1
+    assert metrics["failures"] == 0
+    assert metrics["errors"] == 0
+    assert metrics["skipped"] == 0
 
 
 def test_report_metrics_merges_native_allure_failure_missing_from_junit(tmp_path, monkeypatch):
@@ -260,7 +260,7 @@ def test_report_metrics_counts_execution_failure_when_junit_only_passed(tmp_path
     )
 
     assert report_metrics.report_metrics() == {
-        "tests": 2,
+        "tests": 1,
         "failures": 0,
         "errors": 1,
         "skipped": 0,
@@ -287,7 +287,7 @@ def test_report_metrics_surfaces_hard_fio_fail_even_when_status_passed(tmp_path,
     )
 
     assert report_metrics.report_metrics() == {
-        "tests": 2,
+        "tests": 1,
         "failures": 0,
         "errors": 1,
         "skipped": 0,
@@ -341,3 +341,21 @@ def test_report_metrics_keeps_real_failure_before_manual_abort(tmp_path, monkeyp
         "skipped": 0,
         "kind": "infra",
     }
+
+
+def test_report_metrics_total_uses_selected_slot_count(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "report_192.168.22.134.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="x" name="a"><failure message="x">t</failure></testcase>
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    # Also accept legacy report_ prefix used by SMOKE/PowerCycle.
+    monkeypatch.setattr(report_metrics, "selected_slot_count", lambda path="test_items.txt": 2)
+    metrics = report_metrics.report_metrics()
+    assert metrics["tests"] == 2
+    assert metrics["failures"] == 1
+    assert metrics["skipped"] == 1
+    assert metrics["kind"] == "tests"

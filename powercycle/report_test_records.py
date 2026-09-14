@@ -33,14 +33,14 @@ def store_worst(records, identity, status):
 def merged_test_metrics(is_node_junit_report, is_infra_result):
     """Return status counts merged by host, run key and test function."""
     records = {}
-    for path in glob.glob("report_*.xml"):
+    for path in glob.glob("node-report_*.xml") + glob.glob("report_*.xml"):
         if not is_node_junit_report(path):
             continue
         try:
             root = ET.parse(path).getroot()
         except (ET.ParseError, OSError):
             continue
-        node = os.path.basename(path).removeprefix("report_").removesuffix(".xml")
+        node = os.path.basename(path).removeprefix("node-report_").removeprefix("report_").removesuffix(".xml")
         node = node.removesuffix("_physical")
         for index, case in enumerate(root.iter("testcase")):
             function = str(case.get("name") or "")
