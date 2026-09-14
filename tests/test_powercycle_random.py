@@ -1,5 +1,6 @@
 import ast
 import random
+import pytest
 from dataclasses import asdict
 from pathlib import Path
 
@@ -17,7 +18,8 @@ from IO_Stress.powercycle_random import (
 )
 
 
-def test_generate_window_specs_scatter_across_disk():
+def test_generate_window_specs_scatter_across_disk(monkeypatch):
+    monkeypatch.setenv("POWERCYCLE_PROFILE", "smoke")
     disk = 8 * 1024 * 1024 * 1024
     windows = generate_window_specs(disk, plan_seed=42, rng=random.Random(42))
 
@@ -35,7 +37,8 @@ def test_generate_window_specs_scatter_across_disk():
         assert left + left_model.size <= right
 
 
-def test_model_to_row_phase_mapping():
+def test_model_to_row_phase_mapping(monkeypatch):
+    monkeypatch.setenv("POWERCYCLE_PROFILE", "smoke")
     model = generate_window_specs(8 * 1024**3, 7, rng=random.Random(7))[0]
 
     fill = model_to_row(model, "FILL")
@@ -56,7 +59,8 @@ def test_model_to_row_phase_mapping():
     assert verify[8] == "VERIFY"
 
 
-def test_build_plan_verify_fill_stress_sequence():
+def test_build_plan_verify_fill_stress_sequence(monkeypatch):
+    monkeypatch.setenv("POWERCYCLE_PROFILE", "smoke")
     disk = 8 * 1024**3
     windows = generate_window_specs(disk, 99, rng=random.Random(99))
     state = {"pending_verify": True, "plan_seed": 99, "windows": [asdict(w) for w in windows]}
@@ -80,7 +84,8 @@ def test_build_plan_verify_fill_stress_sequence():
     assert "fill+ro-stress" in summary[1] or "profile=" in summary[1]
 
 
-def test_build_plan_final_loop_only_verifies():
+def test_build_plan_final_loop_only_verifies(monkeypatch):
+    monkeypatch.setenv("POWERCYCLE_PROFILE", "smoke")
     disk = 8 * 1024**3
     windows = generate_window_specs(disk, 11, rng=random.Random(11))
     state = {"pending_verify": True, "windows": [asdict(w) for w in windows]}
@@ -98,7 +103,8 @@ def test_build_plan_final_loop_only_verifies():
     assert next_state["windows"] is None
 
 
-def test_build_plan_first_loop_skips_verify():
+def test_build_plan_first_loop_skips_verify(monkeypatch):
+    monkeypatch.setenv("POWERCYCLE_PROFILE", "smoke")
     rows, next_state, summary = build_plan(
         state={},
         current_loop=1,
@@ -116,7 +122,8 @@ def test_build_plan_first_loop_skips_verify():
     assert "profile=" in summary[0] or "fill+ro-stress" in summary[0]
 
 
-def test_legacy_single_model_state_still_verifies():
+def test_legacy_single_model_state_still_verifies(monkeypatch):
+    monkeypatch.setenv("POWERCYCLE_PROFILE", "smoke")
     state = {
         "pending_verify": True,
         "model": {
@@ -201,7 +208,8 @@ def test_build_plan_stages_io_committed_false():
 
 
 
-def test_layout_windows_covers_disk_stripes():
+def test_layout_windows_covers_disk_stripes(monkeypatch):
+    monkeypatch.setenv("POWERCYCLE_PROFILE", "smoke")
     disk = 16 * 1024 * 1024 * 1024
     windows = generate_window_specs(disk, plan_seed=123, rng=random.Random(123))
     assert len(windows) >= 8
@@ -216,6 +224,16 @@ def test_stress_is_readonly_on_verify_windows():
     stress = model_to_row(model, "STRESS")
     assert stress[2] == "100"
 
+
+
+
+def test_resolve_profile_default_is_release(monkeypatch):
+    from IO_Stress.powercycle_random import resolve_profile
+
+    monkeypatch.delenv("POWERCYCLE_PROFILE", raising=False)
+    cfg = resolve_profile()
+    assert cfg["name"] == "release"
+    assert cfg["window_count"] >= 32
 
 def test_resolve_profile_release_stronger_than_smoke(monkeypatch):
     from IO_Stress.powercycle_random import resolve_profile

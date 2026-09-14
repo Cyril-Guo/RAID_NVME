@@ -178,10 +178,10 @@ function prepare_powercycle_plan() {
         echo "Failed to detect test disk size for powercycle plan." | tee -a "$Result_Dir/result.log" "$power_log"
         return 1
     fi
-    echo "$(date '+%F %T') [PLAN] min_disk_size_bytes=$min_disk_size profile=${POWERCYCLE_PROFILE:-smoke} window_count=${POWERCYCLE_WINDOW_COUNT:-} window_bytes=${POWERCYCLE_WINDOW_BYTES:-} stress=${POWERCYCLE_STRESS_RUNTIME:-} verify_retries=${POWERCYCLE_VERIFY_RETRIES:-1}" | tee -a "$power_log"
+    echo "$(date '+%F %T') [PLAN] min_disk_size_bytes=$min_disk_size profile=${POWERCYCLE_PROFILE:-release} window_count=${POWERCYCLE_WINDOW_COUNT:-} window_bytes=${POWERCYCLE_WINDOW_BYTES:-} stress=${POWERCYCLE_STRESS_RUNTIME:-} verify_retries=${POWERCYCLE_VERIFY_RETRIES:-1}" | tee -a "$power_log"
     # Persist profile so resume after reboot keeps the same coverage knobs.
     {
-        echo "export POWERCYCLE_PROFILE=${POWERCYCLE_PROFILE:-smoke}"
+        echo "export POWERCYCLE_PROFILE=${POWERCYCLE_PROFILE:-release}"
         echo "export POWERCYCLE_WINDOW_COUNT=${POWERCYCLE_WINDOW_COUNT:-}"
         echo "export POWERCYCLE_WINDOW_BYTES=${POWERCYCLE_WINDOW_BYTES:-}"
         echo "export POWERCYCLE_STRESS_RUNTIME=${POWERCYCLE_STRESS_RUNTIME:-}"

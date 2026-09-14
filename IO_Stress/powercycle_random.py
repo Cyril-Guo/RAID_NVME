@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from typing import List, Optional
 
 # Scattered windows per loop; FILL/STRESS before reboot, VERIFY after reboot.
-WINDOW_COUNT = 16  # smoke default; release/profile may raise via resolve_profile()
+WINDOW_COUNT = 32  # release default; profile/env may override via resolve_profile()
 WINDOW_BYTES = 128 * 1024 * 1024
 DEFAULT_STRESS_RUNTIME = 45
 FILL_VERIFY_IODEPTH = 64
@@ -39,9 +39,9 @@ _PROFILE_DEFAULTS = {
 
 
 def resolve_profile(name: Optional[str] = None) -> dict:
-    profile = (name or os.environ.get("POWERCYCLE_PROFILE") or "smoke").strip().lower()
+    profile = (name or os.environ.get("POWERCYCLE_PROFILE") or "release").strip().lower()
     if profile not in _PROFILE_DEFAULTS:
-        profile = "smoke"
+        profile = "release"
     cfg = dict(_PROFILE_DEFAULTS[profile])
     cfg["name"] = profile
 
