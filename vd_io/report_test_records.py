@@ -40,7 +40,8 @@ def merged_test_metrics(is_node_junit_report, is_infra_result):
             root = ET.parse(path).getroot()
         except (ET.ParseError, OSError):
             continue
-        node = os.path.basename(path).removeprefix("report_").removesuffix(".xml")
+        name = os.path.basename(path)
+        node = name.removeprefix("node-report_").removeprefix("report_").removesuffix(".xml")
         node = node.removesuffix("_physical")
         for index, case in enumerate(root.iter("testcase")):
             function = str(case.get("name") or "")

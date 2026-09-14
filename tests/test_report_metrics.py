@@ -341,3 +341,45 @@ def test_report_metrics_keeps_real_failure_before_manual_abort(tmp_path, monkeyp
         "skipped": 0,
         "kind": "infra",
     }
+
+def test_report_metrics_merges_node_report_prefix_with_allure(tmp_path, monkeypatch):
+    """node-report_<IP>.xml must strip node-report_ so host matches Allure labels."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "node-report_192.168.22.134.xml").write_text(
+        """<testsuite name="pytest">
+  <testcase classname="test_items.test_vd_io_04_mix_512" name="test_mix_512_stress">
+    <properties><property name="run_key" value="test_vd_io_04_mix_512__4" /></properties>
+    <failure message="fio">trace</failure>
+  </testcase>
+</testsuite>
+""",
+        encoding="utf-8",
+    )
+    allure_dir = tmp_path / "allure-results"
+    allure_dir.mkdir()
+    (allure_dir / "mix-result.json").write_text(
+        json.dumps(
+            {
+                "name": "[Physical 192.168.22.134] FIO test: test_vd_io_04_mix_512",
+                "fullName": (
+                    "physical:192.168.22.134:test_vd_io_04_mix_512__4::"
+                    "test_items.test_vd_io_04_mix_512#test_mix_512_stress"
+                ),
+                "status": "failed",
+                "labels": [
+                    {"name": "host", "value": "192.168.22.134"},
+                    {"name": "run_key", "value": "test_vd_io_04_mix_512__4"},
+                    {"name": "package", "value": "test_vd_io_04_mix_512__4"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert report_metrics.report_metrics() == {
+        "tests": 1,
+        "failures": 1,
+        "errors": 0,
+        "skipped": 0,
+        "kind": "tests",
+    }
