@@ -178,7 +178,7 @@ def main():
             "type": "default",
         })
 
-    # Summary on card; detailed logs stay in Allure only.
+    # Total=selected cases; pass/fail from execution; details in Allure.
     if total > 0:
         stats_text = (
             f"通过 **{passed}**  失败 **{failed}**  错误 **{errors}**  Total: **{total}**\n"
