@@ -437,7 +437,7 @@ def parse_dpraid_virtual_ids(text):
 
 def delete_existing_vds(log):
     for index in parse_dpraid_virtual_ids(show_virtual_devices(log)):
-        run_cmd(["dpraid", f"/c0/v{index}", "delete", "force"], log, check=False)
+        run_cmd(["dpraid", f"/c0/v{index}", "delete"], log, check=False)
 
 
 def delete_existing_pds(log):
@@ -698,7 +698,7 @@ def vd_size(group):
 def cleanup_created_vds(before_ids, log):
     after_ids = set(parse_dpraid_virtual_ids(show_virtual_devices(log)))
     for index in sorted(after_ids - before_ids):
-        run_cmd(["dpraid", f"/c0/v{index}", "delete", "force"], log, check=False)
+        run_cmd(["dpraid", f"/c0/v{index}", "delete"], log, check=False)
 
 
 def create_raid_vds(group_specs, log, logical_block_size=DEFAULT_LOGICAL_BLOCK_SIZE):

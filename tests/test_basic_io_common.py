@@ -474,9 +474,9 @@ DG/VD  State  Consist TYPE
     disks, groups, vd_output = prepare_basic_raid5_vds(CommandLog())
 
     expected_cleanup = [
-        ["dpraid", "/c0/v1", "delete", "force"],
-        ["dpraid", "/c0/v3", "delete", "force"],
-        ["dpraid", "/c0/v8", "delete", "force"],
+        ["dpraid", "/c0/v1", "delete"],
+        ["dpraid", "/c0/v3", "delete"],
+        ["dpraid", "/c0/v8", "delete"],
     ] + [["dpraid", f"/c0/eall/s{i}", "delete"] for i in range(15)]
     assert calls[: len(expected_cleanup)] == expected_cleanup
     assert calls[len(expected_cleanup)] == ["nvme", "list"]
