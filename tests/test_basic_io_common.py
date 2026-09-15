@@ -259,7 +259,7 @@ def test_raid5_vd_size_uses_raid5_usable_capacity_divided_by_four():
 
 def test_resolve_logical_block_size_accepts_512_and_4096(monkeypatch):
     monkeypatch.delenv("LOGICAL_BLOCK_SIZE", raising=False)
-    assert resolve_logical_block_size() == 4096
+    assert resolve_logical_block_size() == 512
     assert resolve_logical_block_size("4096") == 4096
     monkeypatch.setenv("LOGICAL_BLOCK_SIZE", "4096")
     assert resolve_logical_block_size() == 4096
@@ -307,10 +307,10 @@ def test_create_raid5_vds_splits_15_disks_into_7_and_8_disk_groups(monkeypatch):
     add_vd_commands = [cmd for cmd in commands if cmd[:4] == ["dpraid", "/c0", "add", "vd"]]
     assert len(add_vd_commands) == 8
     assert add_vd_commands[:4] == [
-        ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "LogicalBlockSize=4096", "drives=0-6"]
+        ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "LogicalBlockSize=512", "drives=0-6"]
     ] * 4
     assert add_vd_commands[4:] == [
-        ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=4096", "drives=7-14"]
+        ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=512", "drives=7-14"]
     ] * 4
 
 
@@ -339,8 +339,8 @@ def test_dpraid_show_dids_are_used_for_raid5_creation(monkeypatch):
 
     assert [disk.did for disk in disks] == list(range(15))
     add_vd_commands = [cmd for cmd in commands if cmd[:4] == ["dpraid", "/c0", "add", "vd"]]
-    assert add_vd_commands[0] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "LogicalBlockSize=4096", "drives=0-6"]
-    assert add_vd_commands[4] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=4096", "drives=7-14"]
+    assert add_vd_commands[0] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "LogicalBlockSize=512", "drives=0-6"]
+    assert add_vd_commands[4] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=512", "drives=7-14"]
 
 
 def test_create_raid5_vds_retries_with_smaller_size_after_allocation_failure(monkeypatch):
@@ -374,9 +374,9 @@ def test_create_raid5_vds_retries_with_smaller_size_after_allocation_failure(mon
     create_raid5_vds([group], CommandLog())
 
     add_vd_commands = [cmd for cmd in commands if cmd[:4] == ["dpraid", "/c0", "add", "vd"]]
-    assert add_vd_commands[0] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=6854GB", "Strip=4", "LogicalBlockSize=4096", "drives=0-5"]
+    assert add_vd_commands[0] == ["dpraid", "/c0", "add", "vd", "r=5", "Size=6854GB", "Strip=4", "LogicalBlockSize=512", "drives=0-5"]
     assert add_vd_commands[1:] == [
-        ["dpraid", "/c0", "add", "vd", "r=5", "Size=6512GB", "Strip=4", "LogicalBlockSize=4096", "drives=0-5"]
+        ["dpraid", "/c0", "add", "vd", "r=5", "Size=6512GB", "Strip=4", "LogicalBlockSize=512", "drives=0-5"]
     ] * 4
 
 
@@ -491,8 +491,8 @@ DG/VD  State  Consist TYPE
     assert len(disks) == 15
     assert [len(group) for group in groups] == [7, 8]
     assert vd_output == "vd output"
-    assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "LogicalBlockSize=4096", "drives=0-6"] in calls
-    assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=4096", "drives=7-14"] in calls
+    assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=8226GB", "Strip=4", "LogicalBlockSize=512", "drives=0-6"] in calls
+    assert ["dpraid", "/c0", "add", "vd", "r=5", "Size=9597GB", "Strip=4", "LogicalBlockSize=512", "drives=7-14"] in calls
 
 
 def test_format_nvme_disks_formats_each_namespace_with_force(monkeypatch):
@@ -796,7 +796,7 @@ def test_create_raid_vds_creates_four_vds_per_group(monkeypatch):
         "r=0",
         "Size=1370GB",
         "Strip=4",
-        "LogicalBlockSize=4096",
+        "LogicalBlockSize=512",
         "drives=0",
     ]
     assert add_vd_commands[4] == [
@@ -807,7 +807,7 @@ def test_create_raid_vds_creates_four_vds_per_group(monkeypatch):
         "r=0",
         "Size=2741GB",
         "Strip=4",
-        "LogicalBlockSize=4096",
+        "LogicalBlockSize=512",
         "drives=1-2",
     ]
     assert add_vd_commands[8] == [
@@ -818,7 +818,7 @@ def test_create_raid_vds_creates_four_vds_per_group(monkeypatch):
         "r=1",
         "Size=1370GB",
         "Strip=4",
-        "LogicalBlockSize=4096",
+        "LogicalBlockSize=512",
         "drives=3-4",
     ]
     assert add_vd_commands[12] == [
@@ -829,7 +829,7 @@ def test_create_raid_vds_creates_four_vds_per_group(monkeypatch):
         "r=10",
         "Size=2741GB",
         "Strip=4",
-        "LogicalBlockSize=4096",
+        "LogicalBlockSize=512",
         "drives=5-8",
     ]
     assert add_vd_commands[16] == [
@@ -841,7 +841,7 @@ def test_create_raid_vds_creates_four_vds_per_group(monkeypatch):
         "Size=5484GB",
         "Strip=4",
         "PDperArray=3",
-        "LogicalBlockSize=4096",
+        "LogicalBlockSize=512",
         "drives=9-14",
     ]
 
