@@ -19,12 +19,8 @@ export DRAID_DIR
 echo "[${NODE_IP}] ===== prepare_env start ====="
 echo "[${NODE_IP}] REMOTE_DIR=${REMOTE_DIR}"
 
-echo "[${NODE_IP}] enable DUT coredumps + kdump + draid pending debug before prepare"
-chmod +x "${SCRIPT_DIR}/enable_failure_coredumps.sh" "${SCRIPT_DIR}/enable_failure_kdump.sh" \
-    "${SCRIPT_DIR}/enable_draid_pending_debug.sh" 2>/dev/null || true
-NODE_IP="${NODE_IP}" REMOTE_DIR="${REMOTE_DIR}" ENABLE_COREDUMPS=1 "${SCRIPT_DIR}/enable_failure_coredumps.sh" || true
-NODE_IP="${NODE_IP}" REMOTE_DIR="${REMOTE_DIR}" ENABLE_KDUMP=1 "${SCRIPT_DIR}/enable_failure_kdump.sh" || true
-NODE_IP="${NODE_IP}" REMOTE_DIR="${REMOTE_DIR}" "${SCRIPT_DIR}/enable_draid_pending_debug.sh" || true
+# Failure debug (coredump/kdump/pending) is armed once at the end of prepare_env
+# and again in run_remote_test_and_collect.sh (pre-test KDUMP_COREDIR refresh).
 
 echo "[${NODE_IP}] (1/5) stop QEMU if running, unload draid, return devices to physical host"
 chmod +x "${SCRIPT_DIR}/reclaim_physical_host.sh" 2>/dev/null || true

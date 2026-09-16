@@ -8,29 +8,9 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 need_test_deps=0
 KERNEL_BUILD_DIR="/lib/modules/$(uname -r)/build"
 
-enable_failure_coredumps_early() {
-    if [ -f "${SCRIPT_DIR}/enable_failure_coredumps.sh" ]; then
-        echo "Enable DUT userspace coredumps (limits/sysctl/ptrace/core_pattern)"
-        chmod +x "${SCRIPT_DIR}/enable_failure_coredumps.sh" 2>/dev/null || true
-        NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
-            ENABLE_COREDUMPS=1 "${SCRIPT_DIR}/enable_failure_coredumps.sh" || true
-    fi
-    if [ -f "${SCRIPT_DIR}/enable_failure_kdump.sh" ]; then
-        echo "Enable DUT kdump (crashkernel / vmcore path for this REMOTE_DIR)"
-        chmod +x "${SCRIPT_DIR}/enable_failure_kdump.sh" 2>/dev/null || true
-        NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
-            ENABLE_KDUMP=1 "${SCRIPT_DIR}/enable_failure_kdump.sh" || true
-    fi
-    if [ -f "${SCRIPT_DIR}/enable_draid_pending_debug.sh" ]; then
-        echo "Enable draid RAID1 pending debug knobs (best-effort)"
-        chmod +x "${SCRIPT_DIR}/enable_draid_pending_debug.sh" 2>/dev/null || true
-        NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}" \
-            "${SCRIPT_DIR}/enable_draid_pending_debug.sh" || true
-    fi
-}
-
-# Always arm coredumps + kdump during dependency/env prepare, even if packages are already installed.
-enable_failure_coredumps_early
+# Coredump/kdump/draid-pending debug is armed in prepare_env.sh (once at end) and
+# run_remote_test_and_collect.sh (pre-test; rewrites KDUMP_COREDIR). Skip arming
+# here to avoid 4-5 redundant enables per build. Still install kdump-tools below.
 
 fix_ubuntu_package_architectures() {
     command -v dpkg >/dev/null 2>&1 || return 0
@@ -138,5 +118,4 @@ if ! command -v gcore >/dev/null 2>&1; then
     echo "WARN: gcore missing after dependency install; failure gcore dumps will be skipped" >&2
 fi
 
-# Re-apply after package install (gdb may have just landed; sysctl may have been reset).
-enable_failure_coredumps_early
+# After package install: arming is deferred to prepare_env / run_remote (see above).

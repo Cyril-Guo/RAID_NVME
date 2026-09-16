@@ -160,21 +160,7 @@ REMOTE_RELOAD
 install_driver_build_deps() {
     host_ssh "REMOTE_DIR='${REMOTE_DIR}' NODE_IP='${NODE_IP}' bash -s" <<'REMOTE_DEPS'
 set -euo pipefail
-if [ -f "${REMOTE_DIR}/vd_io/enable_failure_coredumps.sh" ]; then
-    chmod +x "${REMOTE_DIR}/vd_io/enable_failure_coredumps.sh" 2>/dev/null || true
-    NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR}" ENABLE_COREDUMPS=1 \
-        bash "${REMOTE_DIR}/vd_io/enable_failure_coredumps.sh" || true
-fi
-if [ -f "${REMOTE_DIR}/vd_io/enable_failure_kdump.sh" ]; then
-    chmod +x "${REMOTE_DIR}/vd_io/enable_failure_kdump.sh" 2>/dev/null || true
-    NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR}" ENABLE_KDUMP=1 \
-        bash "${REMOTE_DIR}/vd_io/enable_failure_kdump.sh" || true
-fi
-if [ -f "${REMOTE_DIR}/vd_io/enable_draid_pending_debug.sh" ]; then
-    chmod +x "${REMOTE_DIR}/vd_io/enable_draid_pending_debug.sh" 2>/dev/null || true
-    NODE_IP="${NODE_IP:-unknown}" REMOTE_DIR="${REMOTE_DIR}" \
-        bash "${REMOTE_DIR}/vd_io/enable_draid_pending_debug.sh" || true
-fi
+# Failure debug arming is owned by prepare_env.sh + run_remote_test_and_collect.sh.
 need_driver_deps=0
 for tool in make gcc insmod modinfo rg; do
     command -v "${tool}" >/dev/null 2>&1 || need_driver_deps=1

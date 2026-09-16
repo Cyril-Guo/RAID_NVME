@@ -110,11 +110,11 @@ def test_wiring_references_failure_bundle():
     assert "allure-results/*case_debug_*.tar.gz" in jenkins
     assert "enable_failure_coredumps.sh" in prepare
     assert "enable_draid_pending_debug.sh" in prepare
-    assert "enable_failure_coredumps_early" in install
-    assert "enable_failure_kdump.sh" in install
-    assert "enable_draid_pending_debug.sh" in install
+    assert prepare.count('ENABLE_COREDUMPS=1 "${SCRIPT_DIR}/enable_failure_coredumps.sh"') == 1
     assert "gdb" in install
-    assert "enable_failure_coredumps.sh" in install
+    assert "kdump-tools" in install or "kexec-tools" in install
+    # Arming moved out of install/prepare_draid; only packages remain there.
+    assert "enable_failure_coredumps_early" not in install
 
 
 def test_remote_failure_bundle_reuses_live_capture_and_bounds_collection_copy():
