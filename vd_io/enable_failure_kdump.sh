@@ -13,7 +13,7 @@ STATUS_FILE="${REMOTE_DIR}/failure_bundles/kdump_status.txt"
 REBOOT_FLAG="${REMOTE_DIR}/failure_bundles/kdump_reboot_required.txt"
 # Reserved memory for the dump capture kernel (not the full RAM dump size).
 CRASHKERNEL_CMDLINE=${CRASHKERNEL_CMDLINE:-crashkernel=512M}
-ENABLE_KDUMP=${ENABLE_KDUMP:-0}
+ENABLE_KDUMP=${ENABLE_KDUMP:-1}
 
 if [ "${ENABLE_KDUMP}" = "0" ] || [ "${ENABLE_KDUMP}" = "no" ] || [ "${ENABLE_KDUMP}" = "off" ]; then
     echo "[${NODE_IP}] kdump setup skipped (disabled)"
@@ -65,9 +65,12 @@ configure_ubuntu_kdump() {
         else
             echo 'USE_KDUMP=1' >>"${conf}"
         fi
-        # Prefer local path; keep /var/crash as well via KDUMP_COREDIR if supported.
+        # Always rewrite COREDIR to this build's REMOTE_DIR.
+        # A sticky path from an older CI/SMOKE build would otherwise steal later panics.
         if grep -q '^KDUMP_COREDIR=' "${conf}" 2>/dev/null; then
+            prev=$(grep '^KDUMP_COREDIR=' "${conf}" | head -n1 || true)
             sed -i "s|^KDUMP_COREDIR=.*|KDUMP_COREDIR=\"${KDUMP_DIR}\"|" "${conf}" 2>/dev/null || true
+            log "updated KDUMP_COREDIR (was: ${prev})"
         else
             echo "KDUMP_COREDIR=\"${KDUMP_DIR}\"" >>"${conf}"
         fi

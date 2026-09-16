@@ -24,3 +24,15 @@ def test_prepare_and_install_enable_kdump():
     assert "enable_failure_kdump.sh" in remote
     assert "snapshot_kdump_artifacts" in collect
     assert "KDUMP_COPY_VMCORE" in collect
+
+
+def test_kdump_defaults_enabled_and_rewrites_coredir():
+    source = KDUMP_SCRIPT.read_text(encoding="utf-8")
+    assert "ENABLE_KDUMP=${ENABLE_KDUMP:-1}" in source
+    assert "Always rewrite COREDIR" in source
+    remote = (REPO_ROOT / "vd_io" / "run_remote_test_and_collect.sh").read_text(encoding="utf-8")
+    assert "ENABLE_KDUMP=1 vd_io/enable_failure_kdump.sh" in remote
+    # Must not leave the enable call commented out.
+    for line in remote.splitlines():
+        if "ENABLE_KDUMP=1 vd_io/enable_failure_kdump.sh" in line:
+            assert not line.lstrip().startswith("#"), line

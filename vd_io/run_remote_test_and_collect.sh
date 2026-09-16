@@ -127,7 +127,8 @@ collect_io_signature() {
 echo "[${NODE_IP}] run ${test_label}"
 set +e
 # Arm coredumps + kdump + RAID1 pending debug on the DUT before the test session (new SSH / sudo shell).
-# eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x vd_io/enable_failure_coredumps.sh vd_io/enable_failure_kdump.sh vd_io/enable_draid_pending_debug.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} vd_io/enable_failure_coredumps.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} vd_io/enable_failure_kdump.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} vd_io/enable_draid_pending_debug.sh\"" || true
+# Re-points KDUMP_COREDIR to this build REMOTE_DIR so older CI paths cannot steal panics.
+eval "${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && chmod +x vd_io/enable_failure_coredumps.sh vd_io/enable_failure_kdump.sh vd_io/enable_draid_pending_debug.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} ENABLE_COREDUMPS=1 vd_io/enable_failure_coredumps.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} ENABLE_KDUMP=1 vd_io/enable_failure_kdump.sh && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} vd_io/enable_draid_pending_debug.sh\"" || true
 remote_test_command="${REMOTE_SSH_COMMAND} \"cd ${REMOTE_DIR} && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} sudo -E bash -c 'ulimit -c unlimited; cd ${REMOTE_DIR} && NODE_IP=${NODE_IP} REMOTE_DIR=${REMOTE_DIR} TEST_IDLE_TIMEOUT_MINUTES=${TEST_IDLE_TIMEOUT_MINUTES} python3 nvme_raid_test.py'\""
 setsid bash -c "set -o pipefail; ${remote_test_command} 2>&1 | awk '{ print strftime(\"[%Y-%m-%d %H:%M:%S]\"), \$0; fflush() }' | tee '${execution_log}'" &
 test_pid=$!
